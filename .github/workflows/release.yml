@@ -246,6 +246,56 @@ jobs:
           mkdir -p src-tauri/gen/android/app/libs
           cd go-android
           go mod download
+          # Patch panic("fqdn too long") anywhere in the module cache → return error
+          python3 - <<'PYEOF'
+import os, re, subprocess
+gopath = subprocess.check_output(['go', 'env', 'GOPATH'], text=True).strip()
+FUNC_RE = re.compile(r'^func\s')
+def go_zero(t):
+    t = t.strip().split()[-1] if t.strip() else ''
+    if t == 'error': return 'fmt.Errorf("fqdn too long")'
+    if t == 'string': return '""'
+    if t == 'bool': return 'false'
+    if t.startswith(('*', '[', 'map', 'chan')) or t in ('interface{}', 'any', 'error'): return 'nil'
+    if re.match(r'^u?int\d*$', t) or t in ('byte', 'rune', 'float32', 'float64', 'uintptr'): return '0'
+    return 'nil'
+def parse_rets(sig):
+    m = re.search(r'\)\s*(\([^)]+\)|\S+)?\s*\{', sig)
+    if not m or not m.group(1): return []
+    r = m.group(1).strip()
+    return [x.strip() for x in r.strip('()').split(',')] if r else []
+found = False
+for dp, _, files in os.walk(os.path.join(gopath, 'pkg', 'mod')):
+    for fn in files:
+        if not fn.endswith('.go'): continue
+        fp = os.path.join(dp, fn)
+        try:
+            lines = open(fp, 'r', errors='replace').readlines()
+        except: continue
+        if not any('panic("fqdn too long")' in l for l in lines): continue
+        found = True
+        os.chmod(fp, 0o644)
+        out, changed = [], False
+        for i, line in enumerate(lines):
+            if 'panic("fqdn too long")' not in line:
+                out.append(line); continue
+            func_line = next((lines[j].rstrip() for j in range(i-1,-1,-1) if FUNC_RE.match(lines[j])), '')
+            rets = parse_rets(func_line)
+            if not rets:
+                print(f'SKIP unparseable at {fp}:{i+1}: {func_line!r}')
+                out.append(line); continue
+            ind = ' ' * (len(line) - len(line.lstrip()))
+            out.append(ind + 'return ' + ', '.join(go_zero(r) for r in rets) + '\n')
+            changed = True
+            print(f'Patched {fp}:{i+1}')
+        if changed:
+            c = ''.join(out)
+            if 'fmt.Errorf' in c and '"fmt"' not in c:
+                c = re.sub(r'(import\s*\()', r'\1\n\t"fmt"', c, count=1)
+            open(fp, 'w').write(c)
+if not found:
+    print('NOTE: panic("fqdn too long") not found in module cache')
+PYEOF
           SB_MOD="$(go env GOPATH)/pkg/mod/github.com/sagernet/sing-box@v1.10.7"
           cp -r "$SB_MOD" ./sing-box-patched
           chmod -R u+w ./sing-box-patched

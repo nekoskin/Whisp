@@ -118,9 +118,8 @@ func Start(fd int32, workDir string, socksAddr string, connKey string) (retErr e
     "address": ["172.19.0.1/30"],
     "mtu": 1500,
     "auto_route": false,
-    "stack": "system",
-    "sniff": false,
-    "udp_disable_domain_unmapping": true
+    "stack": "gvisor",
+    "sniff": false
   }],
   "outbounds": %s,
   "route": {
