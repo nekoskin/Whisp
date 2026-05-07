@@ -98,4 +98,35 @@ p.write_text(src, encoding="utf-8")
 PY
 fi
 
+# Patch MainActivity: setSystemGestureExclusionRects so left-edge swipe reaches WebView
+if [ -f "$PKG_DIR/MainActivity.kt" ] && ! grep -q "systemGestureExclusionRects" "$PKG_DIR/MainActivity.kt"; then
+  export _MAINACT="$PKG_DIR/MainActivity.kt"
+  python3 << 'PYEOF'
+import pathlib, re, os
+p = pathlib.Path(os.environ["_MAINACT"])
+src = p.read_text(encoding="utf-8")
+m = re.search(r'class\s+MainActivity\s*:\s*(\w+)', src)
+base = m.group(1) if m else "WryActivity"
+extra_imports = [l for l in src.splitlines() if l.startswith("import") and "Rect" not in l and "Build" not in l]
+imports_block = "\n".join(["import android.graphics.Rect", "import android.os.Build"] + extra_imports)
+new_src = f"""package com.whispera.whisp
+
+{imports_block}
+
+class MainActivity : {base}() {{
+    override fun onAttachedToWindow() {{
+        super.onAttachedToWindow()
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {{
+            window.decorView.post {{
+                window.systemGestureExclusionRects = listOf(android.graphics.Rect(0, 0, 200, window.decorView.height))
+            }}
+        }}
+    }}
+}}
+"""
+p.write_text(new_src, encoding="utf-8")
+print(f"[android-patch] MainActivity: gesture exclusion rects added (base={base})")
+PYEOF
+fi
+
 echo "[android-patch] done"
