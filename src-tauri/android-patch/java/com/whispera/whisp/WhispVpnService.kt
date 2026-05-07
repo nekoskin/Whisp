@@ -23,6 +23,7 @@ class WhispVpnService : VpnService() {
         const val EXTRA_RULES_JSON = "com.whispera.whisp.EXTRA_RULES_JSON"
         const val EXTRA_VPN_DNS    = "com.whispera.whisp.EXTRA_VPN_DNS"
         const val EXTRA_IPV6       = "com.whispera.whisp.EXTRA_IPV6"
+        const val EXTRA_MITM       = "com.whispera.whisp.EXTRA_MITM"
         const val NOTIFICATION_ID = 17
         const val CHANNEL_ID = "whisp_vpn_channel"
 
@@ -35,6 +36,7 @@ class WhispVpnService : VpnService() {
     private var pendingRulesJson: String = ""
     private var pendingVpnDns: String = "1.1.1.1"
     private var pendingIpv6: Boolean = true
+    private var pendingMitm: Boolean = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private fun toast(msg: String) {
@@ -50,6 +52,7 @@ class WhispVpnService : VpnService() {
             .putString("rules_json",  pendingRulesJson)
             .putString("vpn_dns",     pendingVpnDns)
             .putBoolean("ipv6",       pendingIpv6)
+            .putBoolean("mitm",       pendingMitm)
             .apply()
     }
 
@@ -61,6 +64,7 @@ class WhispVpnService : VpnService() {
         pendingRulesJson = p.getString("rules_json", "") ?: ""
         pendingVpnDns    = p.getString("vpn_dns", "1.1.1.1") ?: "1.1.1.1"
         pendingIpv6      = p.getBoolean("ipv6", true)
+        pendingMitm      = p.getBoolean("mitm", false)
         return true
     }
 
@@ -84,6 +88,7 @@ class WhispVpnService : VpnService() {
                         pendingRulesJson = intent.getStringExtra(EXTRA_RULES_JSON) ?: ""
                         pendingVpnDns    = intent.getStringExtra(EXTRA_VPN_DNS)?.takeIf { it.isNotEmpty() } ?: "1.1.1.1"
                         pendingIpv6      = (intent.getStringExtra(EXTRA_IPV6) ?: "1") != "0"
+                        pendingMitm      = (intent.getStringExtra(EXTRA_MITM) ?: "0") == "1"
                         saveParams()
                     } else {
                         // OS restarted the service (START_STICKY) — restore saved params.
@@ -138,10 +143,12 @@ class WhispVpnService : VpnService() {
         val goClientPath = "$libDir/libwhispera-go-client.so"
         if (pendingConnKey.isNotEmpty() && java.io.File(goClientPath).exists()) {
             try {
-                goClientProc = ProcessBuilder(goClientPath,
+                val goArgs = mutableListOf(goClientPath,
                     "-key", pendingConnKey,
                     "-socks", "127.0.0.1:1080",
                     "-no-tun")
+                if (pendingMitm) goArgs.add("-mitm")
+                goClientProc = ProcessBuilder(goArgs)
                     .redirectErrorStream(true)
                     .start()
                 // Drain stdout/stderr — without this, a full pipe buffer blocks the process

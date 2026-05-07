@@ -336,6 +336,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         let conn_key = settings.conn_key.clone();
         let vpn_dns = settings.vpn_dns.clone();
         let ipv6 = settings.ipv6;
+        let mitm = settings.mitm_enabled;
 
         // Сохраняем SOCKS5 URL для check_site/get_ip_info через VPN
         if !conn_key.is_empty() {
@@ -359,7 +360,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
             // запустит VPN автоматически при RESULT_OK
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 whisp_vpn_android::service_intent::save_pending_start(
-                    &rules_json, &conn_key, &vpn_dns, ipv6,
+                    &rules_json, &conn_key, &vpn_dns, ipv6, mitm,
                 )
             }));
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
@@ -370,7 +371,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         }
 
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6)
+            whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, mitm)
         }));
         match res {
             Ok(Ok(())) => return Ok("Android VPN starting".to_string()),
@@ -1968,7 +1969,7 @@ async fn check_subscription_update(
 }
 
 #[tauri::command]
-async fn ping_key(key: String) -> Result<u64, String> {
+async fn ping_key(key: String, state: tauri::State<'_, AppState>) -> Result<u64, String> {
     let key = key.trim();
     let host_port = key
         .strip_prefix("whispera://")
@@ -1978,15 +1979,89 @@ async fn ping_key(key: String) -> Result<u64, String> {
         .filter(|s| !s.is_empty())
         .ok_or("cannot parse server address")?
         .to_string();
+    let (host, port_str) = host_port.rsplit_once(':').ok_or("invalid host:port")?;
+    let port: u16 = port_str.parse().map_err(|_| "invalid port")?;
+
+    let proxy_url = state.android_proxy.lock().ok().and_then(|g| g.clone());
     let start = std::time::Instant::now();
-    tokio::time::timeout(
+
+    if let Some(ref proxy) = proxy_url {
+        // Android + VPN активен: подключаемся через SOCKS5 чтобы измерить латентность туннеля
+        socks5_ping(proxy, host, port).await?;
+    } else {
+        // Desktop или VPN не активен: прямой TCP
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::net::TcpStream::connect(&host_port),
+        )
+        .await
+        .map_err(|_| "timeout".to_string())?
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(start.elapsed().as_millis() as u64)
+}
+
+// Минимальный SOCKS5 CONNECT-хендшейк для измерения латентности.
+async fn socks5_ping(proxy_url: &str, target_host: &str, target_port: u16) -> Result<(), String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // Парсим socks5h://user:pass@host:port
+    let after_scheme = proxy_url
+        .strip_prefix("socks5h://")
+        .or_else(|| proxy_url.strip_prefix("socks5://"))
+        .unwrap_or(proxy_url);
+    let (creds, hostport) = after_scheme.rsplit_once('@').unwrap_or(("", after_scheme));
+    let (proxy_host, proxy_port_str) = hostport.rsplit_once(':').unwrap_or(("127.0.0.1", "1080"));
+    let proxy_port: u16 = proxy_port_str.parse().unwrap_or(1080);
+    let (user, pass) = creds.split_once(':').unwrap_or(("", ""));
+
+    let mut stream = tokio::time::timeout(
         Duration::from_secs(5),
-        tokio::net::TcpStream::connect(&host_port),
+        tokio::net::TcpStream::connect((proxy_host, proxy_port)),
     )
     .await
-    .map_err(|_| "timeout".to_string())?
+    .map_err(|_| "socks5 timeout".to_string())?
     .map_err(|e| e.to_string())?;
-    Ok(start.elapsed().as_millis() as u64)
+
+    // Greeting: VER=5, NMETHODS=1, METHOD=2(username/password)
+    stream.write_all(&[5, 1, 2]).await.map_err(|e| e.to_string())?;
+    let mut buf = [0u8; 2];
+    stream.read_exact(&mut buf).await.map_err(|e| e.to_string())?;
+    if buf[0] != 5 || buf[1] != 2 {
+        return Err("socks5 auth rejected".to_string());
+    }
+
+    // Username/password sub-negotiation (RFC 1929)
+    let u = user.as_bytes();
+    let p = pass.as_bytes();
+    let mut auth = vec![1u8, u.len() as u8];
+    auth.extend_from_slice(u);
+    auth.push(p.len() as u8);
+    auth.extend_from_slice(p);
+    stream.write_all(&auth).await.map_err(|e| e.to_string())?;
+    stream.read_exact(&mut buf).await.map_err(|e| e.to_string())?;
+    if buf[1] != 0 {
+        return Err("socks5 auth failed".to_string());
+    }
+
+    // CONNECT request: VER=5, CMD=1, RSV=0, ATYP=3(domain)
+    let h = target_host.as_bytes();
+    let mut req = vec![5u8, 1, 0, 3, h.len() as u8];
+    req.extend_from_slice(h);
+    req.push((target_port >> 8) as u8);
+    req.push(target_port as u8);
+    stream.write_all(&req).await.map_err(|e| e.to_string())?;
+
+    // Response: VER, REP, RSV, ATYP, ...
+    let mut hdr = [0u8; 4];
+    tokio::time::timeout(Duration::from_secs(5), stream.read_exact(&mut hdr))
+        .await
+        .map_err(|_| "socks5 connect timeout".to_string())?
+        .map_err(|e| e.to_string())?;
+    if hdr[1] != 0 {
+        return Err(format!("socks5 connect error code {}", hdr[1]));
+    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "android"))]
@@ -2280,7 +2355,10 @@ fn uninstall_services(state: tauri::State<AppState>) -> Result<String, String> {
 
 #[derive(Debug, Clone, Serialize)]
 struct ProcessInfo {
+    // rule value: package name on Android, process name on desktop
     name: String,
+    // display label: app label on Android, same as name on desktop
+    label: String,
     pid: u32,
 }
 
@@ -2290,14 +2368,14 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
 
     // На Android нет понятия 'process list' для других приложений (security),
     // зато есть PackageManager — отдадим установленные пользовательские пакеты.
-    // Frontend на Android рендерит как пикер в кнопке 'Выбрать приложение'.
     #[cfg(target_os = "android")]
     {
         let apps = whisp_vpn_android::pkg_list::list_user_packages()
             .map_err(|e| format!("Ошибка PackageManager: {}", e))?;
         for (i, a) in apps.into_iter().enumerate() {
             result.push(ProcessInfo {
-                name: format!("{} ({})", a.label, a.package),
+                name: a.package,
+                label: a.label,
                 pid: i as u32,
             });
         }
@@ -2321,7 +2399,7 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
                     let name = parts[0].trim_matches('"').to_string();
                     let pid: u32 = parts[1].trim_matches('"').parse().unwrap_or(0);
                     if !name.is_empty() && seen.insert(name.to_lowercase()) {
-                        result.push(ProcessInfo { name, pid });
+                        result.push(ProcessInfo { label: name.clone(), name, pid });
                     }
                 }
             }
@@ -2344,14 +2422,14 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
                     let name = parts[0].trim().to_string();
                     let pid: u32 = parts[1].trim().parse().unwrap_or(0);
                     if !name.is_empty() && seen.insert(name.to_lowercase()) {
-                        result.push(ProcessInfo { name, pid });
+                        result.push(ProcessInfo { label: name.clone(), name, pid });
                     }
                 }
             }
         }
     }
 
-    result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    result.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
     Ok(result)
 }
 
@@ -2639,6 +2717,28 @@ pub fn run() {
                             ml.set_token(&api_token);
                         }
                         ml.start().ok();
+                    }
+                });
+            }
+
+            // Android: восстанавливаем android_proxy если VPN ещё работает (START_STICKY перезапуск).
+            #[cfg(target_os = "android")]
+            {
+                let init_app = app.handle().clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    if whisp_vpn_android::service_intent::is_vpn_service_running() {
+                        if let Ok(s) = get_app_settings(init_app.clone()) {
+                            if !s.conn_key.is_empty() {
+                                use sha2::Digest;
+                                let hash = sha2::Sha256::digest(s.conn_key.as_bytes());
+                                let pass: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
+                                let proxy_url = format!("socks5h://whisp:{}@127.0.0.1:1080", pass);
+                                let state: tauri::State<AppState> = init_app.state();
+                                if let Ok(mut p) = state.android_proxy.lock() {
+                                    *p = Some(proxy_url);
+                                }
+                            }
+                        }
                     }
                 });
             }

@@ -3491,7 +3491,7 @@ function bindRoutingEvents(): void {
     inner.innerHTML = `<div style="padding:16px;text-align:center;opacity:.5">${t("loading")}</div>`;
     overlay.style.display = "flex";
     try {
-      const procs: { name: string; pid: number }[] = await invoke("list_processes");
+      const procs: { name: string; label: string; pid: number }[] = await invoke("list_processes");
       renderProcessList(procs, inner, "");
       const search = document.getElementById("process-search") as HTMLInputElement;
       if (search) {
@@ -3604,53 +3604,37 @@ function bindRoutingEvents(): void {
   });
 }
 
-function renderProcessList(procs: { name: string; pid: number }[], container: HTMLElement, filter: string): void {
+function renderProcessList(procs: { name: string; label: string; pid: number }[], container: HTMLElement, filter: string): void {
   const q = filter.toLowerCase();
+  const filtered = q
+    ? procs.filter(p => (p.label || p.name).toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
+    : procs;
 
-  if (isAndroid) {
-    // Rust returns name="Label (com.package)", pid=index
-    const apps = procs.map(p => {
-      const m = p.name.match(/^(.*?)\s+\(([^)]+)\)$/);
-      return m ? { label: m[1], pkg: m[2] } : { label: p.name, pkg: p.name };
-    });
-    const filtered = q
-      ? apps.filter(a => a.label.toLowerCase().includes(q) || a.pkg.toLowerCase().includes(q))
-      : apps;
-    if (filtered.length === 0) {
-      container.innerHTML = `<div style="padding:12px;text-align:center;opacity:.5">${t("rulesNoProcesses")}</div>`;
-      return;
-    }
-    container.innerHTML = filtered.slice(0, 300).map(a =>
-      `<div class="process-pick-row" data-name="${esc(a.pkg)}" data-label="${esc(a.label)}"
-        style="padding:9px 14px;cursor:pointer;display:flex;flex-direction:column;gap:2px;border-bottom:1px solid var(--border)">
-        <span style="font-size:13px;font-weight:500">${esc(a.label)}</span>
-        <span style="font-size:11px;opacity:.45">${esc(a.pkg)}</span>
-      </div>`
-    ).join("");
-  } else {
-    const filtered = q ? procs.filter(p => p.name.toLowerCase().includes(q)) : procs;
-    if (filtered.length === 0) {
-      container.innerHTML = `<div style="padding:12px;text-align:center;opacity:.5">${t("rulesNoProcesses")}</div>`;
-      return;
-    }
-    container.innerHTML = filtered.slice(0, 200).map(p =>
-      `<div class="process-pick-row" data-name="${esc(p.name)}"
-        style="padding:7px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)">
-        <span style="font-size:13px;flex:1">${esc(p.name)}</span>
-        <span style="font-size:11px;opacity:.4">PID ${p.pid}</span>
-      </div>`
-    ).join("");
+  if (filtered.length === 0) {
+    container.innerHTML = `<div style="padding:12px;text-align:center;opacity:.5">${t("rulesNoProcesses")}</div>`;
+    return;
   }
+
+  const showSub = filtered.some(p => p.label && p.label !== p.name);
+  container.innerHTML = filtered.slice(0, 300).map(p => {
+    const displayName = p.label || p.name;
+    const sub = showSub && p.label !== p.name ? p.name : (p.pid > 0 ? `PID ${p.pid}` : "");
+    return `<div class="process-pick-row" data-name="${esc(p.name)}" data-label="${esc(displayName)}"
+      style="padding:${showSub ? "9px" : "7px"} 14px;cursor:pointer;display:flex;flex-direction:${showSub ? "column" : "row"};align-items:${showSub ? "flex-start" : "center"};gap:${showSub ? "2px" : "10px"};border-bottom:1px solid var(--border)">
+      <span style="font-size:13px;${showSub ? "font-weight:500" : "flex:1"}">${esc(displayName)}</span>
+      ${sub ? `<span style="font-size:11px;opacity:.45">${esc(sub)}</span>` : ""}
+    </div>`;
+  }).join("");
 
   container.querySelectorAll<HTMLElement>(".process-pick-row").forEach(row => {
     row.onmouseenter = () => row.style.background = "var(--hover-bg, rgba(255,255,255,.06))";
     row.onmouseleave = () => row.style.background = "";
     row.addEventListener("click", () => {
-      const pkg = row.dataset.name || "";
-      const label = row.dataset.label || pkg;
-      _selectedExe = pkg;
+      const name = row.dataset.name || "";
+      const label = row.dataset.label || name;
+      _selectedExe = name;
       const display = document.getElementById("rule-exe-display");
-      if (display) display.textContent = isAndroid ? label : pkg;
+      if (display) display.textContent = label;
       const overlay = document.getElementById("process-picker-overlay") as HTMLElement;
       if (overlay) overlay.style.display = "none";
     });
