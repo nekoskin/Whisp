@@ -142,10 +142,10 @@ body {
 ══════════════════════════════════════════════════════════════ */
 .top-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  height: 44px;
-  padding: 0 12px 0 14px;
+  height: calc(44px + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) 12px 0 14px;
   background: var(--md-surface);
   border-bottom: 1px solid var(--md-outline-var);
   flex-shrink: 0;
@@ -205,9 +205,10 @@ body {
 .bottom-nav {
   display: flex;
   align-items: stretch;
-  height: 58px;
+  height: calc(60px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   flex-shrink: 0;
-  background: var(--md-surface);
+  background: var(--md-surface-low);
   border-top: 1px solid var(--md-outline-var);
   overflow-x: auto;
   overflow-y: hidden;
@@ -224,61 +225,53 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-width: 68px;
-  gap: 3px;
+  min-width: 72px;
+  gap: 4px;
   cursor: pointer;
   color: var(--md-on-surface-var);
-  padding: 6px 10px;
+  padding: 4px 8px 6px;
   scroll-snap-align: start;
-  transition: background var(--tr), color var(--tr);
+  transition: color var(--tr);
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  border-radius: 0;
-  position: relative;
 }
 
-.bnav-item::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%) scaleX(0);
-  width: 32px;
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-  background: var(--md-primary);
-  transition: transform var(--tr);
+.bnav-item:active .bnav-icon {
+  background: rgba(168, 156, 247, .12);
 }
 
 .bnav-item.active {
   color: var(--md-primary);
-  background: rgba(168, 156, 247, .08);
 }
 
-.bnav-item.active::after {
-  transform: translateX(-50%) scaleX(1);
-}
-
-.bnav-item:active {
-  background: rgba(255, 255, 255, .06);
-}
-
+/* MD3 pill indicator around the icon */
 .bnav-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
   flex-shrink: 0;
+  transition: background var(--tr);
 }
 
 .bnav-icon svg { width: 20px; height: 20px; }
+
+.bnav-item.active .bnav-icon {
+  background: var(--md-secondary-cont);
+}
 
 .bnav-label {
   font-size: 10px;
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
+  transition: font-weight var(--tr);
+}
+
+.bnav-item.active .bnav-label {
+  font-weight: 700;
 }
 
 /* ══════════════════════════════════════════════════════════════
