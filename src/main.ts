@@ -339,6 +339,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     ruleKeywordPlaceholder: "ключевое слово",
     rulesBrowseExe: "Выбрать .exe",
     rulesRunning: "Из процессов",
+    rulesPickApp: "Выбрать приложение",
+    rulesSearchApp: "Поиск приложения...",
     rulesTitle: "Правила",
     rulesSearchProcess: "Поиск процесса...",
     rulesNoProcesses: "Нет процессов",
@@ -594,6 +596,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     ruleKeywordPlaceholder: "keyword",
     rulesBrowseExe: "Browse .exe",
     rulesRunning: "Running",
+    rulesPickApp: "Pick App",
+    rulesSearchApp: "Search app...",
     rulesTitle: "Rules",
     rulesSearchProcess: "Search process...",
     rulesNoProcesses: "No processes",
@@ -849,6 +853,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     ruleKeywordPlaceholder: "关键词",
     rulesBrowseExe: "浏览 .exe",
     rulesRunning: "运行中",
+    rulesPickApp: "选择应用",
+    rulesSearchApp: "搜索应用...",
     rulesTitle: "规则",
     rulesSearchProcess: "搜索进程...",
     rulesNoProcesses: "无进程",
@@ -1104,6 +1110,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     ruleKeywordPlaceholder: "کلیدواژه",
     rulesBrowseExe: "انتخاب .exe",
     rulesRunning: "در حال اجرا",
+    rulesPickApp: "انتخاب برنامه",
+    rulesSearchApp: "جستجوی برنامه...",
     rulesTitle: "قوانین",
     rulesSearchProcess: "جستجوی پروسه...",
     rulesNoProcesses: "پروسه‌ای وجود ندارد",
@@ -2211,6 +2219,7 @@ function bindNodeGraphEvents(): void {
 
   let draggingNode: string | null = null;
   let dragOffX = 0, dragOffY = 0;
+  let cachedRect: DOMRect | null = null;
 
   canvas.addEventListener("pointerdown", e => {
     const portOut = (e.target as HTMLElement).closest<HTMLElement>("[data-ng-port-out]");
@@ -2225,6 +2234,7 @@ function bindNodeGraphEvents(): void {
         ex: pos.x + NG_W + NG_PORT_R,
         ey: pos.y + NG_H / 2,
       };
+      cachedRect = canvas.getBoundingClientRect();
       canvas.setPointerCapture(e.pointerId);
       e.preventDefault();
       e.stopPropagation();
@@ -2236,6 +2246,7 @@ function bindNodeGraphEvents(): void {
     draggingNode = hdr.dataset.ngDrag!;
     const node = canvas.querySelector<HTMLElement>(`[data-ng-id="${draggingNode}"]`)!;
     const rect = canvas.getBoundingClientRect();
+    cachedRect = rect;
     const pos = nodePositions.get(draggingNode) ?? getNodePos(draggingNode, connectionsList.findIndex(c => c.id === draggingNode));
     dragOffX = e.clientX - rect.left - pos.x;
     dragOffY = e.clientY - rect.top  - pos.y;
@@ -2245,7 +2256,7 @@ function bindNodeGraphEvents(): void {
   });
 
   canvas.addEventListener("pointermove", e => {
-    const rect = canvas.getBoundingClientRect();
+    const rect = cachedRect ?? canvas.getBoundingClientRect();
     if (ngPortDrag) {
       ngPortDrag.ex = e.clientX - rect.left;
       ngPortDrag.ey = e.clientY - rect.top;
@@ -2286,6 +2297,7 @@ function bindNodeGraphEvents(): void {
       }
       return;
     }
+    cachedRect = null;
     if (draggingNode) {
       const node = canvas.querySelector<HTMLElement>(`[data-ng-id="${draggingNode}"]`);
       if (node) node.style.zIndex = "";
@@ -3277,11 +3289,11 @@ function renderRouting(): string {
 
       <div id="rule-app-row" style="display:none;margin-top:6px;display:none">
         <div class="rule-add-row" style="margin:0">
-          <label class="btn-sm" style="cursor:pointer">
+          ${isAndroid ? "" : `<label class="btn-sm" style="cursor:pointer">
             ${t("rulesBrowseExe")}
             <input type="file" id="rule-exe-input" accept=".exe" style="display:none"/>
-          </label>
-          <button class="btn-sm" id="btn-pick-process">${t("rulesRunning")}</button>
+          </label>`}
+          <button class="btn-sm" id="btn-pick-process">${isAndroid ? t("rulesPickApp") : t("rulesRunning")}</button>
           <span class="rule-exe-display" id="rule-exe-display">—</span>
         </div>
       </div>
@@ -3290,7 +3302,7 @@ function renderRouting(): string {
     <div id="process-picker-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:900;align-items:center;justify-content:center">
       <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;width:340px;max-height:520px;display:flex;flex-direction:column;padding:0;overflow:hidden">
         <div style="padding:12px 14px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
-          <input id="process-search" type="text" placeholder="${t("rulesSearchProcess")}" class="input-inline" style="flex:1"/>
+          <input id="process-search" type="text" placeholder="${isAndroid ? t("rulesSearchApp") : t("rulesSearchProcess")}" class="input-inline" style="flex:1"/>
           <button id="btn-process-close" class="btn-sm" style="padding:4px 8px">✕</button>
         </div>
         <div id="process-list-inner" style="overflow-y:auto;flex:1;padding:4px 0"></div>
@@ -3508,25 +3520,51 @@ function bindRoutingEvents(): void {
 
 function renderProcessList(procs: { name: string; pid: number }[], container: HTMLElement, filter: string): void {
   const q = filter.toLowerCase();
-  const filtered = q ? procs.filter(p => p.name.toLowerCase().includes(q)) : procs;
-  if (filtered.length === 0) {
-    container.innerHTML = `<div style="padding:12px;text-align:center;opacity:.5">${t("rulesNoProcesses")}</div>`;
-    return;
+
+  if (isAndroid) {
+    // Rust returns name="Label (com.package)", pid=index
+    const apps = procs.map(p => {
+      const m = p.name.match(/^(.*?)\s+\(([^)]+)\)$/);
+      return m ? { label: m[1], pkg: m[2] } : { label: p.name, pkg: p.name };
+    });
+    const filtered = q
+      ? apps.filter(a => a.label.toLowerCase().includes(q) || a.pkg.toLowerCase().includes(q))
+      : apps;
+    if (filtered.length === 0) {
+      container.innerHTML = `<div style="padding:12px;text-align:center;opacity:.5">${t("rulesNoProcesses")}</div>`;
+      return;
+    }
+    container.innerHTML = filtered.slice(0, 300).map(a =>
+      `<div class="process-pick-row" data-name="${esc(a.pkg)}" data-label="${esc(a.label)}"
+        style="padding:9px 14px;cursor:pointer;display:flex;flex-direction:column;gap:2px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:500">${esc(a.label)}</span>
+        <span style="font-size:11px;opacity:.45">${esc(a.pkg)}</span>
+      </div>`
+    ).join("");
+  } else {
+    const filtered = q ? procs.filter(p => p.name.toLowerCase().includes(q)) : procs;
+    if (filtered.length === 0) {
+      container.innerHTML = `<div style="padding:12px;text-align:center;opacity:.5">${t("rulesNoProcesses")}</div>`;
+      return;
+    }
+    container.innerHTML = filtered.slice(0, 200).map(p =>
+      `<div class="process-pick-row" data-name="${esc(p.name)}"
+        style="padding:7px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;flex:1">${esc(p.name)}</span>
+        <span style="font-size:11px;opacity:.4">PID ${p.pid}</span>
+      </div>`
+    ).join("");
   }
-  container.innerHTML = filtered.slice(0, 200).map(p =>
-    `<div class="process-pick-row" data-name="${esc(p.name)}" style="padding:7px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)">
-      <span style="font-size:13px;flex:1">${esc(p.name)}</span>
-      <span style="font-size:11px;opacity:.4">PID ${p.pid}</span>
-    </div>`
-  ).join("");
+
   container.querySelectorAll<HTMLElement>(".process-pick-row").forEach(row => {
     row.onmouseenter = () => row.style.background = "var(--hover-bg, rgba(255,255,255,.06))";
     row.onmouseleave = () => row.style.background = "";
     row.addEventListener("click", () => {
-      const name = row.dataset.name || "";
-      _selectedExe = name;
+      const pkg = row.dataset.name || "";
+      const label = row.dataset.label || pkg;
+      _selectedExe = pkg;
       const display = document.getElementById("rule-exe-display");
-      if (display) display.textContent = name;
+      if (display) display.textContent = isAndroid ? label : pkg;
       const overlay = document.getElementById("process-picker-overlay") as HTMLElement;
       if (overlay) overlay.style.display = "none";
     });
@@ -3785,6 +3823,7 @@ let _mapDragOriginX = 0;
 let _mapDragOriginY = 0;
 let _bridgePingInProgress = false;
 let _bridgeRolloutInProgress = false;
+let _bridgeMapAC: AbortController | null = null;
 
 function _mlScoreColor(score: number): string {
   if (score >= 75) return "#4ade80";
@@ -4206,6 +4245,10 @@ function _hideBridgePopup(): void {
 }
 
 function bindBridgesEvents(): void {
+  _bridgeMapAC?.abort();
+  _bridgeMapAC = new AbortController();
+  const mapSig = _bridgeMapAC.signal;
+
   const refresh = async () => {
     _hideBridgePopup();
     const baseURL = getServerBaseURL();
@@ -4423,13 +4466,13 @@ function bindBridgesEvents(): void {
         _mapDragging = false;
         canvas.style.cursor = "grab";
       }
-    });
+    }, { signal: mapSig });
     window.addEventListener("mousemove", (ev) => {
       if (!_mapDragging) return;
       _mapOffsetX = _mapDragOriginX + (ev.clientX - _mapDragStartX);
       _mapOffsetY = _mapDragOriginY + (ev.clientY - _mapDragStartY);
       _drawBridgeMap(bridgeList, _selectedBridge);
-    });
+    }, { signal: mapSig });
 
     // Touch support for pan/zoom
     let _touchDist = 0;

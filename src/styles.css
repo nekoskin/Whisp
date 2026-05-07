@@ -1996,6 +1996,7 @@ body {
 .ng-canvas {
   position: relative;
   overflow: auto;
+  touch-action: none;
   background: var(--md-surface-low);
   border: 1px solid var(--md-outline-var);
   border-radius: var(--s-sm);
