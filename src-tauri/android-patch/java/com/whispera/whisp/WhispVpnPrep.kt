@@ -23,7 +23,8 @@ object WhispVpnPrep {
         }
         if (intent == null) return 1
         try {
-            a.startActivityForResult(intent, REQ_CODE); return 0
+            a.runOnUiThread { a.startActivityForResult(intent, REQ_CODE) }
+            return 0
         } catch (t: Throwable) {
             Log.e("WhispVpnPrep", "startActivityForResult failed", t); return -3
         }
