@@ -55,6 +55,7 @@ interface AppSettings {
   spoof_ips?: string;
   multi_bridges?: MultiBridgeEntry[];
   tls_fingerprint?: string;
+  bypass_ru?: boolean;
 }
 
 interface Profile { id: string; name: string; key: string; }
@@ -360,6 +361,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     vpnDns: "Прокси DNS (клиент)",
     vpnDnsHint: "DNS для прокси-клиента. 'Провайдер' = системный резолвер",
     isp: "Провайдер",
+    bypassRu: "Обходить .ru / .su напрямую",
+    bypassRuHint: "GEOIP Россия + домены .ru/.su идут напрямую, минуя VPN",
     advanced: "Расширенные",
     mitmInspection: "MITM-инспекция",
     mitmDesc: "Локальный TLS-перехват. Требует установить CA в систему (порт 10899)",
@@ -617,6 +620,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     vpnDns: "Proxy DNS (client)",
     vpnDnsHint: "DNS for the proxy client. 'ISP' = system resolver",
     isp: "ISP",
+    bypassRu: "Bypass .ru / .su direct",
+    bypassRuHint: "GEOIP Russia + .ru/.su domains go direct, bypassing VPN",
     advanced: "Advanced",
     mitmInspection: "MITM Inspection",
     mitmDesc: "Local TLS intercept. Install CA cert in system trust store (port 10899)",
@@ -874,6 +879,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     vpnDns: "代理 DNS（客户端）",
     vpnDnsHint: "代理客户端DNS。'运营商'=系统解析器",
     isp: "运营商",
+    bypassRu: "直连 .ru / .su 域名",
+    bypassRuHint: "俄罗斯IP + .ru/.su域名直连，不走VPN",
     advanced: "高级",
     mitmInspection: "MITM检查",
     mitmDesc: "本地TLS拦截。需要在系统信任存储中安装CA证书（端口10899）",
@@ -1131,6 +1138,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     vpnDns: "Proxy DNS (کلاینت)",
     vpnDnsHint: "DNS برای کلاینت پراکسی. 'ISP' = رزولور سیستم",
     isp: "ISP",
+    bypassRu: "دور زدن .ru / .su مستقیم",
+    bypassRuHint: "دامنه‌های روسی و GEOIP Russia مستقیم، بدون VPN",
     advanced: "پیشرفته",
     mitmInspection: "بازرسی MITM",
     mitmDesc: "رهگیری TLS محلی. نیاز به نصب گواهی CA در سیستم دارد (پورت 10899)",
@@ -3664,6 +3673,13 @@ function renderSettings(): string {
         <span style="font-size:11px;opacity:.5">${t("vpnDnsHint")}</span>
       </div></div>
       <div class="setting-row"><span class="setting-label">${t("ipv6Label")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ipv6" ${settings.ipv6 ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
+      <div class="setting-row" style="align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
+          <span class="setting-label">${t("bypassRu")}</span>
+          <span style="font-size:11px;opacity:.5;font-weight:400">${t("bypassRuHint")}</span>
+        </div>
+        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-bypass-ru" ${settings.bypass_ru !== false ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
+      </div>
       <div class="setting-row"><span class="setting-label">${t("theme")}</span><div class="setting-value"><div class="pill-group">
         <button class="pill-btn ${settings.theme === "dark" ? "active" : ""}" data-theme="dark">${t("dark")}</button>
         <button class="pill-btn ${settings.theme === "auto" ? "active" : ""}" data-theme="auto">${t("auto")}</button>
@@ -3704,6 +3720,13 @@ function renderSettings(): string {
         <span style="font-size:11px;opacity:.5">${t("vpnDnsHint")}</span>
       </div></div>
       <div class="setting-row"><span class="setting-label">${t("ipv6Label")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ipv6" ${settings.ipv6 ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
+      <div class="setting-row" style="align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
+          <span class="setting-label">${t("bypassRu")}</span>
+          <span style="font-size:11px;opacity:.5;font-weight:400">${t("bypassRuHint")}</span>
+        </div>
+        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-bypass-ru" ${settings.bypass_ru !== false ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
+      </div>
       <div class="setting-row"><span class="setting-label">${t("secretLabel")}</span><div class="setting-value"><span class="secret-value">${settings.secret}</span><button class="btn-sm" id="btn-copy-secret">${t("copy")}</button></div></div>
     </div>
     <div class="settings-section">
@@ -3770,7 +3793,7 @@ function bindSettingsEvents(): void {
     persistSettings();
     if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
   });
-  const toggles: [string, keyof AppSettings][] = [["set-dns", "dns_redirect"], ["set-ipv6", "ipv6"], ["set-hwid", "hwid"], ["set-autostart", "auto_connect"], ["set-authtip", "auth_tip"]];
+  const toggles: [string, keyof AppSettings][] = [["set-dns", "dns_redirect"], ["set-ipv6", "ipv6"], ["set-hwid", "hwid"], ["set-autostart", "auto_connect"], ["set-authtip", "auth_tip"], ["set-bypass-ru", "bypass_ru"]];
   toggles.forEach(([id, key]) => { (document.getElementById(id) as HTMLInputElement)?.addEventListener("change", function () { (settings as any)[key] = this.checked; persistSettings(); }); });
   document.getElementById("btn-copy-secret")?.addEventListener("click", () => {
     clipboardWrite(settings.secret);

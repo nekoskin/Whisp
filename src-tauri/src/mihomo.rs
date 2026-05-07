@@ -364,6 +364,7 @@ pub struct MihomoConfig<'a> {
     pub extra_socks_addrs: &'a [String],
     pub custom_dns: &'a [String],
     pub tls_fingerprint: &'a str,
+    pub bypass_ru: bool,
 }
 
 fn map_fingerprint(fp: &str) -> &str {
@@ -488,6 +489,12 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
     };
     let _ = dns_proxy_policy; // пока только enhanced-mode меняем — policy требует geosite файлов
 
+    let ru_rules = if cfg.bypass_ru {
+        "  - DOMAIN-SUFFIX,ru,DIRECT\n  - DOMAIN-SUFFIX,su,DIRECT\n  - DOMAIN-SUFFIX,рф,DIRECT\n  - GEOIP,RU,DIRECT,no-resolve\n"
+    } else {
+        ""
+    };
+
     format!(
         r#"mixed-port: {port}
 allow-lan: false
@@ -550,15 +557,11 @@ proxy-groups:
 {proxy_group}
 
 rules:
-  - DOMAIN-SUFFIX,ru,DIRECT
-  - DOMAIN-SUFFIX,su,DIRECT
-  - DOMAIN-SUFFIX,gov,DIRECT
-{custom_rules}  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+{ru_rules}{custom_rules}  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
   - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
   - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
-  - GEOIP,RU,DIRECT,no-resolve
   - MATCH,PROXY
 "#
     )

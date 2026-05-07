@@ -98,6 +98,16 @@ fn build_android_rules_json(settings: &AppSettings) -> String {
         obj.insert("action".to_string(), serde_json::Value::String(mapped.to_string()));
         dst.push(serde_json::Value::Object(obj));
     };
+    // bypass_ru: домены .ru/.su идут напрямую (prepend чтобы перекрыть MATCH,PROXY)
+    if settings.bypass_ru {
+        for suffix in &["ru", "su", "рф"] {
+            let mut obj = serde_json::Map::new();
+            obj.insert("kind".into(), "domain-suffix".into());
+            obj.insert("suffix".into(), (*suffix).into());
+            obj.insert("action".into(), "DIRECT".into());
+            entries.push(serde_json::Value::Object(obj));
+        }
+    }
     for r in &settings.routing_rules {
         push(&mut entries, r, None);
     }
@@ -156,6 +166,8 @@ struct AppSettings {
     multi_bridges: Vec<serde_json::Value>,
     #[serde(default)]
     tls_fingerprint: String,
+    #[serde(default = "default_true")]
+    bypass_ru: bool,
 }
 
 fn default_true() -> bool {
@@ -194,6 +206,7 @@ impl Default for AppSettings {
             spoof_ips: String::new(),
             multi_bridges: Vec::new(),
             tls_fingerprint: String::new(),
+            bypass_ru: true,
         }
     }
 }
@@ -499,6 +512,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         extra_socks_addrs: &extra_addrs,
         custom_dns: &settings.custom_dns,
         tls_fingerprint: &settings.tls_fingerprint,
+        bypass_ru: settings.bypass_ru,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
@@ -630,6 +644,7 @@ async fn connect_ml(
         extra_socks_addrs: &[],
         custom_dns: &settings.custom_dns,
         tls_fingerprint: &settings.tls_fingerprint,
+        bypass_ru: settings.bypass_ru,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
     let mut mgr = state.mihomo.lock().map_err(|e| e.to_string())?;
@@ -1398,6 +1413,7 @@ async fn save_routing_rules(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> R
         extra_socks_addrs: &[],
         custom_dns: &settings.custom_dns,
         tls_fingerprint: &settings.tls_fingerprint,
+        bypass_ru: settings.bypass_ru,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
@@ -1447,6 +1463,7 @@ async fn apply_tls_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
         extra_socks_addrs: &[],
         custom_dns: &settings.custom_dns,
         tls_fingerprint: &settings.tls_fingerprint,
+        bypass_ru: settings.bypass_ru,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
@@ -1507,6 +1524,7 @@ async fn save_blocklist(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> Resul
         extra_socks_addrs: &[],
         custom_dns: &settings.custom_dns,
         tls_fingerprint: &settings.tls_fingerprint,
+        bypass_ru: settings.bypass_ru,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
@@ -1540,6 +1558,7 @@ fn install_services(
             extra_socks_addrs: &[],
             custom_dns: &settings.custom_dns,
             tls_fingerprint: &settings.tls_fingerprint,
+        bypass_ru: settings.bypass_ru,
         });
         fs::write(&config_path, &stub).ok();
     }
