@@ -77,7 +77,7 @@ jobs:
           VER="${NEW#v}"
           jq --arg v "$VER" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
           mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-          sed -i "s/^version = \".*\"/version = \"$VER\"/" src-tauri/Cargo.toml
+          sed -i.bak "s/^version = \".*\"/version = \"$VER\"/" src-tauri/Cargo.toml && rm -f src-tauri/Cargo.toml.bak
 
       - uses: actions/setup-node@v4
         with:
@@ -200,7 +200,7 @@ jobs:
           VER="${NEW#v}"
           jq --arg v "$VER" '.version = $v' src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
           mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
-          sed -i "s/^version = \".*\"/version = \"$VER\"/" src-tauri/Cargo.toml
+          sed -i.bak "s/^version = \".*\"/version = \"$VER\"/" src-tauri/Cargo.toml && rm -f src-tauri/Cargo.toml.bak
 
       - uses: actions/setup-node@v4
         with:
