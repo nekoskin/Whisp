@@ -1476,7 +1476,16 @@ async fn install_mitm_ca(app: tauri::AppHandle) -> Result<(), String> {
         } else {
             ca_bytes.clone()
         };
-        return whisp_vpn_android::service_intent::install_ca_cert_android(&der);
+        match whisp_vpn_android::service_intent::install_ca_cert_android(&der)? {
+            None => return Ok(()), // KeyChain intent launched (Android < 11)
+            Some(path) => {
+                // Android 11+: cert saved to Downloads, user must install manually
+                return Err(format!(
+                    "ca_saved_to_downloads:{}",
+                    path
+                ));
+            }
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -2700,6 +2709,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState {
             mihomo: Mutex::new(MihomoManager::new(mihomo_path)),
             go_client: Mutex::new(GoClientManager::new(go_client_path)),

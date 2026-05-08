@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { readText as clipboardRead, writeText as clipboardWrite } from "@tauri-apps/plugin-clipboard-manager";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import * as topojson from "topojson-client";
 import worldAtlas from "world-atlas/land-110m.json";
 import "./styles.css";
@@ -1314,6 +1315,21 @@ function getNodePos(id: string, idx: number): { x: number; y: number } {
 
 const isAndroid = /android/i.test(navigator.userAgent);
 
+let _notifGranted = false;
+async function initNotifications(): Promise<void> {
+  try {
+    _notifGranted = await isPermissionGranted();
+    if (!_notifGranted) {
+      _notifGranted = (await requestPermission()) === "granted";
+    }
+  } catch { _notifGranted = false; }
+}
+
+function osNotify(title: string, body: string): void {
+  if (!_notifGranted) return;
+  try { sendNotification({ title, body }); } catch { /**/ }
+}
+
 let settings: AppSettings = {
   conn_key: "", auto_connect: false, theme: "dark", mihomo_port: 9887,
   socks_addr: "127.0.0.1", kill_switch: false, dns_redirect: false,
@@ -1531,6 +1547,7 @@ async function doConnect(): Promise<void> {
       ? `${t("vpnConnTransport")} ${_appliedMlTransport}`
       : t("vpnConnected");
     showToast(transportMsg, "success", 4000);
+    if (!isAndroid) osNotify("Whisp VPN", transportMsg);
 
     // Auto-start ML server if key contains ml=enabled
     try {
@@ -1554,6 +1571,7 @@ async function doConnect(): Promise<void> {
   } catch (e) {
     addLog("✗ " + e);
     showToast(String(e), "error", 5000);
+    osNotify("Whisp VPN — ошибка", String(e));
   }
   isConnecting = false;
   if (currentPage === "home") renderPage();
@@ -1568,6 +1586,7 @@ async function doDisconnect(): Promise<void> {
     connectTime = null;
     addLog("○ " + msg);
     showToast(t("vpnDisconnected"), "info");
+    if (!isAndroid) osNotify("Whisp VPN", t("vpnDisconnected"));
   } catch (e) {
     addLog("✗ " + e);
     showToast(String(e), "error", 5000);
@@ -2327,6 +2346,8 @@ function bindNodeGraphEvents(): void {
 
     const hdr = (e.target as HTMLElement).closest<HTMLElement>("[data-ng-drag]");
     if (!hdr) return;
+    // Don't capture drag when the touch target is an interactive element inside the header
+    if ((e.target as HTMLElement).closest("select, input, button, label, a")) return;
     draggingNode = hdr.dataset.ngDrag!;
     const node = canvas.querySelector<HTMLElement>(`[data-ng-id="${draggingNode}"]`)!;
     const rect = canvas.getBoundingClientRect();
@@ -3911,7 +3932,18 @@ function bindSettingsEvents(): void {
   document.getElementById("btn-install-mitm-ca")?.addEventListener("click", () => {
     invoke("install_mitm_ca")
       .then(() => showToast(t("caCert") + " OK", "success", 3000))
-      .catch((e: unknown) => showToast(String(e), "error", 5000));
+      .catch((e: unknown) => {
+        const msg = String(e);
+        if (msg.startsWith("ca_saved_to_downloads:")) {
+          const path = msg.slice("ca_saved_to_downloads:".length);
+          showToast(
+            `CA сохранён: ${path}\nНастройки → Безопасность → Установить сертификат → Файл сертификата CA`,
+            "info", 12000
+          );
+        } else {
+          showToast(msg, "error", 5000);
+        }
+      });
   });
   document.getElementById("btn-toggle-socks-pass")?.addEventListener("click", () => {
     const inp = document.getElementById("set-socks-pass") as HTMLInputElement | null;
@@ -3981,6 +4013,7 @@ function bindSettingsEvents(): void {
       row.style.display = "flex";
 
       if (info.is_newer) {
+        osNotify(t("updateAvailableNew"), info.tag);
         content.innerHTML = `
           <div style="font-size:13px;font-weight:600;color:var(--md-primary)">${t("updateAvailableNew")}: ${esc(info.tag)}</div>
           ${info.body ? `<div style="font-size:11px;opacity:.6;margin-top:4px;max-height:80px;overflow-y:auto;white-space:pre-wrap">${esc(info.body.slice(0, 400))}</div>` : ""}
@@ -5404,6 +5437,7 @@ function playConnectSound(): void {
 window.addEventListener("DOMContentLoaded", async () => {
   loadLang(); loadProfiles();
   await loadSettings();
+  initNotifications().catch(() => {});
   _mlTargetServer = localStorage.getItem("ml_target_server") || settings.ml_server || "";
   await Promise.all([
     loadSubscriptions(),

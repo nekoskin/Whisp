@@ -3,6 +3,7 @@ package com.whispera.whisp
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
@@ -26,9 +27,13 @@ class WhispVpnService : VpnService() {
         const val EXTRA_MITM       = "com.whispera.whisp.EXTRA_MITM"
         const val NOTIFICATION_ID = 17
         const val CHANNEL_ID = "whisp_vpn_channel"
+        const val CHANNEL_ID_EVENTS = "whisp_events"
+        const val NOTIF_ID_EVENT = 18
 
         @Volatile @JvmField var isRunning: Boolean = false
     }
+
+    @Volatile private var didConnect = false
 
     private var tunInterface: ParcelFileDescriptor? = null
     private var goClientProc: Process? = null
@@ -171,9 +176,12 @@ class WhispVpnService : VpnService() {
                 Log.i(TAG, "singbox Start() fd=${pfd.fd}")
                 Singbox.start(pfd.fd, filesDir.absolutePath, if (goClientProc != null) "127.0.0.1:1080" else "", pendingConnKey, pendingRulesJson, pendingIpv6)
                 Log.i(TAG, "singbox running")
+                didConnect = true
+                postEvent("Whisp VPN", "Подключено")
                 toast("VPN started")
             } catch (t: Throwable) {
                 Log.e(TAG, "singbox FATAL: ${t.stackTraceToString()}")
+                postEvent("Whisp VPN — ошибка", t.message ?: "Ошибка подключения")
                 toast("singbox: ${t.javaClass.simpleName}: ${t.message ?: t.toString()}")
                 stopVpn()
             }
@@ -227,9 +235,50 @@ class WhispVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        if (didConnect && isRunning) {
+            postEvent("Whisp VPN", "Соединение прервано")
+        }
         isRunning = false
         try { stopVpn() } catch (_: Throwable) {}
         super.onDestroy()
+    }
+
+    private fun ensureEventsChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.getNotificationChannel(CHANNEL_ID_EVENTS) != null) return
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID_EVENTS, "Whisp VPN события", NotificationManager.IMPORTANCE_DEFAULT)
+        )
+    }
+
+    private fun postEvent(title: String, body: String) {
+        try {
+            ensureEventsChannel()
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                ?.apply { addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) }
+            val pi = launchIntent?.let {
+                PendingIntent.getActivity(
+                    this, 0, it,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            }
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                Notification.Builder(this, CHANNEL_ID_EVENTS)
+            else
+                @Suppress("DEPRECATION") Notification.Builder(this)
+            val notif = builder
+                .setContentTitle(title)
+                .setContentText(body)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setAutoCancel(true)
+                .also { if (pi != null) it.setContentIntent(pi) }
+                .build()
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .notify(NOTIF_ID_EVENT, notif)
+        } catch (t: Throwable) {
+            Log.w(TAG, "postEvent failed: ${t.message}")
+        }
     }
 
     private fun startForegroundCompat() {
