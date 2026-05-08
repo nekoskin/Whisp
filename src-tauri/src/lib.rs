@@ -1430,7 +1430,7 @@ fn open_url(url: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| e.to_string())?;
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android")))]
     {
         std::process::Command::new("xdg-open")
             .arg(&url)
@@ -2429,8 +2429,11 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
         }
     }
 
-    result.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
-    Ok(result)
+    #[cfg(not(target_os = "android"))]
+    {
+        result.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+        Ok(result)
+    }
 }
 
 // ── In-app update ──────────────────────────────────────────────────────────
@@ -2736,7 +2739,7 @@ pub fn run() {
                                 let state: tauri::State<AppState> = init_app.state();
                                 if let Ok(mut p) = state.android_proxy.lock() {
                                     *p = Some(proxy_url);
-                                }
+                                };
                             }
                         }
                     }
