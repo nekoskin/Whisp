@@ -1,9 +1,14 @@
 package com.whispera.whisp
 
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.security.KeyChain
 import android.util.Log
 
 object WhispVpnPrep {
@@ -63,5 +68,86 @@ object WhispVpnPrep {
             putExtra(WhispVpnService.EXTRA_MITM,       if (pendingMitm) "1" else "0")
         }
         ctx.startForegroundService(intent)
+    }
+
+    /**
+     * Installs a CA certificate.
+     * Returns "ok" if KeyChain intent was launched (Android < 11),
+     * "saved:/path/to/file" if saved to Downloads (Android 11+ blocks KeyChain for CAs),
+     * "error:message" on failure.
+     */
+    @JvmStatic fun installCaCert(ctx: Context, certDer: ByteArray): String {
+        // Always save to Downloads so user has the file regardless of Android version
+        val savedPath = saveCertToDownloads(ctx, certDer)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+ (API 30+): KeyChain.createInstallIntent() blocks CA cert installation
+            // User must install manually via Settings → Security → Install certificate
+            return if (savedPath != null) "saved:$savedPath" else "error:Failed to save cert to Downloads"
+        }
+
+        // Android < 11: try KeyChain install intent from activity context if available
+        val activity = currentActivity
+        return try {
+            val intent = KeyChain.createInstallIntent().apply {
+                putExtra("CERT", certDer)
+                putExtra("name", "Whisp CA")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (activity != null) {
+                activity.runOnUiThread { activity.startActivity(intent) }
+            } else {
+                ctx.startActivity(intent)
+            }
+            "ok"
+        } catch (e: Exception) {
+            Log.e("WhispVpnPrep", "installCaCert KeyChain failed", e)
+            if (savedPath != null) "saved:$savedPath" else "error:${e.message}"
+        }
+    }
+
+    private fun saveCertToDownloads(ctx: Context, certDer: ByteArray): String? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+ (API 29+): MediaStore, no WRITE_EXTERNAL_STORAGE needed
+                val existing = ctx.contentResolver.query(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    arrayOf(MediaStore.MediaColumns._ID),
+                    "${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+                    arrayOf("whisp-ca.crt"), null
+                )
+                // Delete existing entry if present to allow overwrite
+                existing?.use { c ->
+                    if (c.moveToFirst()) {
+                        val id = c.getLong(0)
+                        ctx.contentResolver.delete(
+                            MediaStore.Downloads.EXTERNAL_CONTENT_URI.buildUpon().appendPath(id.toString()).build(),
+                            null, null
+                        )
+                    }
+                }
+                val cv = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, "whisp-ca.crt")
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/x-x509-ca-cert")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)
+                    ?: return null
+                ctx.contentResolver.openOutputStream(uri)?.use { it.write(certDer) }
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    .absolutePath + "/whisp-ca.crt"
+            } else {
+                @Suppress("DEPRECATION")
+                val file = java.io.File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                    "whisp-ca.crt"
+                )
+                file.writeBytes(certDer)
+                file.absolutePath
+            }
+        } catch (e: Exception) {
+            Log.e("WhispVpnPrep", "saveCertToDownloads failed", e)
+            null
+        }
     }
 }

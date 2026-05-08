@@ -222,10 +222,7 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		}
 	}
 
-	sniffVal := "false"
-	if needSniff {
-		sniffVal = "true"
-	}
+	_ = needSniff // sniff always enabled in TUN inbound
 
 	routeExtra := ""
 	if routesJSON != "" {
@@ -238,8 +235,25 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		tunAddrs += `, "fdfe:dcba:9876::1/126"`
 	}
 
+	// Fake-IP DNS: browser always gets a fake IPv4 (198.18.x.x), sing-box maps
+	// it back to the real hostname and sends SOCKS5 CONNECT by name.
+	// This lets server-side resolve both A and AAAA, so IPv6-only sites work
+	// even without IPv6 in the TUN stack.
+	dnsObject := fmt.Sprintf(`{
+    "servers": [
+      {"tag":"dns_proxy","address":"https://1.1.1.1/dns-query","detour":%q}
+    ],
+    "final": "dns_proxy",
+    "fakeip": {
+      "enabled": true,
+      "inet4_range": "198.18.0.0/15"
+    },
+    "independent_cache": true
+  }`, finalOut)
+
 	config := fmt.Sprintf(`{
   "log": {"level": "warn", "output": ""},
+  "dns": %s,
   "inbounds": [{
     "type": "tun",
     "tag": "tun-in",
@@ -247,14 +261,15 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
     "mtu": 1500,
     "auto_route": false,
     "stack": "mixed",
-    "sniff": %s
+    "sniff": true,
+    "sniff_override_destination": true
   }],
   "outbounds": %s,
   "route": {
     "final": "%s",
     "auto_detect_interface": false%s
   }
-}`, tunAddrs, sniffVal, outbounds, finalOut, routeExtra)
+}`, dnsObject, tunAddrs, outbounds, finalOut, routeExtra)
 
 	alog(fmt.Sprintf("calling NewService fd=%d", fd))
 	s, err := libbox.NewService(config, &platform{tunFd: fd})

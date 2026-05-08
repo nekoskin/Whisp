@@ -252,60 +252,44 @@ pub fn is_vpn_service_running() -> bool {
         .unwrap_or(false)
 }
 
-/// Запускает системный диалог установки CA-сертификата через KeyChain.createInstallIntent().
-pub fn install_ca_cert_android(cert_der: &[u8]) -> Result<(), String> {
+/// Installs a CA certificate via WhispVpnPrep.installCaCert().
+/// Returns Ok(None) when KeyChain intent was launched (Android < 11),
+/// Ok(Some(path)) when cert was saved to Downloads (Android 11+ blocks KeyChain for CAs).
+pub fn install_ca_cert_android(cert_der: &[u8]) -> Result<Option<String>, String> {
     let (vm, ctx_ptr) = vm_and_ctx()?;
     let mut env = vm.attach_current_thread().map_err(|e| format!("attach: {}", e))?;
     let context = unsafe { JObject::from_raw(ctx_ptr as jni::sys::jobject) };
 
-    // KeyChain.createInstallIntent() → Intent
-    let keychain_class = env
-        .find_class("android/security/KeyChain")
-        .map_err(|e| format!("find KeyChain: {}", e))?;
-    let intent = env
-        .call_static_method(
-            &keychain_class,
-            "createInstallIntent",
-            "()Landroid/content/Intent;",
-            &[],
-        )
-        .and_then(|v| v.l())
-        .map_err(|e| format!("createInstallIntent: {}", e))?;
+    let prep_class = env
+        .find_class("com/whispera/whisp/WhispVpnPrep")
+        .map_err(|e| format!("find WhispVpnPrep: {}", e))?;
 
-    // intent.putExtra("CERT", certBytes)
     let cert_jarray = env
         .byte_array_from_slice(cert_der)
         .map_err(|e| format!("byte_array_from_slice: {}", e))?;
-    let key_cert = env.new_string("CERT").map_err(|e| e.to_string())?;
-    env.call_method(
-        &intent,
-        "putExtra",
-        "(Ljava/lang/String;[B)Landroid/content/Intent;",
-        &[JValue::Object(&key_cert.into()), JValue::Object(&cert_jarray.into())],
-    )
-    .map_err(|e| format!("putExtra CERT: {}", e))?;
 
-    // intent.putExtra("name", "Whispera CA")
-    let key_name = env.new_string("name").map_err(|e| e.to_string())?;
-    let ca_name = env.new_string("Whispera CA").map_err(|e| e.to_string())?;
-    env.call_method(
-        &intent,
-        "putExtra",
-        "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;",
-        &[JValue::Object(&key_name.into()), JValue::Object(&ca_name.into())],
-    )
-    .map_err(|e| format!("putExtra name: {}", e))?;
+    let result_obj = env
+        .call_static_method(
+            &prep_class,
+            "installCaCert",
+            "(Landroid/content/Context;[B)Ljava/lang/String;",
+            &[JValue::Object(&context), JValue::Object(&cert_jarray.into())],
+        )
+        .and_then(|v| v.l())
+        .map_err(|e| format!("installCaCert: {}", e))?;
 
-    // FLAG_ACTIVITY_NEW_TASK
-    env.call_method(&intent, "addFlags", "(I)Landroid/content/Intent;",
-        &[JValue::Int(0x10000000)])
-        .map_err(|e| format!("addFlags: {}", e))?;
+    let result: String = env
+        .get_string(&result_obj.into())
+        .map_err(|e| format!("get result string: {}", e))?
+        .into();
 
-    env.call_method(&context, "startActivity", "(Landroid/content/Intent;)V",
-        &[JValue::Object(&intent)])
-        .map_err(|e| format!("startActivity: {}", e))?;
-
-    Ok(())
+    if let Some(path) = result.strip_prefix("saved:") {
+        Ok(Some(path.to_string()))
+    } else if result.starts_with("error:") {
+        Err(result["error:".len()..].to_string())
+    } else {
+        Ok(None) // "ok" — KeyChain intent launched
+    }
 }
 
 /// Открывает URL через Android Intent.ACTION_VIEW.
