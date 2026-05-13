@@ -10,6 +10,7 @@ package singbox
 import "C"
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,26 @@ import (
 
 	"github.com/sagernet/sing-box/experimental/libbox"
 )
+
+// На Android stdout/stderr уходят в /dev/null и не видны в logcat.
+// init() перехватывает их через os.Pipe() и перенаправляет в __android_log_print.
+func init() {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return
+	}
+	os.Stdout = w
+	os.Stderr = w
+	go func() {
+		scanner := bufio.NewScanner(r)
+		scanner.Buffer(make([]byte, 64*1024), 64*1024)
+		for scanner.Scan() {
+			if line := scanner.Text(); line != "" {
+				alog(line)
+			}
+		}
+	}()
+}
 
 type inputRule struct {
 	Kind    string `json:"kind"`
@@ -252,7 +273,7 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
   }`, finalOut)
 
 	config := fmt.Sprintf(`{
-  "log": {"level": "warn", "output": ""},
+  "log": {"level": "info"},
   "dns": %s,
   "inbounds": [{
     "type": "tun",
