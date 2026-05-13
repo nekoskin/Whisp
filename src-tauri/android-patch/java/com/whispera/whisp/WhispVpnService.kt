@@ -146,39 +146,40 @@ class WhispVpnService : VpnService() {
         tunInterface = pfd
         toast("TUN fd=${pfd.fd}")
 
-        // Запускаем go-client как SOCKS5 upstream на :1080
+        // go-client + waitForPort + sing-box — всё в фоновом потоке,
+        // чтобы не блокировать main thread (WebView рендеринг).
         val libDir = applicationInfo.nativeLibraryDir
         val goClientPath = "$libDir/libwhispera-go-client.so"
-        if (pendingConnKey.isNotEmpty() && java.io.File(goClientPath).exists()) {
-            try {
-                val goArgs = mutableListOf(goClientPath,
-                    "-key", pendingConnKey,
-                    "-socks", "127.0.0.1:1080",
-                    "-no-tun")
-                if (pendingMitm) goArgs.add("-mitm")
-                goClientProc = ProcessBuilder(goArgs)
-                    .redirectErrorStream(true)
-                    .start()
-                // Drain stdout/stderr — without this, a full pipe buffer blocks the process
-                goClientProc?.inputStream?.let { stream ->
-                    Thread({
-                        try { val buf = ByteArray(8192); while (stream.read(buf) != -1) {} } catch (_: Throwable) {}
-                    }, "goclient-drain").apply { isDaemon = true }.start()
-                }
-                val ready = waitForPort("127.0.0.1", 1080, 4000)
-                if (!ready) Log.w(TAG, "go-client did not bind on :1080 within 4s")
-                toast("go-client started")
-            } catch (t: Throwable) {
-                toast("go-client failed: ${t.message}")
-            }
-        }
-
-        // Запускаем sing-box: TUN fd → SOCKS5 → go-client
-        
+        val filesAbsDir = filesDir.absolutePath
         Thread({
+            // 1. go-client как SOCKS5 upstream на :1080
+            if (pendingConnKey.isNotEmpty() && java.io.File(goClientPath).exists()) {
+                try {
+                    val goArgs = mutableListOf(goClientPath,
+                        "-key", pendingConnKey,
+                        "-socks", "127.0.0.1:1080",
+                        "-no-tun")
+                    if (pendingMitm) goArgs.add("-mitm")
+                    goClientProc = ProcessBuilder(goArgs)
+                        .redirectErrorStream(true)
+                        .start()
+                    goClientProc?.inputStream?.let { stream ->
+                        Thread({
+                            try { val buf = ByteArray(8192); while (stream.read(buf) != -1) {} } catch (_: Throwable) {}
+                        }, "goclient-drain").apply { isDaemon = true }.start()
+                    }
+                    val ready = waitForPort("127.0.0.1", 1080, 4000)
+                    if (!ready) Log.w(TAG, "go-client did not bind on :1080 within 4s")
+                    toast("go-client started")
+                } catch (t: Throwable) {
+                    toast("go-client failed: ${t.message}")
+                }
+            }
+
+            // 2. sing-box: TUN fd → SOCKS5 → go-client
             try {
                 Log.i(TAG, "singbox Start() fd=${pfd.fd}")
-                Singbox.start(pfd.fd, filesDir.absolutePath, if (goClientProc != null) "127.0.0.1:1080" else "", pendingConnKey, pendingRulesJson, pendingIpv6)
+                Singbox.start(pfd.fd, filesAbsDir, if (goClientProc != null) "127.0.0.1:1080" else "", pendingConnKey, pendingRulesJson, pendingIpv6)
                 Log.i(TAG, "singbox running")
                 didConnect = true
                 toast("VPN started")
@@ -188,7 +189,7 @@ class WhispVpnService : VpnService() {
                 toast("singbox: ${t.javaClass.simpleName}: ${t.message ?: t.toString()}")
                 stopVpn()
             }
-        }, "singbox-start").start()
+        }, "vpn-start").start()
     }
 
     // Парсит pendingRulesJson и применяет split-tunneling для process-name правил.

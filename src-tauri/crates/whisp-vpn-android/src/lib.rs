@@ -16,6 +16,27 @@ mod rules;
 
 pub use rules::{RoutingAction, RoutingRule, RulesEngine};
 
+// Кольцевой буфер логов подпроцессов (go-client, sing-box).
+// Заполняется drain-потоками; читается командой get_vpn_log из Tauri.
+#[cfg(target_os = "android")]
+static LOG_BUFFER: std::sync::Mutex<std::collections::VecDeque<String>> =
+    std::sync::Mutex::new(std::collections::VecDeque::new());
+#[cfg(target_os = "android")]
+const LOG_MAX: usize = 500;
+
+#[cfg(target_os = "android")]
+pub fn push_log(line: String) {
+    if let Ok(mut buf) = LOG_BUFFER.lock() {
+        if buf.len() >= LOG_MAX { buf.pop_front(); }
+        buf.push_back(line);
+    }
+}
+
+#[cfg(target_os = "android")]
+pub fn drain_log() -> Vec<String> {
+    LOG_BUFFER.lock().map(|mut b| b.drain(..).collect()).unwrap_or_default()
+}
+
 #[cfg(all(target_os = "android", feature = "jni-bindings"))]
 mod jni_glue;
 

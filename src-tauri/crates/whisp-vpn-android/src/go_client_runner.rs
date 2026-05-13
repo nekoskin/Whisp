@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
@@ -27,18 +26,21 @@ pub fn spawn_go_client(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("spawn go-client: {}", e))?;
-    if let Some(s) = child.stdout.take() { drain(s) }
-    if let Some(s) = child.stderr.take() { drain(s) }
+    if let Some(s) = child.stdout.take() { drain(s, "go-client") }
+    if let Some(s) = child.stderr.take() { drain(s, "go-client") }
     Ok(GoClientChild { child })
 }
 
-fn drain<R: std::io::Read + Send + 'static>(mut src: R) {
+fn drain<R: std::io::Read + Send + 'static>(src: R, tag: &'static str) {
     std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        loop {
-            match src.read(&mut buf) {
-                Ok(0) | Err(_) => return,
-                Ok(n) => { let _ = std::io::stderr().write_all(&buf[..n]); }
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(src);
+        for line in reader.lines() {
+            if let Ok(l) = line {
+                if l.trim().is_empty() { continue; }
+                let msg = format!("[{}] {}", tag, l);
+                eprintln!("{}", msg);
+                crate::push_log(msg);
             }
         }
     });

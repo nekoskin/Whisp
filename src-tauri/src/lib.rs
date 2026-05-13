@@ -1674,6 +1674,14 @@ async fn apply_tls_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_vpn_log() -> Vec<String> {
+    #[cfg(target_os = "android")]
+    { return whisp_vpn_android::drain_log(); }
+    #[allow(unreachable_code)]
+    Vec::new()
+}
+
+#[tauri::command]
 fn get_blocklist(app: tauri::AppHandle) -> Result<Vec<RoutingRule>, String> {
     let settings = get_app_settings(app)?;
     Ok(settings.blocklist)
@@ -2845,6 +2853,7 @@ pub fn run() {
             uninstall_services,
             get_routing_rules,
             save_routing_rules,
+            get_vpn_log,
             get_blocklist,
             save_blocklist,
             get_ml_transport,

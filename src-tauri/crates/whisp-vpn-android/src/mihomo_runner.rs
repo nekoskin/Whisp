@@ -43,18 +43,11 @@ pub fn spawn_mihomo(
     let cfg_path = work_dir.join("config.json");
     fs::write(&cfg_path, &cfg).map_err(|e| format!("write config.json: {}", e))?;
 
-    // Логи sing-box → файл в work_dir; забрать через:
-    // adb shell run-as com.whispera.whisp find cache -name singbox.log
-    // adb shell run-as com.whispera.whisp cat cache/whisp-singbox-<PID>/singbox.log
-    let log_path = work_dir.join("singbox.log");
-    let log_file = fs::File::create(&log_path).map_err(|e| format!("create log: {}", e))?;
-    let log_file2 = log_file.try_clone().map_err(|e| format!("clone log: {}", e))?;
-
     let mut cmd = Command::new(bin_path);
     cmd.arg("run").arg("-c").arg(&cfg_path)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(log_file))
-        .stderr(Stdio::from(log_file2));
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let preserve_fd = tun_fd;
     unsafe {
@@ -68,8 +61,25 @@ pub fn spawn_mihomo(
         });
     }
 
-    let child = cmd.spawn().map_err(|e| format!("spawn sing-box: {}", e))?;
+    let mut child = cmd.spawn().map_err(|e| format!("spawn sing-box: {}", e))?;
+    if let Some(s) = child.stdout.take() { drain_subprocess(s, "singbox") }
+    if let Some(s) = child.stderr.take() { drain_subprocess(s, "singbox") }
     Ok(MihomoChild { child, work_dir })
+}
+
+fn drain_subprocess<R: std::io::Read + Send + 'static>(src: R, tag: &'static str) {
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(src);
+        for line in reader.lines() {
+            if let Ok(l) = line {
+                if l.trim().is_empty() { continue; }
+                let msg = format!("[{}] {}", tag, l);
+                eprintln!("{}", msg);
+                crate::push_log(msg);
+            }
+        }
+    });
 }
 
 
