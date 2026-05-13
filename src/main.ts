@@ -1791,7 +1791,13 @@ function renderPage(): void {
   document.body.classList.toggle("theme-light", settings.theme === "auto");
   const main = document.getElementById("main-content")!;
   switch (currentPage) {
-    case "home": main.innerHTML = renderHome(); bindHomeEvents(); break;
+    case "home": {
+      const scrollY = main.scrollTop;
+      main.innerHTML = renderHome();
+      bindHomeEvents();
+      main.scrollTop = scrollY;
+      break;
+    }
     case "connections":
       main.innerHTML = `<div style="padding:32px;text-align:center;opacity:.5">${t("loading")}</div>`;
       Promise.all([fetchConnections(), fetchAgentStats(), fetchP2PStatus()]).then(() => {
@@ -1824,7 +1830,28 @@ function renderPage(): void {
 
 function updateHome(): void {
   if (currentPage !== "home") return;
-  renderPage();
+  // Try targeted DOM patches first — avoids scroll reset and animation restarts.
+  const dot = document.querySelector<HTMLElement>(".status-dot");
+  const btnConnect = document.getElementById("btn-connect") as HTMLButtonElement | null;
+  // If the connection card structure has changed (connected↔disconnected) or
+  // the page hasn't been rendered yet, fall back to a full re-render.
+  const cardIsConnected = btnConnect?.classList.contains("connected") ?? null;
+  const stateMatches = cardIsConnected === isConnected;
+  if (!dot || !btnConnect || !stateMatches) {
+    renderPage();
+    return;
+  }
+  // Same connection state — only patch ML-section badge in place.
+  const mlBadge = document.getElementById("ml-status-badge");
+  if (mlBadge) {
+    mlBadge.className = _mlStatus ? "badge-on" : "badge-off";
+    mlBadge.textContent = _mlStatus ? t("mlRunning") : t("mlStopped");
+  }
+  const mlMode = document.getElementById("ml-mode-badge");
+  if (mlMode) {
+    mlMode.className = _mlStatus ? "badge-on" : "badge-off";
+    mlMode.textContent = _mlStatus ? t("mlFallbackOff") : t("mlFallbackOn");
+  }
 }
 
 function showToast(msg: string, type: "success" | "error" | "info" = "info", duration = 3500): void {
