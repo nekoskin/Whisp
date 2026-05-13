@@ -154,25 +154,15 @@ class WhispVpnService : VpnService() {
         Thread({
             // 1. go-client как SOCKS5 upstream на :1080
             if (pendingConnKey.isNotEmpty() && java.io.File(goClientPath).exists()) {
-                try {
-                    val goArgs = mutableListOf(goClientPath,
-                        "-key", pendingConnKey,
-                        "-socks", "127.0.0.1:1080",
-                        "-no-tun")
-                    if (pendingMitm) goArgs.add("-mitm")
-                    goClientProc = ProcessBuilder(goArgs)
-                        .redirectErrorStream(true)
-                        .start()
-                    goClientProc?.inputStream?.let { stream ->
-                        Thread({
-                            try { val buf = ByteArray(8192); while (stream.read(buf) != -1) {} } catch (_: Throwable) {}
-                        }, "goclient-drain").apply { isDaemon = true }.start()
-                    }
+                val proc = launchGoClient(goClientPath)
+                if (proc != null) {
+                    goClientProc = proc
                     val ready = waitForPort("127.0.0.1", 1080, 4000)
                     if (!ready) Log.w(TAG, "go-client did not bind on :1080 within 4s")
                     toast("go-client started")
-                } catch (t: Throwable) {
-                    toast("go-client failed: ${t.message}")
+                    startGoClientWatchdog(goClientPath, proc)
+                } else {
+                    toast("go-client failed to launch")
                 }
             }
 
@@ -234,6 +224,46 @@ class WhispVpnService : VpnService() {
         try { stopForegroundCompat() } catch (_: Throwable) {}
         stopping.set(false)
         stopSelf()
+    }
+
+    private fun launchGoClient(path: String): Process? {
+        val args = mutableListOf(path, "-key", pendingConnKey, "-socks", "127.0.0.1:1080", "-no-tun")
+        if (pendingMitm) args.add("-mitm")
+        return try {
+            val p = ProcessBuilder(args).redirectErrorStream(true).start()
+            p.inputStream?.let { s ->
+                Thread({
+                    try { val b = ByteArray(8192); while (s.read(b) != -1) {} } catch (_: Throwable) {}
+                }, "goclient-drain").apply { isDaemon = true }.start()
+            }
+            p
+        } catch (t: Throwable) {
+            Log.e(TAG, "launchGoClient: ${t.message}")
+            null
+        }
+    }
+
+    // Restarts go-client if it exits unexpectedly (e.g. OOM-killed during heavy traffic).
+    // sing-box retries SOCKS5 per-connection, so new streams resume automatically once :1080 is back.
+    private fun startGoClientWatchdog(path: String, firstProc: Process) {
+        Thread({
+            var proc = firstProc
+            while (!stopping.get() && isRunning) {
+                try { proc.waitFor() } catch (_: InterruptedException) { break }
+                if (stopping.get() || !isRunning) break
+                Log.w(TAG, "go-client exited unexpectedly — restarting in 1s")
+                try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
+                if (stopping.get() || !isRunning) break
+                val newProc = launchGoClient(path) ?: break
+                if (stopping.get()) { newProc.destroy(); break }
+                goClientProc = newProc
+                proc = newProc
+                if (waitForPort("127.0.0.1", 1080, 3000))
+                    Log.i(TAG, "go-client restarted, :1080 ready")
+                else
+                    Log.w(TAG, "go-client restarted but :1080 not ready in 3s")
+            }
+        }, "goclient-watchdog").apply { isDaemon = true }.start()
     }
 
     private fun waitForPort(host: String, port: Int, timeoutMs: Long): Boolean {
