@@ -1539,10 +1539,32 @@ async function fetchP2PStatus(): Promise<void> {
 async function doConnect(): Promise<void> {
   isConnecting = true;
   if (currentPage === "home") renderPage();
+
+  // Ask ML server for transport recommendation before connecting.
+  if (_mlStatus) {
+    try {
+      const rec = await _mlFetch("/recommend/transport", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ host: settings.ml_server || "", port: 443 }),
+        signal: AbortSignal.timeout(2000),
+      });
+      if (rec.ok) {
+        const j = await rec.json() as { transport?: string; used_rl?: boolean; confidence?: number };
+        if (j.transport) {
+          settings.ml_transport = j.transport;
+          addLog(`✦ ML recommend: ${j.transport}${j.used_rl ? " (RL)" : ""} conf=${((j.confidence ?? 0) * 100).toFixed(0)}%`);
+        }
+      }
+    } catch { /**/ }
+  }
+
+  const connectStart = Date.now();
   try {
     const msg = await invoke<string>("connect");
     isConnected = true;
     connectTime = Date.now();
+    const latencyMs = connectTime - connectStart;
     addLog("✓ " + msg);
     startLogPolling();
     playConnectSound();
@@ -1552,6 +1574,15 @@ async function doConnect(): Promise<void> {
       : t("vpnConnected");
     showToast(transportMsg, "success", 4000);
     if (!isAndroid) osNotify("Whisp VPN", transportMsg);
+
+    // Report successful connection to ML server for RL training.
+    if (_mlStatus && _appliedMlTransport) {
+      _mlFetch("/feedback/connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transport: _appliedMlTransport, success: true, latency_ms: latencyMs }),
+      }).catch(() => {});
+    }
 
     // Auto-start ML server if key contains ml=enabled
     try {
@@ -1573,9 +1604,20 @@ async function doConnect(): Promise<void> {
       }
     } catch { /**/ }
   } catch (e) {
+    const latencyMs = Date.now() - connectStart;
     addLog("✗ " + e);
     showToast(String(e), "error", 5000);
     osNotify("Whisp VPN — ошибка", String(e));
+
+    // Report failed connection to ML server for RL training.
+    if (_mlStatus) {
+      const tr = _appliedMlTransport || settings.ml_transport || "tcp";
+      _mlFetch("/feedback/connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transport: tr, success: false, latency_ms: latencyMs }),
+      }).catch(() => {});
+    }
   }
   isConnecting = false;
   if (currentPage === "home") renderPage();
