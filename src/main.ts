@@ -228,7 +228,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     keywordHint: "Например: tracker", ipHint: "Например: 1.2.3.0/24",
     subscriptions: "Подписки", addSubscription: "Добавить подписку",
     subName: "Название", subUrl: "URL подписки", subUrlHint: "https://server/sub/TOKEN",
-    noSubscriptions: "Нет подписок", subKeys: "ключей", subRefreshing: "Обновление...",
+    noSubscriptions: "Нет подписок", subKeys: "ключей", subRefreshing: "Обновление...", subAdded: "Подписка добавлена",
     subRefresh: "Обновить", subDelete: "Удалить", subLastUpdated: "Обновлено",
     subSelectKey: "Выбрать ключ", subRename: "Переименовать",
     pingKey: "Пинг", pingAll: "Пинг всех", pingMs: "мс", pingTimeout: "timeout", pingRunning: "...",
@@ -505,7 +505,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     keywordHint: "e.g. tracker", ipHint: "e.g. 1.2.3.0/24",
     subscriptions: "Subscriptions", addSubscription: "Add subscription",
     subName: "Name", subUrl: "Subscription URL", subUrlHint: "https://server/sub/TOKEN",
-    noSubscriptions: "No subscriptions", subKeys: "keys", subRefreshing: "Refreshing...",
+    noSubscriptions: "No subscriptions", subKeys: "keys", subRefreshing: "Refreshing...", subAdded: "Subscription added",
     subRefresh: "Refresh", subDelete: "Delete", subLastUpdated: "Updated",
     subSelectKey: "Use key", subRename: "Rename",
     pingKey: "Ping", pingAll: "Ping all", pingMs: "ms", pingTimeout: "timeout", pingRunning: "...",
@@ -782,7 +782,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     keywordHint: "例如：tracker", ipHint: "例如：1.2.3.0/24",
     subscriptions: "订阅", addSubscription: "添加订阅",
     subName: "名称", subUrl: "订阅URL", subUrlHint: "https://server/sub/TOKEN",
-    noSubscriptions: "无订阅", subKeys: "密钥", subRefreshing: "更新中...",
+    noSubscriptions: "无订阅", subKeys: "密钥", subRefreshing: "更新中...", subAdded: "订阅已添加",
     subRefresh: "刷新", subDelete: "删除", subLastUpdated: "已更新",
     subSelectKey: "使用密钥", subRename: "重命名",
     pingKey: "延迟", pingAll: "全部延迟", pingMs: "毫秒", pingTimeout: "超时", pingRunning: "...",
@@ -1059,7 +1059,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     keywordHint: "مثلاً: tracker", ipHint: "مثلاً: 1.2.3.0/24",
     subscriptions: "اشتراک‌ها", addSubscription: "افزودن اشتراک",
     subName: "نام", subUrl: "URL اشتراک", subUrlHint: "https://server/sub/TOKEN",
-    noSubscriptions: "اشتراکی وجود ندارد", subKeys: "کلیدها", subRefreshing: "در حال بروزرسانی...",
+    noSubscriptions: "اشتراکی وجود ندارد", subKeys: "کلیدها", subRefreshing: "در حال بروزرسانی...", subAdded: "اشتراک اضافه شد",
     subRefresh: "بروزرسانی", subDelete: "حذف", subLastUpdated: "بروزرسانی شده",
     subSelectKey: "استفاده از کلید", subRename: "تغییر نام",
     pingKey: "پینگ", pingAll: "پینگ همه", pingMs: "میلی‌ثانیه", pingTimeout: "تایم‌اوت", pingRunning: "...",
@@ -3355,6 +3355,7 @@ function showSubModal(): void {
       const entry = await invoke<Subscription>("add_subscription", { name, url });
       subscriptions.push(entry);
       ov.remove();
+      showToast(t("subAdded"), "success", 3000);
       if (currentPage === "profiles") renderPage();
     } catch (e) {
       errEl.textContent = String(e);
