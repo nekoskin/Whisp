@@ -157,29 +157,26 @@ func (p *platform) OpenTun(options libbox.TunOptions) (int32, error) {
 	alog(fmt.Sprintf("OpenTun called, returning fd=%d", p.tunFd))
 	return p.tunFd, nil
 }
-func (p *platform) AutoDetectInterfaceControl(fd int32) error              { return nil }
-func (p *platform) UsePlatformAutoDetectInterfaceControl() bool            { return false }
-func (p *platform) UsePlatformDefaultInterfaceMonitor() bool               { return false }
+func (p *platform) AutoDetectInterfaceControl(fd int32) error   { return nil }
+func (p *platform) UsePlatformAutoDetectInterfaceControl() bool { return false }
 func (p *platform) StartDefaultInterfaceMonitor(l libbox.InterfaceUpdateListener) error {
 	return nil
 }
 func (p *platform) CloseDefaultInterfaceMonitor(l libbox.InterfaceUpdateListener) error {
 	return nil
 }
-func (p *platform) FindConnectionOwner(ipProto int32, srcAddr string, srcPort int32, dstAddr string, dstPort int32) (int32, error) {
-	return 0, nil
+func (p *platform) FindConnectionOwner(ipProto int32, srcAddr string, srcPort int32, dstAddr string, dstPort int32) (*libbox.ConnectionOwner, error) {
+	return &libbox.ConnectionOwner{}, nil
 }
-func (p *platform) PackageNameByUid(uid int32) (string, error)  { return "", nil }
-func (p *platform) UIDByPackageName(pkg string) (int32, error)  { return 0, nil }
-func (p *platform) UsePlatformInterfaceGetter() bool            { return false }
 func (p *platform) GetInterfaces() (libbox.NetworkInterfaceIterator, error) {
 	return &emptyIterator{}, nil
 }
 func (p *platform) UnderNetworkExtension() bool                              { return false }
 func (p *platform) IncludeAllNetworks() bool                                 { return false }
-func (p *platform) WriteLog(message string)                                  { alog("sb: " + message) }
 func (p *platform) UseProcFS() bool                                          { return false }
 func (p *platform) ReadWIFIState() *libbox.WIFIState                         { return &libbox.WIFIState{} }
+func (p *platform) SystemCertificates() libbox.StringIterator                { return nil }
+func (p *platform) LocalDNSTransport() libbox.LocalDNSTransport              { return nil }
 func (p *platform) ClearDNSCache()                                           {}
 func (p *platform) SendNotification(notification *libbox.Notification) error { return nil }
 
@@ -215,9 +212,17 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		}
 	}
 
+	if err := libbox.Setup(&libbox.SetupOptions{
+		BasePath:    workDir,
+		WorkingPath: workDir,
+		TempPath:    workDir,
+	}); err != nil {
+		alog(fmt.Sprintf("libbox.Setup failed: %v", err))
+	}
+
 	alog("building config")
 
-	routesJSON, needSniff, needBlock := buildSingboxRoutes(rulesJson)
+	routesJSON, _, needBlock := buildSingboxRoutes(rulesJson)
 
 	var outbounds, finalOut string
 	if socksAddr != "" {
@@ -243,34 +248,32 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		}
 	}
 
-	_ = needSniff // sniff always enabled in TUN inbound
-
-	routeExtra := ""
+	routeRules := `[{"action":"sniff"}]`
 	if routesJSON != "" {
-		routeExtra = fmt.Sprintf(`,
-    "rules": %s`, routesJSON)
+		inner := strings.TrimSpace(routesJSON)
+		inner = strings.TrimPrefix(inner, "[")
+		inner = strings.TrimSuffix(inner, "]")
+		if strings.TrimSpace(inner) != "" {
+			routeRules = `[{"action":"sniff"},` + inner + `]`
+		}
 	}
 
 	tunAddrs := `"172.19.0.1/30"`
+	fakeRange := `"inet4_range":"198.18.0.0/15"`
 	if ipv6 {
 		tunAddrs += `, "fdfe:dcba:9876::1/126"`
+		fakeRange += `,"inet6_range":"fc00::/18"`
 	}
 
-	// Fake-IP DNS: browser always gets a fake IPv4 (198.18.x.x), sing-box maps
-	// it back to the real hostname and sends SOCKS5 CONNECT by name.
-	// This lets server-side resolve both A and AAAA, so IPv6-only sites work
-	// even without IPv6 in the TUN stack.
 	dnsObject := fmt.Sprintf(`{
     "servers": [
-      {"tag":"dns_proxy","address":"https://1.1.1.1/dns-query","detour":%q}
+      {"type":"fakeip","tag":"fakeip",%s},
+      {"type":"https","tag":"dns_proxy","server":"1.1.1.1","detour":%q}
     ],
+    "rules": [{"query_type":["A","AAAA"],"server":"fakeip"}],
     "final": "dns_proxy",
-    "fakeip": {
-      "enabled": true,
-      "inet4_range": "198.18.0.0/15"
-    },
     "independent_cache": true
-  }`, finalOut)
+  }`, fakeRange, finalOut)
 
 	config := fmt.Sprintf(`{
   "log": {"level": "info"},
@@ -281,16 +284,15 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
     "address": [%s],
     "mtu": 1500,
     "auto_route": false,
-    "stack": "mixed",
-    "sniff": true,
-    "sniff_override_destination": true
+    "stack": "mixed"
   }],
   "outbounds": %s,
   "route": {
+    "rules": %s,
     "final": "%s",
-    "auto_detect_interface": false%s
+    "auto_detect_interface": false
   }
-}`, dnsObject, tunAddrs, outbounds, finalOut, routeExtra)
+}`, dnsObject, tunAddrs, outbounds, routeRules, finalOut)
 
 	alog(fmt.Sprintf("calling NewService fd=%d", fd))
 	s, err := libbox.NewService(config, &platform{tunFd: fd})

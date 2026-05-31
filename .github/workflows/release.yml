@@ -135,19 +135,26 @@ jobs:
 
       - name: Download mihomo
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           MIHOMO_VER="v1.19.8"
           ASSET="${{ matrix.mihomo_asset }}"
           ARCH="${{ matrix.mihomo_archive }}"
           OUT="src-tauri/binaries/mihomo-${{ matrix.triple }}${{ matrix.ext }}"
           mkdir -p src-tauri/binaries
+          BASE_URL="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VER}"
           if [ "$ARCH" = "zip" ]; then
-            curl -sL "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VER}/${ASSET}-${MIHOMO_VER}.zip" -o mihomo.zip
+            curl -fsSL --retry 3 --retry-delay 5 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              "${BASE_URL}/${ASSET}-${MIHOMO_VER}.zip" -o mihomo.zip
             unzip -o mihomo.zip -d mihomo_tmp/
-            mv mihomo_tmp/${ASSET}.exe "$OUT" || mv mihomo_tmp/mihomo*.exe "$OUT"
+            mv mihomo_tmp/${ASSET}.exe "$OUT" 2>/dev/null || mv mihomo_tmp/mihomo*.exe "$OUT"
             rm -rf mihomo.zip mihomo_tmp/
           else
-            curl -sL "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VER}/${ASSET}-${MIHOMO_VER}.gz" -o mihomo.gz
+            curl -fsSL --retry 3 --retry-delay 5 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              "${BASE_URL}/${ASSET}-${MIHOMO_VER}.gz" -o mihomo.gz
             gunzip -f mihomo.gz
             mv mihomo "$OUT"
             chmod +x "$OUT"
@@ -241,7 +248,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.22.x'
+          go-version: '1.24.x'
 
       - name: Install Rust stable + Android targets
         uses: dtolnay/rust-toolchain@stable
@@ -312,19 +319,19 @@ jobs:
           GOFLAGS: "-mod=mod"
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
-          MOBILE_VER="v0.0.0-20240213143359-d1f7d3436075"
+          MOBILE_VER="latest"
           go install golang.org/x/mobile/cmd/gomobile@${MOBILE_VER}
           go install golang.org/x/mobile/cmd/gobind@${MOBILE_VER}
           gomobile init
           mkdir -p src-tauri/gen/android/app/libs
           cd go-android
           go mod download
-          SB_MOD="$(go env GOPATH)/pkg/mod/github.com/sagernet/sing-box@v1.10.7"
+          SB_MOD="$(go env GOPATH)/pkg/mod/github.com/sagernet/sing-box@v1.13.12"
           cp -r "$SB_MOD" ./sing-box-patched
           chmod -R u+w ./sing-box-patched
           go run ./cmd/patch ./sing-box-patched
           echo "" >> go.mod
-          echo "replace github.com/sagernet/sing-box v1.10.7 => ./sing-box-patched" >> go.mod
+          echo "replace github.com/sagernet/sing-box v1.13.12 => ./sing-box-patched" >> go.mod
           export NDK_HOME="$ANDROID_NDK_HOME"
           gomobile bind \
             -target=android/arm64 \
