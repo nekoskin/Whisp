@@ -337,6 +337,7 @@ jobs:
             -target=android/arm64 \
             -androidapi=21 \
             -tags with_gvisor \
+            -ldflags=-checklinkname=0 \
             -o ../src-tauri/gen/android/app/libs/singbox.aar \
             .
           ls -lh ../src-tauri/gen/android/app/libs/singbox.aar
