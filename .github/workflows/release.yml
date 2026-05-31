@@ -317,9 +317,10 @@ jobs:
         env:
           GONOSUMDB: "*"
           GOFLAGS: "-mod=mod"
+          GOTOOLCHAIN: go1.24.7
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
-          MOBILE_VER="latest"
+          MOBILE_VER="v0.0.0-20250813145510-f12310a0cfd9"
           go install golang.org/x/mobile/cmd/gomobile@${MOBILE_VER}
           go install golang.org/x/mobile/cmd/gobind@${MOBILE_VER}
           gomobile init
