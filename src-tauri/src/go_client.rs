@@ -239,7 +239,13 @@ impl GoClientManager {
             .creation_flags_win(CREATE_NO_WINDOW)
             .output()
             .ok();
-        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        while std::time::Instant::now() < deadline {
+            if !service_running(SERVICE_NAME) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
         Command::new("taskkill")
             .args(["/F", "/IM", "whispera-go-client.exe"])
             .creation_flags_win(CREATE_NO_WINDOW)
@@ -261,7 +267,7 @@ impl GoClientManager {
         }
 
         self.stop()?;
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
         if service_exists(SERVICE_NAME) {
             eprintln!("[go_client] service exists, trying service mode");

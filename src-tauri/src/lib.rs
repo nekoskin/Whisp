@@ -484,8 +484,20 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
     if !settings.multi_bridges.is_empty() {
         let bridges_clone = settings.multi_bridges.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(800)).await;
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_millis(500))
+                .build()
+                .unwrap_or_default();
+            let deadline = tokio::time::Instant::now() + Duration::from_millis(2000);
+            loop {
+                if client.get("http://127.0.0.1:10801/status").send().await.is_ok() {
+                    break;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
             for b in &bridges_clone {
                 if let Err(e) = client
                     .post("http://127.0.0.1:10801/multi-bridges")
@@ -612,7 +624,7 @@ async fn connect_ml(
         }
     };
     if need_ml_wait {
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
     if let Ok(mut ep) = ML_ENDPOINT.lock() {

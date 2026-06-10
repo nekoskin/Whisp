@@ -48,7 +48,13 @@ impl MihomoManager {
             .args(["stop", SERVICE_NAME])
             .creation_flags_win(CREATE_NO_WINDOW)
             .output();
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+        while std::time::Instant::now() < deadline {
+            if !service_running(SERVICE_NAME) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
         let _ = Command::new("sc")
             .args(["delete", SERVICE_NAME])
             .creation_flags_win(CREATE_NO_WINDOW)
@@ -101,7 +107,13 @@ impl MihomoManager {
             .args(["stop", SERVICE_NAME])
             .creation_flags_win(CREATE_NO_WINDOW)
             .output();
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        while std::time::Instant::now() < deadline {
+            if !service_running(SERVICE_NAME) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
         Command::new("sc")
             .args(["delete", SERVICE_NAME])
             .creation_flags_win(CREATE_NO_WINDOW)
@@ -126,7 +138,13 @@ impl MihomoManager {
             || stdout.contains("1056")
         {
             self.use_service = true;
-            std::thread::sleep(std::time::Duration::from_millis(2000));
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+            while std::time::Instant::now() < deadline {
+                if service_running(SERVICE_NAME) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
             return Ok(());
         }
 
@@ -139,7 +157,13 @@ impl MihomoManager {
             .creation_flags_win(CREATE_NO_WINDOW)
             .output()
             .ok();
-        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        while std::time::Instant::now() < deadline {
+            if !service_running(SERVICE_NAME) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
         Command::new("taskkill")
             .args(["/F", "/IM", "mihomo.exe"])
             .creation_flags_win(CREATE_NO_WINDOW)
@@ -224,7 +248,7 @@ impl MihomoManager {
             return Err("UAC elevation was denied".to_string());
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(2000));
+        std::thread::sleep(std::time::Duration::from_millis(1000));
         self.process = None;
         self.elevated = true;
         self.use_service = false;
