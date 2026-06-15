@@ -35,6 +35,8 @@ class WhispVpnService : VpnService() {
 
     @Volatile private var didConnect = false
     private val stopping = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val starting = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var vpnStartThread: Thread? = null
 
     private var tunInterface: ParcelFileDescriptor? = null
     private var goClientProc: Process? = null
@@ -89,7 +91,6 @@ class WhispVpnService : VpnService() {
                 }
                 else -> {
                     if (intent != null) {
-                        // Normal start — load params from intent and persist them.
                         pendingConnKey   = intent.getStringExtra(EXTRA_CONN_KEY)   ?: ""
                         pendingRulesJson = intent.getStringExtra(EXTRA_RULES_JSON) ?: ""
                         pendingVpnDns    = intent.getStringExtra(EXTRA_VPN_DNS)?.takeIf { it.isNotEmpty() } ?: "1.1.1.1"
@@ -97,7 +98,6 @@ class WhispVpnService : VpnService() {
                         pendingMitm      = (intent.getStringExtra(EXTRA_MITM) ?: "0") == "1"
                         saveParams()
                     } else {
-                        // OS restarted the service (START_STICKY) — restore saved params.
                         if (!restoreParams()) { stopSelf(); return START_NOT_STICKY }
                     }
                     isRunning = true
@@ -109,12 +109,15 @@ class WhispVpnService : VpnService() {
             try { stopForegroundCompat() } catch (_: Throwable) {}
             stopSelf()
         }
-        // START_STICKY: if the OS kills this process (OEM RAM management, low memory),
-        // Android will restart the service with a null intent so we restore from prefs.
         return START_STICKY
     }
 
     private fun startVpnSafe() {
+        vpnStartThread?.interrupt()
+        vpnStartThread = null
+        if (!starting.compareAndSet(false, true)) return
+        var launched = false
+        try {
         stopping.set(false)
         didConnect = false
         toast("starting")
@@ -146,47 +149,56 @@ class WhispVpnService : VpnService() {
         tunInterface = pfd
         toast("TUN fd=${pfd.fd}")
 
-        // go-client + waitForPort + sing-box — всё в фоновом потоке,
-        // чтобы не блокировать main thread (WebView рендеринг).
         val libDir = applicationInfo.nativeLibraryDir
         val goClientPath = "$libDir/libwhispera-go-client.so"
         val filesAbsDir = filesDir.absolutePath
-        Thread({
-            // 1. go-client как SOCKS5 upstream на :1080
-            if (pendingConnKey.isNotEmpty() && java.io.File(goClientPath).exists()) {
-                val proc = launchGoClient(goClientPath)
-                if (proc != null) {
-                    goClientProc = proc
-                    val ready = waitForPort("127.0.0.1", 1080, 4000)
-                    if (!ready) Log.w(TAG, "go-client did not bind on :1080 within 4s")
-                    toast("go-client started")
-                    startGoClientWatchdog(goClientPath, proc)
-                } else {
-                    toast("go-client failed to launch")
-                }
-            }
-
-            // 2. sing-box: TUN fd → SOCKS5 → go-client
+        val t = Thread({
             try {
+                var socksAddr = ""
+                if (pendingConnKey.isNotEmpty() && java.io.File(goClientPath).exists()) {
+                    val proc = launchGoClient(goClientPath)
+                    if (proc != null) {
+                        goClientProc = proc
+                        val ready = waitForPort("127.0.0.1", 1080, 4000)
+                        if (ready) {
+                            socksAddr = "127.0.0.1:1080"
+                            toast("go-client started")
+                            startGoClientWatchdog(goClientPath, proc)
+                        } else {
+                            Log.w(TAG, "go-client did not bind on :1080 within 4s")
+                            proc.destroy()
+                            goClientProc = null
+                        }
+                    } else {
+                        toast("go-client failed to launch")
+                    }
+                }
+
+                if (Thread.currentThread().isInterrupted) return@Thread
+
                 Log.i(TAG, "singbox Start() fd=${pfd.fd}")
-                Singbox.start(pfd.fd, filesAbsDir, if (goClientProc != null) "127.0.0.1:1080" else "", pendingConnKey, pendingRulesJson, pendingIpv6)
+                Singbox.start(pfd.fd, filesAbsDir, socksAddr, pendingConnKey, pendingRulesJson, pendingIpv6)
                 Log.i(TAG, "singbox running")
                 didConnect = true
                 toast("VPN started")
             } catch (t: Throwable) {
+                if (t is InterruptedException) return@Thread
                 Log.e(TAG, "singbox FATAL: ${t.stackTraceToString()}")
                 postEvent("Whisp VPN — ошибка", t.message ?: "Ошибка подключения")
                 toast("singbox: ${t.javaClass.simpleName}: ${t.message ?: t.toString()}")
                 stopVpn()
+            } finally {
+                starting.set(false)
             }
-        }, "vpn-start").start()
+        }, "vpn-start")
+        vpnStartThread = t
+        t.start()
+        launched = true
+        } finally {
+            if (!launched) starting.set(false)
+        }
     }
 
-    // Парсит pendingRulesJson и применяет split-tunneling для process-name правил.
-    // action=DIRECT → addDisallowedApplication: пакет обходит VPN-туннель.
-    // action=PROXY  → ничего: трафик идёт через VPN по умолчанию (disallow-mode).
-    // action=REJECT → addDisallowedApplication: обходит тоннель (блокировку на
-    //                 уровне VPN реализовать нельзя без root/nfqueue).
     private fun applyAppRoutingRules(builder: Builder) {
         if (pendingRulesJson.isEmpty()) return
         try {
@@ -195,9 +207,9 @@ class WhispVpnService : VpnService() {
                 val obj = arr.optJSONObject(i) ?: continue
                 if (obj.optString("kind") != "process-name") continue
                 val action = obj.optString("action", "DIRECT")
-                if (action == "PROXY") continue   // уже идёт через VPN по умолчанию
+                if (action == "PROXY") continue
                 val pkg = obj.optString("name").takeIf { it.isNotEmpty() } ?: continue
-                if (pkg == packageName) continue  // наш же пакет — уже добавлен выше
+                if (pkg == packageName) continue
                 try {
                     builder.addDisallowedApplication(pkg)
                     Log.d(TAG, "appRule $action bypass: $pkg")
@@ -233,7 +245,11 @@ class WhispVpnService : VpnService() {
             val p = ProcessBuilder(args).redirectErrorStream(true).start()
             p.inputStream?.let { s ->
                 Thread({
-                    try { val b = ByteArray(8192); while (s.read(b) != -1) {} } catch (_: Throwable) {}
+                    try {
+                        val br = java.io.BufferedReader(java.io.InputStreamReader(s))
+                        var line: String?
+                        while (br.readLine().also { line = it } != null) Log.i("go-client", line!!)
+                    } catch (_: Throwable) {}
                 }, "goclient-drain").apply { isDaemon = true }.start()
             }
             p
@@ -243,8 +259,6 @@ class WhispVpnService : VpnService() {
         }
     }
 
-    // Restarts go-client if it exits unexpectedly (e.g. OOM-killed during heavy traffic).
-    // sing-box retries SOCKS5 per-connection, so new streams resume automatically once :1080 is back.
     private fun startGoClientWatchdog(path: String, firstProc: Process) {
         Thread({
             var proc = firstProc
@@ -275,9 +289,6 @@ class WhispVpnService : VpnService() {
         return false
     }
 
-    // App swiped away from recents — stopWithTask=false keeps the service alive
-    // under normal conditions, but some OEM ROMs kill the process anyway.
-    // Returning START_STICKY from onStartCommand handles automatic restart by the OS.
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
     }
