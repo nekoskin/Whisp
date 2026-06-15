@@ -261,10 +261,10 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 
 	var dnsServers, dnsFinal string
 	if socksAddr != "" {
-		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"type":"tcp","tag":"dns_proxy","address":"1.1.1.1","detour":"proxy"}`, fakeRange)
+		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"address":"tcp://1.1.1.1","tag":"dns_proxy","detour":"proxy"}`, fakeRange)
 		dnsFinal = "dns_proxy"
 	} else {
-		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"type":"local","tag":"dns_local"}`, fakeRange)
+		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"address":"local","tag":"dns_local"}`, fakeRange)
 		dnsFinal = "dns_local"
 	}
 	dnsObject := fmt.Sprintf(`{
