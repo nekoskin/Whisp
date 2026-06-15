@@ -1,12 +1,6 @@
 package singbox
 
 
-// #cgo LDFLAGS: -llog
-// #include <android/log.h>
-// #include <stdlib.h>
-// static void go_logcat(const char* msg) {
-//     __android_log_print(ANDROID_LOG_INFO, "singbox-go", "%s", msg);
-// }
 import "C"
 
 import (
@@ -26,8 +20,6 @@ import (
 	"github.com/sagernet/sing-box/experimental/libbox"
 )
 
-// На Android stdout/stderr уходят в /dev/null и не видны в logcat.
-// init() перехватывает их через os.Pipe() и перенаправляет в __android_log_print.
 func init() {
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -111,7 +103,6 @@ func buildSingboxRoutes(rulesJson string) (routesJSON string, needSniff bool, ne
 			if r.CIDR != "" {
 				entry.IPCIDR = append(entry.IPCIDR, r.CIDR)
 			}
-		// "process-name" skipped — not supported in Android TUN routing
 		}
 	}
 
@@ -181,7 +172,6 @@ func (p *platform) LocalDNSTransport() libbox.LocalDNSTransport              { r
 func (p *platform) ClearDNSCache()                                           {}
 func (p *platform) SendNotification(notification *libbox.Notification) error { return nil }
 
-// Start запускает sing-box. fd — ParcelFileDescriptor.getFd() из Kotlin.
 func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson string, ipv6 bool) (retErr error) {
 	alog(fmt.Sprintf("Start() ENTER fd=%d workDir=%s socksAddr=%s", fd, workDir, socksAddr))
 
@@ -206,8 +196,6 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		if err := os.MkdirAll(workDir, 0o755); err != nil {
 			alog(fmt.Sprintf("MkdirAll failed: %v", err))
 		}
-		// Set CWD so sing-box's relative "cache.db" resolves to writable app dir.
-		// Safe here: called under mu.Lock before any sing-box goroutines start.
 		if err := os.Chdir(workDir); err != nil {
 			alog(fmt.Sprintf("Chdir failed: %v", err))
 		}
@@ -235,7 +223,7 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		}
 		h := sha256.Sum256([]byte(connKey))
 		pass := hex.EncodeToString(h[:])
-		outbounds = fmt.Sprintf(`[{"type":"direct","tag":"direct"},{"type":"socks","tag":"proxy","server":%q,"server_port":%d,"version":"5","username":"whisp","password":%q}`, host, port, pass)
+		outbounds = fmt.Sprintf(`[{"type":"direct","tag":"direct","domain_strategy":"prefer_ipv4"},{"type":"socks","tag":"proxy","server":%q,"server_port":%d,"version":"5","username":"whisp","password":%q}`, host, port, pass)
 		if needBlock {
 			outbounds += `,{"type":"block","tag":"block"}`
 		}
@@ -243,9 +231,9 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 	} else {
 		finalOut = "direct"
 		if needBlock {
-			outbounds = `[{"type":"direct","tag":"direct"},{"type":"block","tag":"block"}]`
+			outbounds = `[{"type":"direct","tag":"direct","domain_strategy":"prefer_ipv4"},{"type":"block","tag":"block"}]`
 		} else {
-			outbounds = `[{"type":"direct","tag":"direct"}]`
+			outbounds = `[{"type":"direct","tag":"direct","domain_strategy":"prefer_ipv4"}]`
 		}
 	}
 
@@ -266,15 +254,20 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		fakeRange += `,"inet6_range":"fc00::/18"`
 	}
 
+	var dnsServers, dnsFinal string
+	if socksAddr != "" {
+		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"type":"tcp","tag":"dns_proxy","address":"1.1.1.1","detour":"proxy"}`, fakeRange)
+		dnsFinal = "dns_proxy"
+	} else {
+		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"type":"local","tag":"dns_local"}`, fakeRange)
+		dnsFinal = "dns_local"
+	}
 	dnsObject := fmt.Sprintf(`{
-    "servers": [
-      {"type":"fakeip","tag":"fakeip",%s},
-      {"type":"https","tag":"dns_proxy","server":"1.1.1.1","detour":%q}
-    ],
+    "servers": [%s],
     "rules": [{"query_type":["A","AAAA"],"server":"fakeip"}],
-    "final": "dns_proxy",
+    "final": %q,
     "independent_cache": true
-  }`, fakeRange, finalOut)
+  }`, dnsServers, dnsFinal)
 
 	config := fmt.Sprintf(`{
   "log": {"level": "info"},
@@ -313,7 +306,6 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 	return nil
 }
 
-// Stop останавливает sing-box.
 func Stop() {
 	alog("Stop() called")
 	mu.Lock()

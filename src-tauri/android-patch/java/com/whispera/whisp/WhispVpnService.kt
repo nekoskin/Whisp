@@ -25,7 +25,7 @@ class WhispVpnService : VpnService() {
         const val EXTRA_VPN_DNS    = "com.whispera.whisp.EXTRA_VPN_DNS"
         const val EXTRA_IPV6       = "com.whispera.whisp.EXTRA_IPV6"
         const val EXTRA_MITM       = "com.whispera.whisp.EXTRA_MITM"
-        const val NOTIFICATION_ID = 17
+        const val NOTIFICATION_ID = 1080
         const val CHANNEL_ID = "whisp_vpn_channel"
         const val CHANNEL_ID_EVENTS = "whisp_events"
         const val NOTIF_ID_EVENT = 18
@@ -90,6 +90,9 @@ class WhispVpnService : VpnService() {
                     return START_NOT_STICKY
                 }
                 else -> {
+                    try { startForegroundCompat() } catch (t: Throwable) {
+                        toast("startForeground: ${t.message}"); stopSelf(); return START_NOT_STICKY
+                    }
                     if (intent != null) {
                         pendingConnKey   = intent.getStringExtra(EXTRA_CONN_KEY)   ?: ""
                         pendingRulesJson = intent.getStringExtra(EXTRA_RULES_JSON) ?: ""
@@ -98,7 +101,7 @@ class WhispVpnService : VpnService() {
                         pendingMitm      = (intent.getStringExtra(EXTRA_MITM) ?: "0") == "1"
                         saveParams()
                     } else {
-                        if (!restoreParams()) { stopSelf(); return START_NOT_STICKY }
+                        if (!restoreParams()) { stopVpn(); return START_NOT_STICKY }
                     }
                     isRunning = true
                     startVpnSafe()
@@ -126,10 +129,6 @@ class WhispVpnService : VpnService() {
             toast("VPN permission not granted"); stopSelf(); return
         }
 
-        try { startForegroundCompat() } catch (t: Throwable) {
-            toast("startForeground: ${t.message}"); stopSelf(); return
-        }
-
         val pfd = try {
             Builder()
                 .setSession("Whisp VPN")
@@ -139,6 +138,7 @@ class WhispVpnService : VpnService() {
                 .addRoute("0.0.0.0", 0)
                 .also { if (pendingIpv6) it.addRoute("::", 0) }
                 .addDnsServer(pendingVpnDns)
+                .also { if (pendingIpv6) it.addDnsServer("fdfe:dcba:9876::2") }
                 .also { try { it.addDisallowedApplication(packageName) } catch (_: Throwable) {} }
                 .also { applyAppRoutingRules(it) }
                 .establish()
@@ -159,16 +159,11 @@ class WhispVpnService : VpnService() {
                     val proc = launchGoClient(goClientPath)
                     if (proc != null) {
                         goClientProc = proc
+                        socksAddr = "127.0.0.1:1080"
                         val ready = waitForPort("127.0.0.1", 1080, 4000)
-                        if (ready) {
-                            socksAddr = "127.0.0.1:1080"
-                            toast("go-client started")
-                            startGoClientWatchdog(goClientPath, proc)
-                        } else {
-                            Log.w(TAG, "go-client did not bind on :1080 within 4s")
-                            proc.destroy()
-                            goClientProc = null
-                        }
+                        if (ready) toast("go-client started")
+                        else Log.w(TAG, "go-client did not bind on :1080 within 4s, proceeding anyway")
+                        startGoClientWatchdog(goClientPath, proc)
                     } else {
                         toast("go-client failed to launch")
                     }
