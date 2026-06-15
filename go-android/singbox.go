@@ -1,6 +1,11 @@
 package singbox
 
-
+// #cgo LDFLAGS: -llog
+// #include <android/log.h>
+// #include <stdlib.h>
+// static void go_logcat(const char* msg) {
+//     __android_log_print(ANDROID_LOG_INFO, "singbox-go", "%s", msg);
+// }
 import "C"
 
 import (
