@@ -234,7 +234,8 @@ class WhispVpnService : VpnService() {
     }
 
     private fun launchGoClient(path: String): Process? {
-        val args = mutableListOf(path, "-key", pendingConnKey, "-socks", "127.0.0.1:1080", "-no-tun")
+        val logPath = "${filesDir.absolutePath}/go-client.log"
+        val args = mutableListOf(path, "-key", pendingConnKey, "-socks", "127.0.0.1:1080", "-no-tun", "-log-file", logPath)
         if (pendingMitm) args.add("-mitm")
         return try {
             val p = ProcessBuilder(args).redirectErrorStream(true).start()
