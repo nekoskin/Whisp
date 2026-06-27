@@ -6,6 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -25,6 +29,7 @@ class WhispVpnService : VpnService() {
         const val EXTRA_VPN_DNS    = "com.whispera.whisp.EXTRA_VPN_DNS"
         const val EXTRA_IPV6       = "com.whispera.whisp.EXTRA_IPV6"
         const val EXTRA_MITM       = "com.whispera.whisp.EXTRA_MITM"
+        const val EXTRA_DNS_MODE   = "com.whispera.whisp.EXTRA_DNS_MODE"
         const val NOTIFICATION_ID = 1080
         const val CHANNEL_ID = "whisp_vpn_channel"
         const val CHANNEL_ID_EVENTS = "whisp_events"
@@ -40,11 +45,14 @@ class WhispVpnService : VpnService() {
 
     private var tunInterface: ParcelFileDescriptor? = null
     private var goClientProc: Process? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var lastWakeMs: Long = 0L
     private var pendingConnKey: String = ""
     private var pendingRulesJson: String = ""
     private var pendingVpnDns: String = "1.1.1.1"
     private var pendingIpv6: Boolean = true
     private var pendingMitm: Boolean = false
+    private var pendingDnsMode: String = "udp"
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private fun toast(msg: String) {
@@ -61,6 +69,7 @@ class WhispVpnService : VpnService() {
             .putString("vpn_dns",     pendingVpnDns)
             .putBoolean("ipv6",       pendingIpv6)
             .putBoolean("mitm",       pendingMitm)
+            .putString("dns_mode",    pendingDnsMode)
             .apply()
     }
 
@@ -73,6 +82,7 @@ class WhispVpnService : VpnService() {
         pendingVpnDns    = p.getString("vpn_dns", "1.1.1.1") ?: "1.1.1.1"
         pendingIpv6      = p.getBoolean("ipv6", true)
         pendingMitm      = p.getBoolean("mitm", false)
+        pendingDnsMode   = p.getString("dns_mode", "udp") ?: "udp"
         return true
     }
 
@@ -99,6 +109,7 @@ class WhispVpnService : VpnService() {
                         pendingVpnDns    = intent.getStringExtra(EXTRA_VPN_DNS)?.takeIf { it.isNotEmpty() } ?: "1.1.1.1"
                         pendingIpv6      = (intent.getStringExtra(EXTRA_IPV6) ?: "1") != "0"
                         pendingMitm      = (intent.getStringExtra(EXTRA_MITM) ?: "0") == "1"
+                        pendingDnsMode   = intent.getStringExtra(EXTRA_DNS_MODE)?.takeIf { it in listOf("udp","tcp","doh") } ?: "udp"
                         saveParams()
                     } else {
                         if (!restoreParams()) { stopVpn(); return START_NOT_STICKY }
@@ -172,7 +183,7 @@ class WhispVpnService : VpnService() {
                 if (Thread.currentThread().isInterrupted) return@Thread
 
                 Log.i(TAG, "singbox Start() fd=${pfd.fd}")
-                Singbox.start(pfd.fd, filesAbsDir, socksAddr, pendingConnKey, pendingRulesJson, pendingIpv6)
+                Singbox.start(pfd.fd, filesAbsDir, socksAddr, pendingConnKey, pendingRulesJson, pendingIpv6, pendingDnsMode)
                 Log.i(TAG, "singbox running")
                 didConnect = true
                 toast("VPN started")
@@ -189,6 +200,7 @@ class WhispVpnService : VpnService() {
         vpnStartThread = t
         t.start()
         launched = true
+        registerNetworkCallback()
         } finally {
             if (!launched) starting.set(false)
         }
@@ -223,6 +235,7 @@ class WhispVpnService : VpnService() {
             return
         }
         Log.i(TAG, "stopVpn")
+        unregisterNetworkCallback()
         try { Singbox.stop() } catch (_: Throwable) {}
         goClientProc?.destroy()
         goClientProc = null
@@ -274,6 +287,57 @@ class WhispVpnService : VpnService() {
                     Log.w(TAG, "go-client restarted but :1080 not ready in 3s")
             }
         }, "goclient-watchdog").apply { isDaemon = true }.start()
+    }
+
+    private fun registerNetworkCallback() {
+        if (networkCallback != null) return
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val req = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                if (didConnect && isRunning) wakeGoClient()
+            }
+        }
+        networkCallback = cb
+        try {
+            cm.registerNetworkCallback(req, cb)
+        } catch (t: Throwable) {
+            Log.w(TAG, "registerNetworkCallback: ${t.message}")
+            networkCallback = null
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val cb = networkCallback ?: return
+        networkCallback = null
+        try {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+                ?.unregisterNetworkCallback(cb)
+        } catch (_: Throwable) {}
+    }
+
+    private fun wakeGoClient() {
+        val now = System.currentTimeMillis()
+        if (now - lastWakeMs < 1500) return
+        lastWakeMs = now
+        Thread({
+            try {
+                val conn = java.net.URL("http://127.0.0.1:10801/wake")
+                    .openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.connectTimeout = 1000
+                conn.readTimeout = 1000
+                conn.doOutput = true
+                conn.outputStream.use { it.write(ByteArray(0)) }
+                Log.i(TAG, "wake -> ${conn.responseCode}")
+                conn.disconnect()
+            } catch (t: Throwable) {
+                Log.w(TAG, "wake failed: ${t.message}")
+            }
+        }, "wake-poke").apply { isDaemon = true }.start()
     }
 
     private fun waitForPort(host: String, port: Int, timeoutMs: Long): Boolean {
