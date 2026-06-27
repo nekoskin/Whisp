@@ -177,7 +177,7 @@ func (p *platform) LocalDNSTransport() libbox.LocalDNSTransport              { r
 func (p *platform) ClearDNSCache()                                           {}
 func (p *platform) SendNotification(notification *libbox.Notification) error { return nil }
 
-func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson string, ipv6 bool) (retErr error) {
+func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson string, ipv6 bool, dnsMode string) (retErr error) {
 	alog(fmt.Sprintf("Start() ENTER fd=%d workDir=%s socksAddr=%s", fd, workDir, socksAddr))
 
 	defer func() {
@@ -259,10 +259,19 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		fakeRange += `,"inet6_range":"fc00::/18"`
 	}
 
+	dnsAddr := "1.1.1.1"
+	dnsTag := "dns_udp"
+	switch dnsMode {
+	case "tcp":
+		dnsAddr, dnsTag = "tcp://1.1.1.1", "dns_tcp"
+	case "doh":
+		dnsAddr, dnsTag = "https://1.1.1.1/dns-query", "dns_doh"
+	}
+
 	var dnsServers, dnsFinal string
 	if socksAddr != "" {
-		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"address":"tcp://1.1.1.1","tag":"dns_proxy","detour":"proxy"}`, fakeRange)
-		dnsFinal = "dns_proxy"
+		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"address":%q,"tag":%q,"detour":"proxy"}`, fakeRange, dnsAddr, dnsTag)
+		dnsFinal = dnsTag
 	} else {
 		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"address":"local","tag":"dns_local"}`, fakeRange)
 		dnsFinal = "dns_local"
