@@ -1,12 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
-import { readText as clipboardRead, writeText as clipboardWrite } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText as clipboardWrite } from "@tauri-apps/plugin-clipboard-manager";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import "./styles.css";
 
 const ICONS = {
+  power: `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>`,
+  plus: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
   bolt: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
   home: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
-  wifi: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>`,
   user: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
   log: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
   settings: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
@@ -27,7 +28,6 @@ interface MultiBridgeEntry {
 
 interface AppSettings {
   conn_key: string;
-  extra_keys?: string[];
   auto_connect: boolean;
   theme: string;
   mihomo_port: number;
@@ -39,8 +39,6 @@ interface AppSettings {
   hwid: boolean;
   auth_tip: boolean;
   secret: string;
-  p2p_relay_addr?: string;
-  p2p_secret?: string;
   custom_dns?: string[];
   vpn_dns?: string;
   mitm_enabled?: boolean;
@@ -66,16 +64,7 @@ interface Subscription {
   updated: string;
 }
 
-interface SiteCheck {
-  name: string;
-  letter: string;
-  cssClass: string;
-  url: string;
-  status: "checking" | "ok" | "timeout";
-  ping: number;
-}
-
-type Page = "home" | "connections" | "profiles" | "routing" | "logs" | "settings";
+type Page = "home" | "routing" | "logs" | "settings";
 type Lang = "ru" | "en" | "zh" | "fa";
 
 interface RoutingRule {
@@ -87,10 +76,9 @@ interface RoutingRule {
 
 const i18n: Record<Lang, Record<string, string>> = {
   ru: {
-    home: "Главная", connections: "Соединения", profiles: "Профили", routing: "Маршруты", logs: "Журнал", settings: "Настройки",
-    connection: "ПОДКЛЮЧЕНИЕ", noProfile: "Нет профиля", disconnected: "Отключено", connected: "Подключено",
+    home: "Главная", profiles: "Профили", routing: "Маршруты", logs: "Журнал", settings: "Настройки",
+    disconnected: "Отключено", connected: "Подключено",
     keyPlaceholder: "Вставьте ключ...", connect: "Connect", disconnect: "Disconnect",
-    siteCheck: "ПРОВЕРКА САЙТОВ", timeout: "Timeout", ok: "OK", checking: "...",
     ipInfo: "IP ИНФОРМАЦИЯ", ipAddress: "IP Адрес", location: "Местоположение", provider: "Провайдер",
     system: "СИСТЕМА", os: "ОС", uptime: "Время работы", version: "Версия", admin: "Админ",
     activeConns: "Активные соединения", connectToSee: "Подключитесь чтобы увидеть соединения",
@@ -109,7 +97,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     tunnel: "ТУННЕЛЬ", server: "Сервер", duration: "Длительность",
     proxy: "ПРОКСИ", port: "Порт", notSet: "не задан",
     clearLogs: "Очистить", active: "Активно", inactive: "Неактивно",
-    paste: "Вставить", connecting: "Подключение...", disconnecting: "Отключение...",
+    connecting: "Подключение...", disconnecting: "Отключение...",
     killSwitch: "Kill Switch",
     routingTitle: "Маршруты", routingDesc: "Укажите приложения или сайты которые идут напрямую или через прокси",
     addSite: "Добавить сайт", addApp: "Выбрать приложение", domain: "Домен", app: "Приложение",
@@ -129,9 +117,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     pingKey: "Пинг", pingAll: "Пинг всех", pingMs: "мс", pingTimeout: "timeout", pingRunning: "...",
     loading: "Загрузка…",
     copied: "Скопировано",
-    keyPasted: "Ключ вставлен",
-    clipboardEmpty: "Буфер пуст",
-    clipboardFail: "Ошибка чтения буфера",
     vpnConnected: "Подключено",
     vpnDisconnected: "Отключено",
     muxOn: "MUX включён",
@@ -142,29 +127,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     bridgeUpdated: "Мост обновлён",
     speedUpdated: "Скорость обновлена",
     portUpdated: "Порт обновлён",
-    keyRemoved: "Ключ удалён",
-    keyInvalidFormat: "Неверный формат ключа",
-    encapRemoved: "Инкапсуляция снята",
-    encapApplied: "Инкапсуляция применена",
-    selectTwoConns: "Выберите два разных соединения",
     noRecommendation: "Нет рекомендации",
     noActiveConns: "Нет активных соединений",
-    enterRelayAddr: "Укажите адрес ретранслятора",
-    enterPeerId: "Введите Peer ID",
-    p2pEstablished: "P2P соединение установлено",
-    p2pRegistered: "зарегистрирован",
-    p2pInactive: "не активен",
-    p2pRelayAddr: "Адрес ретранслятора",
-    p2pSecret: "Секрет",
-    p2pSharedSecret: "общий секрет",
-    p2pConnectTo: "Подключиться к",
-    p2pRegister: "Зарегистрироваться",
-    p2pDisconnect: "Отключиться",
-    p2pConnectPeer: "Подключиться",
-    p2pCancel: "Отменить",
-    p2pCopied: "Скопировано",
-    p2pRelay: "P2P ретранслятор",
-    p2pConnected: "подключён",
     agentTransport: "Агент транспорта",
     agentNotRunning: "Агент не запущен",
     agentTransportUCB: "Агент транспорта (UCB)",
@@ -179,29 +143,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     agentConnected: "подключён",
     agentBlocked: "заблокирован",
     agentNoData: "нет данных",
-    connEncap: "Инкапсуляция соединений",
-    connEncapDesc: "Туннелирует одно соединение внутри другого — внешнее маскирует внутреннее.",
-    connEncapOuter: "Внешнее",
-    connEncapInner: "Внутреннее",
-    connNeedTwo: "Нужно минимум 2 соединения",
     connCountLabel: "Соединений",
-    connKeysConfigured: "Настроено ключей",
-    connEncapTitle: "Объединение ключей",
-    connEncapDesc2: "Каждый дополнительный ключ создаёт отдельное соединение с независимым транспортом.",
-    connAdd: "Добавить",
     connNoActive: "Нет активных соединений",
     connKeyEncrypted: "зашифрован",
-    listView: "Список",
-    nodeGraph: "Node-граф",
-    nodeDragHint: "Перетащи узел за заголовок · Соедини узлы: потяни правый порт ○ на левый ○ другого узла",
-    portIn: "Порт входа — перетащи сюда выход другого узла",
-    portOut: "Порт выхода — перетащи на вход другого узла",
-    nodeServer: "Сервер",
-    nodeEnableDisable: "Вкл/Выкл",
-    nodeDuplicate: "Дублировать соединение",
-    nodeDup: "Дубл",
-    nodeUnchain: "Снять инкапсуляцию",
-    nodeBridgePlaceholder: "Мост host:port",
     connStatusActive: "активно",
     connStatusConnecting: "подключение",
     connStatusFailed: "ошибка",
@@ -284,11 +228,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     reconnectRequired: "Переподключитесь для применения правила",
     logSearchPlaceholder: "Поиск в логах...",
     logAll: "Все",
-    encapsulatedIn: "инкапсулировано в",
     transportSet: "Транспорт →",
     duplicated: "Дублировано",
     duplicatedTo: "Дублировано →",
-    keyAdded: "Ключ добавлен (всего",
     profileSet: "Профиль:",
     fingerprintSet: "Фингерпринт:",
     analysisDone: "Анализ завершён — риск DPI:",
@@ -304,10 +246,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     releaseNotes: "Изменения",
   },
   en: {
-    home: "Home", connections: "Connections", profiles: "Profiles", routing: "Routing", logs: "Logs", settings: "Settings",
-    connection: "CONNECTION", noProfile: "No profile", disconnected: "Disconnected", connected: "Connected",
+    home: "Home", profiles: "Profiles", routing: "Routing", logs: "Logs", settings: "Settings",
+    disconnected: "Disconnected", connected: "Connected",
     keyPlaceholder: "Paste key...", connect: "Connect", disconnect: "Disconnect",
-    siteCheck: "SITE CHECK", timeout: "Timeout", ok: "OK", checking: "...",
     ipInfo: "IP INFORMATION", ipAddress: "IP Address", location: "Location", provider: "Provider",
     system: "SYSTEM", os: "OS", uptime: "Uptime", version: "Version", admin: "Admin",
     activeConns: "Active connections", connectToSee: "Connect to see connections",
@@ -326,7 +267,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     tunnel: "TUNNEL", server: "Server", duration: "Duration",
     proxy: "PROXY", port: "Port", notSet: "not set",
     clearLogs: "Clear", active: "Active", inactive: "Inactive",
-    paste: "Paste", connecting: "Connecting...", disconnecting: "Disconnecting...",
+    connecting: "Connecting...", disconnecting: "Disconnecting...",
     killSwitch: "Kill Switch",
     routingTitle: "Routing", routingDesc: "Specify apps or sites that go direct or through proxy",
     addSite: "Add site", addApp: "Browse app", domain: "Domain", app: "Application",
@@ -346,9 +287,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     pingKey: "Ping", pingAll: "Ping all", pingMs: "ms", pingTimeout: "timeout", pingRunning: "...",
     loading: "Loading…",
     copied: "Copied",
-    keyPasted: "Key pasted",
-    clipboardEmpty: "Clipboard is empty",
-    clipboardFail: "Clipboard read failed",
     vpnConnected: "Connected",
     vpnDisconnected: "Disconnected",
     muxOn: "MUX on",
@@ -359,29 +297,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     bridgeUpdated: "Bridge updated",
     speedUpdated: "Speed updated",
     portUpdated: "Port updated",
-    keyRemoved: "Key removed",
-    keyInvalidFormat: "Invalid key format",
-    encapRemoved: "Encapsulation removed",
-    encapApplied: "Encapsulation applied",
-    selectTwoConns: "Select two different connections",
     noRecommendation: "No recommendation",
     noActiveConns: "No active connections",
-    enterRelayAddr: "Enter relay address",
-    enterPeerId: "Enter Peer ID",
-    p2pEstablished: "P2P connection established",
-    p2pRegistered: "registered",
-    p2pInactive: "inactive",
-    p2pRelayAddr: "Relay address",
-    p2pSecret: "Secret",
-    p2pSharedSecret: "shared secret",
-    p2pConnectTo: "Connect to",
-    p2pRegister: "Register",
-    p2pDisconnect: "Disconnect",
-    p2pConnectPeer: "Connect to peer",
-    p2pCancel: "Cancel",
-    p2pCopied: "Copied",
-    p2pRelay: "P2P Relay",
-    p2pConnected: "connected",
     agentTransport: "Transport Agent",
     agentNotRunning: "Agent not running",
     agentTransportUCB: "Transport Agent (UCB)",
@@ -396,29 +313,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     agentConnected: "connected",
     agentBlocked: "blocked",
     agentNoData: "no data",
-    connEncap: "Connection Encapsulation",
-    connEncapDesc: "Tunnel one connection inside another — outer masks the inner.",
-    connEncapOuter: "Outer",
-    connEncapInner: "Inner",
-    connNeedTwo: "Need at least 2 connections",
     connCountLabel: "Connections",
-    connKeysConfigured: "Keys configured",
-    connEncapTitle: "Key Combining",
-    connEncapDesc2: "Each extra key creates a separate connection with its own transport.",
-    connAdd: "Add",
     connNoActive: "No active connections",
     connKeyEncrypted: "encrypted",
-    listView: "List view",
-    nodeGraph: "Node graph",
-    nodeDragHint: "Drag node by header · Connect: drag right port ○ onto left port ○ of another node",
-    portIn: "Input port — drag another node's output here",
-    portOut: "Output port — drag onto another node's input",
-    nodeServer: "Server",
-    nodeEnableDisable: "Enable/Disable",
-    nodeDuplicate: "Duplicate connection",
-    nodeDup: "Dup",
-    nodeUnchain: "Remove encapsulation",
-    nodeBridgePlaceholder: "Bridge host:port",
     connStatusActive: "active",
     connStatusConnecting: "connecting",
     connStatusFailed: "failed",
@@ -501,11 +398,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     reconnectRequired: "Reconnect to apply the rule",
     logSearchPlaceholder: "Search logs...",
     logAll: "All",
-    encapsulatedIn: "encapsulated in",
     transportSet: "Transport →",
     duplicated: "Duplicated",
     duplicatedTo: "Duplicated →",
-    keyAdded: "Key added (total",
     profileSet: "Profile:",
     fingerprintSet: "Fingerprint:",
     analysisDone: "Analysis done — DPI risk:",
@@ -521,10 +416,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     releaseNotes: "Release notes",
   },
   zh: {
-    home: "主页", connections: "连接", profiles: "配置", routing: "路由", logs: "日志", settings: "设置",
-    connection: "连接", noProfile: "无配置", disconnected: "已断开", connected: "已连接",
+    home: "主页", profiles: "配置", routing: "路由", logs: "日志", settings: "设置",
+    disconnected: "已断开", connected: "已连接",
     keyPlaceholder: "粘贴密钥...", connect: "连接", disconnect: "断开",
-    siteCheck: "网站检测", timeout: "超时", ok: "正常", checking: "...",
     ipInfo: "IP信息", ipAddress: "IP地址", location: "位置", provider: "运营商",
     system: "系统", os: "操作系统", uptime: "运行时间", version: "版本", admin: "管理员",
     activeConns: "活跃连接", connectToSee: "连接后查看连接",
@@ -543,7 +437,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     tunnel: "隧道", server: "服务器", duration: "时长",
     proxy: "代理", port: "端口", notSet: "未设置",
     clearLogs: "清空", active: "活跃", inactive: "非活跃",
-    paste: "粘贴", connecting: "连接中...", disconnecting: "断开中...",
+    connecting: "连接中...", disconnecting: "断开中...",
     killSwitch: "终止开关",
     routingTitle: "路由", routingDesc: "指定直连或经代理的应用或网站",
     addSite: "添加网站", addApp: "选择应用", domain: "域名", app: "应用",
@@ -563,9 +457,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     pingKey: "延迟", pingAll: "全部延迟", pingMs: "毫秒", pingTimeout: "超时", pingRunning: "...",
     loading: "加载中…",
     copied: "已复制",
-    keyPasted: "密钥已粘贴",
-    clipboardEmpty: "剪贴板为空",
-    clipboardFail: "读取剪贴板失败",
     vpnConnected: "已连接",
     vpnDisconnected: "已断开",
     muxOn: "MUX已开启",
@@ -576,29 +467,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     bridgeUpdated: "桥接已更新",
     speedUpdated: "速度已更新",
     portUpdated: "端口已更新",
-    keyRemoved: "密钥已删除",
-    keyInvalidFormat: "密钥格式无效",
-    encapRemoved: "封装已移除",
-    encapApplied: "封装已应用",
-    selectTwoConns: "请选择两个不同的连接",
     noRecommendation: "无推荐",
     noActiveConns: "无活跃连接",
-    enterRelayAddr: "请输入中继地址",
-    enterPeerId: "请输入Peer ID",
-    p2pEstablished: "P2P连接已建立",
-    p2pRegistered: "已注册",
-    p2pInactive: "未激活",
-    p2pRelayAddr: "中继地址",
-    p2pSecret: "密钥",
-    p2pSharedSecret: "共享密钥",
-    p2pConnectTo: "连接到",
-    p2pRegister: "注册",
-    p2pDisconnect: "断开",
-    p2pConnectPeer: "连接到节点",
-    p2pCancel: "取消",
-    p2pCopied: "已复制",
-    p2pRelay: "P2P中继",
-    p2pConnected: "已连接",
     agentTransport: "传输代理",
     agentNotRunning: "代理未运行",
     agentTransportUCB: "传输代理 (UCB)",
@@ -613,29 +483,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     agentConnected: "已连接",
     agentBlocked: "已封锁",
     agentNoData: "无数据",
-    connEncap: "连接封装",
-    connEncapDesc: "在另一个连接内隧道一个连接——外层掩盖内层。",
-    connEncapOuter: "外层",
-    connEncapInner: "内层",
-    connNeedTwo: "至少需要2个连接",
     connCountLabel: "连接数",
-    connKeysConfigured: "已配置密钥",
-    connEncapTitle: "密钥合并",
-    connEncapDesc2: "每个额外密钥会创建一个独立传输的单独连接。",
-    connAdd: "添加",
     connNoActive: "无活跃连接",
     connKeyEncrypted: "已加密",
-    listView: "列表视图",
-    nodeGraph: "节点图",
-    nodeDragHint: "拖动节点标题 · 连接：将右端口 ○ 拖到另一个节点的左端口 ○",
-    portIn: "输入端口 — 将另一个节点的输出拖到这里",
-    portOut: "输出端口 — 拖到另一个节点的输入上",
-    nodeServer: "服务器",
-    nodeEnableDisable: "启用/禁用",
-    nodeDuplicate: "复制连接",
-    nodeDup: "复制",
-    nodeUnchain: "移除封装",
-    nodeBridgePlaceholder: "桥接 host:port",
     connStatusActive: "活跃",
     connStatusConnecting: "连接中",
     connStatusFailed: "失败",
@@ -718,11 +568,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     reconnectRequired: "重连以应用规则",
     logSearchPlaceholder: "搜索日志...",
     logAll: "全部",
-    encapsulatedIn: "封装于",
     transportSet: "传输 →",
     duplicated: "已复制",
     duplicatedTo: "已复制 →",
-    keyAdded: "密钥已添加（共",
     profileSet: "配置:",
     fingerprintSet: "指纹:",
     analysisDone: "分析完成 — DPI风险:",
@@ -738,10 +586,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     releaseNotes: "发布说明",
   },
   fa: {
-    home: "خانه", connections: "اتصالات", profiles: "پروفایل‌ها", routing: "مسیریابی", logs: "گزارش", settings: "تنظیمات",
-    connection: "اتصال", noProfile: "بدون پروفایل", disconnected: "قطع شده", connected: "متصل",
+    home: "خانه", profiles: "پروفایل‌ها", routing: "مسیریابی", logs: "گزارش", settings: "تنظیمات",
+    disconnected: "قطع شده", connected: "متصل",
     keyPlaceholder: "کلید را وارد کنید...", connect: "اتصال", disconnect: "قطع",
-    siteCheck: "بررسی سایت", timeout: "تایم‌اوت", ok: "خوب", checking: "...",
     ipInfo: "اطلاعات IP", ipAddress: "آدرس IP", location: "موقعیت", provider: "ارائه‌دهنده",
     system: "سیستم", os: "سیستم‌عامل", uptime: "مدت اجرا", version: "نسخه", admin: "مدیر",
     activeConns: "اتصالات فعال", connectToSee: "برای مشاهده متصل شوید",
@@ -760,7 +607,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     tunnel: "تونل", server: "سرور", duration: "مدت",
     proxy: "پراکسی", port: "پورت", notSet: "تنظیم نشده",
     clearLogs: "پاک کردن", active: "فعال", inactive: "غیرفعال",
-    paste: "چسباندن", connecting: "در حال اتصال...", disconnecting: "در حال قطع...",
+    connecting: "در حال اتصال...", disconnecting: "در حال قطع...",
     killSwitch: "Kill Switch",
     routingTitle: "مسیریابی", routingDesc: "برنامه‌ها یا سایت‌هایی که مستقیم یا از طریق پراکسی هستند را مشخص کنید",
     addSite: "افزودن سایت", addApp: "انتخاب برنامه", domain: "دامنه", app: "برنامه",
@@ -780,9 +627,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     pingKey: "پینگ", pingAll: "پینگ همه", pingMs: "میلی‌ثانیه", pingTimeout: "تایم‌اوت", pingRunning: "...",
     loading: "در حال بارگذاری…",
     copied: "کپی شد",
-    keyPasted: "کلید وارد شد",
-    clipboardEmpty: "کلیپ‌بورد خالی است",
-    clipboardFail: "خواندن کلیپ‌بورد ناموفق",
     vpnConnected: "متصل شد",
     vpnDisconnected: "قطع شد",
     muxOn: "MUX روشن شد",
@@ -793,29 +637,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     bridgeUpdated: "پل به‌روز شد",
     speedUpdated: "سرعت به‌روز شد",
     portUpdated: "پورت به‌روز شد",
-    keyRemoved: "کلید حذف شد",
-    keyInvalidFormat: "فرمت کلید نامعتبر است",
-    encapRemoved: "کپسوله‌سازی حذف شد",
-    encapApplied: "کپسوله‌سازی اعمال شد",
-    selectTwoConns: "دو اتصال متفاوت انتخاب کنید",
     noRecommendation: "توصیه‌ای وجود ندارد",
     noActiveConns: "اتصال فعالی وجود ندارد",
-    enterRelayAddr: "آدرس رله را وارد کنید",
-    enterPeerId: "Peer ID را وارد کنید",
-    p2pEstablished: "اتصال P2P برقرار شد",
-    p2pRegistered: "ثبت‌نام شده",
-    p2pInactive: "غیرفعال",
-    p2pRelayAddr: "آدرس رله",
-    p2pSecret: "رمز",
-    p2pSharedSecret: "رمز مشترک",
-    p2pConnectTo: "اتصال به",
-    p2pRegister: "ثبت‌نام",
-    p2pDisconnect: "قطع اتصال",
-    p2pConnectPeer: "اتصال به همتا",
-    p2pCancel: "لغو",
-    p2pCopied: "کپی شد",
-    p2pRelay: "رله P2P",
-    p2pConnected: "متصل",
     agentTransport: "عامل انتقال",
     agentNotRunning: "عامل در حال اجرا نیست",
     agentTransportUCB: "عامل انتقال (UCB)",
@@ -830,29 +653,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     agentConnected: "متصل",
     agentBlocked: "مسدود",
     agentNoData: "بدون داده",
-    connEncap: "کپسوله‌سازی اتصال",
-    connEncapDesc: "یک اتصال را درون اتصال دیگری تونل می‌کند — بیرونی داخلی را پنهان می‌کند.",
-    connEncapOuter: "بیرونی",
-    connEncapInner: "داخلی",
-    connNeedTwo: "حداقل ۲ اتصال لازم است",
     connCountLabel: "تعداد اتصالات",
-    connKeysConfigured: "کلیدهای پیکربندی‌شده",
-    connEncapTitle: "ترکیب کلیدها",
-    connEncapDesc2: "هر کلید اضافی یک اتصال جداگانه با انتقال مستقل ایجاد می‌کند.",
-    connAdd: "افزودن",
     connNoActive: "اتصال فعالی وجود ندارد",
     connKeyEncrypted: "رمزنگاری شده",
-    listView: "نمای لیست",
-    nodeGraph: "نمودار گره",
-    nodeDragHint: "گره را از عنوان بکشید · اتصال: پورت راست ○ را روی پورت چپ ○ گره دیگری بکشید",
-    portIn: "پورت ورودی — خروجی گره دیگری را اینجا بکشید",
-    portOut: "پورت خروجی — روی ورودی گره دیگری بکشید",
-    nodeServer: "سرور",
-    nodeEnableDisable: "روشن/خاموش",
-    nodeDuplicate: "تکرار اتصال",
-    nodeDup: "تکرار",
-    nodeUnchain: "حذف کپسوله‌سازی",
-    nodeBridgePlaceholder: "پل host:port",
     connStatusActive: "فعال",
     connStatusConnecting: "در حال اتصال",
     connStatusFailed: "ناموفق",
@@ -935,11 +738,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     reconnectRequired: "برای اعمال قانون دوباره متصل شوید",
     logSearchPlaceholder: "جستجو در گزارش‌ها...",
     logAll: "همه",
-    encapsulatedIn: "کپسوله شده در",
     transportSet: "انتقال →",
     duplicated: "کپی شد",
     duplicatedTo: "کپی شد →",
-    keyAdded: "کلید اضافه شد (جمع",
     profileSet: "پروفایل:",
     fingerprintSet: "اثر انگشت:",
     analysisDone: "تحلیل انجام شد — خطر DPI:",
@@ -976,43 +777,12 @@ interface ConnectionEntry {
   bytes_down: number;
   connected_at?: string;
   error?: string;
-  encapsulated_in?: string;
   force_obfuscation: boolean;
   behavioral_profile?: string;
-  key_index?: number; // set by Tauri for extra-key connections (0-based)
 }
 
 let connectionsList: ConnectionEntry[] = [];
 let connectionsExpanded: Set<string> = new Set();
-
-// Node-граф: состояние
-let nodeViewActive: boolean = localStorage.getItem("whispera_ng_view") !== "0";
-const nodePositions = new Map<string, { x: number; y: number }>();
-let ngPortDrag: { srcId: string; sx: number; sy: number; ex: number; ey: number } | null = null;
-
-function loadNodePositions(): void {
-  try {
-    const raw = localStorage.getItem("whispera_node_pos");
-    if (raw) {
-      const obj = JSON.parse(raw) as Record<string, { x: number; y: number }>;
-      Object.entries(obj).forEach(([id, pos]) => nodePositions.set(id, pos));
-    }
-  } catch { /**/ }
-}
-loadNodePositions();
-
-function saveNodePositions(): void {
-  const obj: Record<string, { x: number; y: number }> = {};
-  nodePositions.forEach((pos, id) => { obj[id] = pos; });
-  localStorage.setItem("whispera_node_pos", JSON.stringify(obj));
-}
-
-function getNodePos(id: string, idx: number): { x: number; y: number } {
-  if (nodePositions.has(id)) return nodePositions.get(id)!;
-  const col = idx % 3;
-  const row = Math.floor(idx / 3);
-  return { x: 20 + col * 270, y: 20 + row * 240 };
-}
 
 const isAndroid = /android/i.test(navigator.userAgent);
 
@@ -1050,19 +820,6 @@ let logLines: string[] = [];
 let connectTime: number | null = null;
 let ipInfo = { ip: "—", location: "—", provider: "—" };
 let sysInfo = { os: "—", uptime: "—", version: "v0.1.4", admin: false };
-
-const sites: SiteCheck[] = [
-  { name: "Google",    letter: "G",  cssClass: "google",    url: "https://google.com",    status: "checking", ping: 0 },
-  { name: "YouTube",   letter: "Y",  cssClass: "youtube",   url: "https://youtube.com",   status: "checking", ping: 0 },
-  { name: "GitHub",    letter: "H",  cssClass: "github",    url: "https://github.com",    status: "checking", ping: 0 },
-  { name: "Twitter",   letter: "X",  cssClass: "twitter",   url: "https://twitter.com",   status: "checking", ping: 0 },
-  { name: "Spotify",   letter: "S",  cssClass: "spotify",   url: "https://spotify.com",   status: "checking", ping: 0 },
-  { name: "Instagram", letter: "In", cssClass: "instagram", url: "https://instagram.com", status: "checking", ping: 0 },
-  { name: "Facebook",  letter: "F",  cssClass: "facebook",  url: "https://facebook.com",  status: "checking", ping: 0 },
-  { name: "Discord",   letter: "D",  cssClass: "discord",   url: "https://discord.com",   status: "checking", ping: 0 },
-  { name: "Reddit",    letter: "R",  cssClass: "reddit",    url: "https://reddit.com",    status: "checking", ping: 0 },
-  { name: "Netflix",   letter: "N",  cssClass: "netflix",   url: "https://netflix.com",   status: "checking", ping: 0 },
-];
 
 function t(key: string): string { return i18n[lang][key] || key; }
 
@@ -1120,7 +877,7 @@ async function autoCheckSubscriptions(): Promise<void> {
       }
     } catch {/**/}
   }
-  if (subUpdateAvailable.size > 0 && currentPage === "profiles") renderPage();
+  if (subUpdateAvailable.size > 0 && currentPage === "home") renderPage();
 }
 
 function startSubAutoCheck(): void {
@@ -1188,18 +945,6 @@ async function fetchAgentStats(): Promise<void> {
   } catch { _agentStats = null; }
 }
 
-interface P2PStatus {
-  registered: boolean;
-  connected: boolean;
-  relay_addr: string;
-  peer_id: string;
-}
-let _p2pStatus: P2PStatus = { registered: false, connected: false, relay_addr: "", peer_id: "" };
-
-async function fetchP2PStatus(): Promise<void> {
-  try { _p2pStatus = await invoke<P2PStatus>("p2p_status"); } catch { /* control server not up */ }
-}
-
 async function doConnect(): Promise<void> {
   isConnecting = true;
   if (currentPage === "home") renderPage();
@@ -1251,40 +996,6 @@ async function checkStatus(): Promise<void> {
 }
 
 /* Site checks — update DOM in-place, no flicker */
-async function checkSites(): Promise<void> {
-  for (const site of sites) {
-    site.status = "checking";
-    site.ping = 0;
-    updateSiteDOM(site);
-  }
-  for (const site of sites) {
-    try {
-      const result = await invoke<{ status: number; ping_ms: number }>("check_site", { url: site.url });
-      site.status = result.status < 400 ? "ok" : "timeout";
-      site.ping = result.ping_ms;
-    } catch {
-      site.status = "timeout";
-      site.ping = 0;
-    }
-    updateSiteDOM(site);
-  }
-}
-
-function updateSiteDOM(site: SiteCheck): void {
-  const el = document.getElementById("site-" + site.name);
-  if (!el) return;
-  const statusEl = el.querySelector(".site-status");
-  if (!statusEl) return;
-  statusEl.className = "site-status " + site.status;
-  if (site.status === "ok") {
-    statusEl.textContent = site.ping + "ms";
-  } else if (site.status === "timeout") {
-    statusEl.textContent = t("timeout");
-  } else {
-    statusEl.textContent = "...";
-  }
-}
-
 async function fetchIpInfo(): Promise<void> {
   try {
     const info = await invoke<{ ip: string; city: string; region: string; country: string; org: string; loc: string }>("get_ip_info");
@@ -1327,20 +1038,13 @@ function _refreshLogBox(): void {
   const box = document.getElementById("log-box");
   if (!box) return;
   const filtered = logLines.filter(l => {
-    if (logFilter !== "all") {
-      const level = logFilter.toUpperCase();
-      if (!l.toUpperCase().includes(`[${level}]`) && !l.toUpperCase().includes(`"level":"${level}"`)) return false;
-    }
+    if (logFilter !== "all" && logLineLevel(l) !== logFilter) return false;
     if (logSearch && !l.toLowerCase().includes(logSearch.toLowerCase())) return false;
     return true;
   });
   const colorized = filtered.map(l => {
-    let cls = "log-line";
-    const u = l.toUpperCase();
-    if (u.includes("[ERROR]") || u.includes('"level":"error"')) cls += " log-error";
-    else if (u.includes("[WARN]") || u.includes('"level":"warn"')) cls += " log-warn";
-    else if (u.includes("[INFO]") || u.includes('"level":"info"')) cls += " log-info";
-    else if (u.includes("[DEBUG]") || u.includes('"level":"debug"')) cls += " log-debug";
+    const lvl = logLineLevel(l);
+    const cls = "log-line" + (lvl ? ` log-${lvl}` : "");
     return `<div class="${cls}">${esc(l)}</div>`;
   }).join("");
   box.innerHTML = colorized || `<div class="log-line log-info">${t("logReady")}</div>`;
@@ -1354,6 +1058,18 @@ function addLog(line: string): void {
   logLines.push("[" + ts + "] " + line);
   if (logLines.length > 500) logLines.shift();
   _refreshLogBox();
+}
+
+// go-client's console encoder pads short level names to a fixed width inside
+// the brackets (e.g. "[INFO ]", "[WARN ]"), so match tolerating whitespace
+// rather than an exact "[INFO]" substring.
+function logLineLevel(line: string): "error" | "warn" | "info" | "debug" | null {
+  const u = line.toUpperCase();
+  if (/\[\s*ERROR\s*\]/.test(u) || u.includes('"LEVEL":"ERROR"')) return "error";
+  if (/\[\s*WARN\s*\]/.test(u) || u.includes('"LEVEL":"WARN"')) return "warn";
+  if (/\[\s*INFO\s*\]/.test(u) || u.includes('"LEVEL":"INFO"')) return "info";
+  if (/\[\s*DEBUG\s*\]/.test(u) || u.includes('"LEVEL":"DEBUG"')) return "debug";
+  return null;
 }
 
 function renderShell(): void {
@@ -1389,8 +1105,6 @@ function renderNav(): void {
   const routeIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v3a3 3 0 0 0 3 3h6"/></svg>`;
   const items: { id: Page; icon: string; label: string }[] = [
     { id: "home",        icon: ICONS.home,     label: t("home") },
-    { id: "connections", icon: ICONS.wifi,     label: t("connections") },
-    { id: "profiles",   icon: ICONS.user,     label: t("profiles") },
     { id: "routing",    icon: routeIcon,      label: t("routing") },
     { id: "logs",       icon: ICONS.log,      label: t("logs") },
     { id: "settings",   icon: ICONS.settings, label: t("settings") },
@@ -1434,24 +1148,25 @@ function renderPage(): void {
       const scrollY = main.scrollTop;
       main.innerHTML = renderHome();
       bindHomeEvents();
+      bindConnectionsEvents();
+      bindProfileEvents();
       main.scrollTop = scrollY;
-      break;
-    }
-    case "connections":
-      main.innerHTML = `<div style="padding:32px;text-align:center;opacity:.5">${t("loading")}</div>`;
-      Promise.all([fetchConnections(), fetchAgentStats(), fetchP2PStatus()]).then(() => {
+      Promise.all([fetchConnections(), fetchAgentStats()]).then(() => {
+        if (currentPage !== "home") return;
         try {
-          main.innerHTML = renderConnections();
+          const scrollY2 = main.scrollTop;
+          main.innerHTML = renderHome();
+          bindHomeEvents();
           bindConnectionsEvents();
+          bindProfileEvents();
+          main.scrollTop = scrollY2;
         } catch (e) {
-          console.error("renderConnections failed:", e);
+          console.error("renderHome failed:", e);
           connectionsList = [];
-          main.innerHTML = renderConnections();
-          bindConnectionsEvents();
         }
       });
       break;
-    case "profiles": main.innerHTML = renderProfiles(); bindProfileEvents(); break;
+    }
     case "routing": main.innerHTML = renderRouting(); bindRoutingEvents(); break;
     case "logs":
       main.innerHTML = renderLogs();
@@ -1514,70 +1229,35 @@ function renderHome(): string {
   const profileName = profiles.find(p => p.key === settings.conn_key)?.name;
   const serverHost = getServerHost();
   const uptimeStr = isConnected && connectTime ? formatDuration(Date.now() - connectTime) : "";
+  const dis = isConnecting;
 
-  let connectionCard: string;
-  if (isConnected) {
-    connectionCard = `
-      <div class="card card-connection">
-        <div class="card-header">
-          <span class="card-title">${t("connection")}</span>
-          <span class="card-title-right">${profileName || t("noProfile")}</span>
-        </div>
-        <div class="status-line">
-          <span class="status-dot on"></span>
-          <span class="status-text">${t("connected")}</span>
-          <span class="status-uptime" id="status-uptime">${uptimeStr}</span>
-        </div>
-        ${serverHost ? `<div class="info-row conn-server-row"><span class="info-label">${t("server")}</span><span class="info-value">${esc(serverHost)}</span></div>` : ""}
-        <div class="ks-row">
-          <span class="ks-label">${t("killSwitch")}</span>
-          <span class="${settings.kill_switch ? "badge-on" : "badge-off"}">${settings.kill_switch ? "ON" : "OFF"}</span>
-        </div>
-        <button class="btn-connect connected" id="btn-connect">${ICONS.x} ${t("disconnect")}</button>
-      </div>`;
-  } else {
-    const dis = isConnecting;
-    connectionCard = `
-      <div class="card card-connection">
-        <div class="card-header">
-          <span class="card-title">${t("connection")}</span>
-          <span class="card-title-right">${profileName || t("noProfile")}</span>
-        </div>
-        <div class="status-line">
-          <span class="status-dot ${dis ? "connecting" : "off"}"></span>
-          <span class="status-text">${dis ? t("connecting") : t("disconnected")}</span>
-        </div>
-        <div class="key-area">
-          <textarea class="key-input" id="conn-key" rows="2" placeholder="${t("keyPlaceholder")}"${dis ? " disabled" : ""}>${esc(settings.conn_key)}</textarea>
-          <div class="key-footer">
-            <span class="key-hint">Ctrl+Enter</span>
-            <button class="paste-btn" id="btn-paste"${dis ? " disabled" : ""}>${t("paste")}</button>
-          </div>
-        </div>
-        <div class="ks-row">
-          <span class="ks-label">${t("killSwitch")}</span>
-          <label class="toggle"><input type="checkbox" id="ks-home" ${settings.kill_switch ? "checked" : ""}${dis ? " disabled" : ""}/><span class="toggle-slider"></span></label>
-        </div>
-        <button class="btn-connect${dis ? " connecting" : ""}" id="btn-connect"${dis ? " disabled" : ""}>${dis ? t("connecting") : t("connect")}</button>
-      </div>`;
-  }
+  const powerBlock = `
+    <div class="power-wrap">
+      <button class="btn-power${isConnected ? " connected" : ""}${dis ? " connecting" : ""}" id="btn-connect"${dis ? " disabled" : ""}>${ICONS.power}</button>
+    </div>
+    <div class="power-status">
+      <div class="status-text">${dis ? t("connecting") : isConnected ? t("connected") : t("disconnected")}</div>
+      ${isConnected ? `<div class="status-server">${profileName ? esc(profileName) + " · " : ""}${serverHost ? esc(serverHost) + " · " : ""}<span id="status-uptime">${uptimeStr}</span></div>` : ""}
+    </div>
+    <div class="ks-row" style="max-width:280px;margin:6px auto 0">
+      <span class="ks-label">${t("killSwitch")}</span>
+      <label class="toggle"><input type="checkbox" id="ks-home" ${settings.kill_switch ? "checked" : ""}${dis ? " disabled" : ""}/><span class="toggle-slider"></span></label>
+    </div>`;
 
   return `<div class="home-grid">
-    ${connectionCard}
+    ${powerBlock}
 
-    <div class="card card-sites">
-      <div class="card-header">
-        <span class="card-title">${t("siteCheck")}</span>
-        <button class="refresh-btn" id="btn-refresh-sites">${ICONS.refresh}</button>
-      </div>
-      <div class="sites-grid">
-        ${sites.map(s => `<div class="site-item" id="site-${s.name}">
-          <div class="site-icon ${s.cssClass}">${s.letter}</div>
-          <span class="site-name">${s.name}</span>
-          <span class="site-status ${s.status}">${s.status === "ok" ? s.ping + "ms" : s.status === "timeout" ? t("timeout") : "..."}</span>
-        </div>`).join("")}
-      </div>
+    <div class="section-header">
+      <span class="section-title">${t("profiles")}</span>
+      <button class="btn-icon-add" id="btn-add-profile">${ICONS.plus}</button>
     </div>
+    ${renderProfileList()}
+
+    <div class="section-header">
+      <span class="section-title">${t("subscriptions")}</span>
+      <button class="btn-icon-add" id="btn-add-sub">${ICONS.plus}</button>
+    </div>
+    ${renderSubList()}
 
     <div class="card card-ip">
       <div class="card-header"><span class="card-title">${t("ipInfo")}</span><button class="refresh-btn" id="btn-refresh-ip">${ICONS.refresh}</button></div>
@@ -1593,45 +1273,78 @@ function renderHome(): string {
       <div class="info-row"><span class="info-label">${t("version")}</span><span class="info-value" id="sys-ver">${sysInfo.version}</span></div>
       <div class="info-row"><span class="info-label">${t("admin")}</span><span class="info-value ${sysInfo.admin ? "badge-on" : "badge-off"}" id="sys-admin">${sysInfo.admin ? "ON" : "OFF"}</span></div>
     </div>
-  </div>`;
+  </div>
+
+  ${renderConnectionsSection()}`;
+}
+
+function renderConnectionsSection(): string {
+  const server = getServerHost() || (settings.conn_key ? t("connKeyEncrypted") : t("notSet"));
+  const uptimeStr = isConnected && connectTime ? formatDuration(Date.now() - connectTime) : "—";
+  const stChipCls = isConnected ? "chip-active" : "chip-idle";
+  const stChipTxt = isConnected ? t("active") : t("inactive");
+  const connCount = connectionsList.length;
+  const activeCount = connectionsList.filter(c => c.status === "connected").length;
+
+  const connCards = connectionsList.map(renderConnectionCard).join("");
+
+  return `
+    <div class="card" style="margin-top:9px">
+      <div class="card-header">
+        <span class="card-title">${t("tunnel")}</span>
+        <span class="conn-chip ${stChipCls}" style="margin-right:6px">${stChipTxt}</span>
+        <button class="refresh-btn" id="btn-refresh-conns">${ICONS.refresh}</button>
+      </div>
+      <div class="info-row">
+        <span class="info-label">${t("server")}</span>
+        <span class="info-value">${esc(server)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">${t("duration")}</span>
+        <span class="info-value" id="conn-uptime">${uptimeStr}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">${t("connCountLabel")}</span>
+        <span class="info-value">${activeCount} / ${connCount}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Kill Switch</span>
+        <span class="info-value"><span class="${settings.kill_switch ? "badge-on" : "badge-off"}">${settings.kill_switch ? "ON" : "OFF"}</span></span>
+      </div>
+    </div>
+
+    <div id="conn-list">${connCards}</div>
+
+    <div class="card" style="margin-top:9px">
+      <div class="card-header"><span class="card-title">${t("proxy")}</span></div>
+      <div class="info-row">
+        <span class="info-label">SOCKS5</span>
+        <span class="info-value">${esc(settings.socks_addr)}:10800</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Mihomo</span>
+        <span class="info-value">:${settings.mihomo_port}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">IPv6</span>
+        <span class="info-value"><span class="${settings.ipv6 ? "badge-on" : "badge-off"}">${settings.ipv6 ? "ON" : "OFF"}</span></span>
+      </div>
+    </div>
+
+    ${connectionsList.length === 0 ? `
+    <div class="empty-state" style="padding:32px 0;margin-top:9px">
+      <p style="opacity:.4">${t("connNoActive")}</p>
+    </div>` : ""}`;
 }
 
 function bindHomeEvents(): void {
   document.getElementById("btn-connect")?.addEventListener("click", async () => {
     if (isConnecting) return;
-    if (!isConnected) {
-      const k = document.getElementById("conn-key") as HTMLTextAreaElement | null;
-      if (k) { settings.conn_key = k.value.trim(); await persistSettings(); }
+    if (!isConnected && !settings.conn_key) {
+      showToast(t("keyPlaceholder"), "error", 2500);
+      return;
     }
     isConnected ? await doDisconnect() : await doConnect();
-  });
-
-  document.getElementById("btn-paste")?.addEventListener("click", async () => {
-    try {
-      const text = await clipboardRead();
-      const ta = document.getElementById("conn-key") as HTMLTextAreaElement | null;
-      if (ta && text && text.trim()) {
-        ta.value = text.trim();
-        ta.focus();
-        showToast(t("keyPasted"), "success", 2000);
-      } else {
-        showToast(t("clipboardEmpty"), "info", 2000);
-      }
-    } catch {
-      showToast(t("clipboardFail"), "error", 2500);
-    }
-  });
-
-  document.getElementById("conn-key")?.addEventListener("keydown", async (ev) => {
-    const e = ev as KeyboardEvent;
-    if (e.key === "Enter" && e.ctrlKey) {
-      e.preventDefault();
-      if (isConnecting || isConnected) return;
-      const ta = ev.target as HTMLTextAreaElement;
-      settings.conn_key = ta.value.trim();
-      await persistSettings();
-      await doConnect();
-    }
   });
 
   document.getElementById("ks-home")?.addEventListener("change", function () {
@@ -1639,7 +1352,6 @@ function bindHomeEvents(): void {
     persistSettings();
   });
 
-  document.getElementById("btn-refresh-sites")?.addEventListener("click", () => checkSites());
   document.getElementById("btn-refresh-ip")?.addEventListener("click", () => fetchIpInfo());
 }
 
@@ -1763,7 +1475,6 @@ function renderConnectionCard(c: ConnectionEntry): string {
           <div class="custom-select-options">${transportOpts}</div>
         </div>
         <span style="opacity:.55;font-size:12px">${esc(c.server)}</span>
-        ${c.key_index !== undefined ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--accent-muted,#3d3d6b);color:var(--accent,#a78bfa)">key ${c.key_index + 1}</span>` : ""}
         ${speedBadge}${sniBadge}${bridgeBadge}
       </span>
       <span style="display:flex;align-items:center;gap:8px">
@@ -1859,316 +1570,6 @@ function renderConnectionCard(c: ConnectionEntry): string {
   </div>`;
 }
 
-// ─── Node-граф ────────────────────────────────────────────────────────────────
-
-const NG_W = 240; // ширина узла
-const NG_H = 215; // высота узла
-const NG_PORT_R = 7; // радиус портового кружка
-
-function ngSvgCurves(preview?: { sx: number; sy: number; ex: number; ey: number }): string {
-  let paths = "";
-  connectionsList.forEach((c, innerIdx) => {
-    if (!c.encapsulated_in) return;
-    const outerIdx = connectionsList.findIndex(x => x.id === c.encapsulated_in);
-    if (outerIdx < 0) return;
-    const op = nodePositions.get(c.encapsulated_in) ?? getNodePos(c.encapsulated_in, outerIdx);
-    const ip = nodePositions.get(c.id) ?? getNodePos(c.id, innerIdx);
-    const sx = op.x + NG_W + NG_PORT_R; const sy = op.y + NG_H / 2;
-    const tx = ip.x - NG_PORT_R;        const ty = ip.y + NG_H / 2;
-    const cx = (sx + tx) / 2;
-    paths += `
-      <path d="M${sx} ${sy} C${cx} ${sy},${cx} ${ty},${tx} ${ty}"
-            stroke="#7c6fff" stroke-width="2.5" fill="none" stroke-dasharray="6,3" opacity=".85"/>
-      <circle cx="${sx}" cy="${sy}" r="${NG_PORT_R}" fill="#7c6fff" opacity=".9"/>
-      <circle cx="${tx}" cy="${ty}" r="${NG_PORT_R}" fill="#7c6fff" opacity=".9"/>`;
-  });
-  if (preview) {
-    const cx = (preview.sx + preview.ex) / 2;
-    paths += `<path d="M${preview.sx} ${preview.sy} C${cx} ${preview.sy},${cx} ${preview.ey},${preview.ex} ${preview.ey}"
-      stroke="rgba(124,111,255,.55)" stroke-width="2" fill="none" stroke-dasharray="5,4"/>`;
-  }
-  return paths;
-}
-
-function renderNodeGraph(): string {
-  const rows = Math.max(1, Math.ceil(connectionsList.length / 3));
-  const canvasH = Math.max(460, rows * 255 + 40);
-
-  const nodes = connectionsList.map((c, idx) => {
-    const pos = getNodePos(c.id, idx);
-    const dotColor = c.status === "connected" ? "#22c55e"
-                   : c.status === "connecting" ? "#f59e0b" : "#6b7280";
-    const hasOuter = !!c.encapsulated_in;
-    const portY = Math.round(NG_H / 2) - NG_PORT_R;
-    const transportOpts = TRANSPORTS.map(tr =>
-      `<div class="custom-select-option${c.transport === tr ? " selected" : ""}" data-value="${tr}">${tr}</div>`
-    ).join("");
-
-    return `
-    <div class="ng-node${hasOuter ? " ng-node-inner" : ""}"
-      data-ng-id="${esc(c.id)}"
-      style="left:${pos.x}px;top:${pos.y}px;width:${NG_W}px">
-
-      <div class="ng-port ng-port-in" data-ng-port-in="${esc(c.id)}"
-        style="top:${portY}px" title="${t("portIn")}"></div>
-      <div class="ng-port ng-port-out" data-ng-port-out="${esc(c.id)}"
-        style="top:${portY}px" title="${t("portOut")}"></div>
-
-      <div class="ng-node-hdr" data-ng-drag="${esc(c.id)}">
-        <span class="ng-dot" style="background:${dotColor};flex-shrink:0"></span>
-        <div class="custom-select ng-sel conn-transport-cs" data-id="${esc(c.id)}" data-value="${esc(c.transport)}"
-          onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">
-          <div class="custom-select-trigger">
-            <span class="custom-select-label">${esc(c.transport)}</span><span class="arrow">▾</span>
-          </div>
-          <div class="custom-select-options">${transportOpts}</div>
-        </div>
-        <span class="ng-id" title="${esc(c.id)}">${c.id.length > 9 ? c.id.slice(0, 9) + "…" : esc(c.id)}</span>
-        <label class="ng-toggle-mini" onmousedown="event.stopPropagation()" title="${t("nodeEnableDisable")}">
-          <input type="checkbox" class="conn-toggle" data-id="${esc(c.id)}" ${c.enabled ? "checked" : ""}>
-          <span class="ng-toggle-track"></span>
-        </label>
-        <button class="ng-close-btn" data-ng-close="${esc(c.id)}" onmousedown="event.stopPropagation()">✕</button>
-      </div>
-
-      <div class="ng-node-body">
-        <div class="ng-row"><span class="ng-lbl">${t("nodeServer")}</span>
-          <span style="font-size:10px;opacity:.6;overflow:hidden;text-overflow:ellipsis">${esc(c.server)}</span></div>
-        <div class="ng-row" style="align-items:center">
-          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;flex:1" onmousedown="event.stopPropagation()">
-            <input type="checkbox" class="conn-mux-quick" data-id="${esc(c.id)}" ${c.mux ? "checked" : ""} style="accent-color:#7c6fff">
-            <span class="ng-lbl">MUX</span>
-          </label>
-          <span style="font-size:10px;color:${dotColor}">${c.status}</span>
-        </div>
-        <div class="ng-row" style="align-items:center;gap:4px" onmousedown="event.stopPropagation()">
-          <input class="ng-inp conn-speed" data-id="${esc(c.id)}" type="number" min="0"
-            value="${c.rate_limit_kb}" placeholder="KB/s (0=∞)">
-          <button class="ng-apply conn-speed-apply" data-id="${esc(c.id)}">⚡</button>
-        </div>
-        <div class="ng-row" style="align-items:center;gap:4px" onmousedown="event.stopPropagation()">
-          <input class="ng-inp conn-sni" data-id="${esc(c.id)}"
-            value="${esc(c.sni)}" placeholder="SNI" style="flex:1;min-width:0">
-          <button class="ng-apply conn-sni-apply" data-id="${esc(c.id)}">SNI</button>
-        </div>
-        <div class="ng-row" style="align-items:center;gap:4px" onmousedown="event.stopPropagation()">
-          <input class="ng-inp conn-bridge" data-id="${esc(c.id)}"
-            value="${esc(c.bridge)}" placeholder="${t("nodeBridgePlaceholder")}" style="flex:1;min-width:0">
-          <button class="ng-apply conn-bridge-apply" data-id="${esc(c.id)}">⇒</button>
-        </div>
-        ${hasOuter ? `<div class="ng-row" style="margin-top:2px">
-          <span class="ng-lbl">⬡ via</span>
-          <span style="color:#7c6fff;font-size:10px;overflow:hidden;text-overflow:ellipsis">${esc(c.encapsulated_in!)}</span>
-        </div>` : ""}
-        ${c.error ? `<div style="color:var(--danger);font-size:10px;margin-top:2px">${esc(c.error)}</div>` : ""}
-      </div>
-
-      <div class="ng-node-footer">
-        <button class="ng-btn conn-duplicate-quick" data-id="${esc(c.id)}" onmousedown="event.stopPropagation()"
-          title="${t("nodeDuplicate")}">⊕ ${t("nodeDup")}</button>
-        ${hasOuter ? `<button class="ng-btn ng-btn-danger" data-ng-unchain="${esc(c.id)}" onmousedown="event.stopPropagation()"
-          title="${t("nodeUnchain")}">✕ link</button>` : ""}
-      </div>
-    </div>`;
-  }).join("");
-
-  return `
-    <div style="position:relative">
-      <div style="font-size:11px;opacity:.45;margin-bottom:6px;padding-left:2px">
-        ${t("nodeDragHint")}
-      </div>
-      <div class="ng-canvas" id="ng-canvas" style="height:${canvasH}px">
-        <svg id="ng-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">
-          ${ngSvgCurves()}
-        </svg>
-        ${nodes}
-      </div>
-    </div>`;
-}
-
-function bindNodeGraphEvents(): void {
-  const canvas = document.getElementById("ng-canvas");
-  if (!canvas) return;
-
-  let draggingNode: string | null = null;
-  let dragOffX = 0, dragOffY = 0;
-  let cachedRect: DOMRect | null = null;
-
-  canvas.addEventListener("pointerdown", e => {
-    const portOut = (e.target as HTMLElement).closest<HTMLElement>("[data-ng-port-out]");
-    if (portOut) {
-      const srcId = portOut.dataset.ngPortOut!;
-      const srcIdx = connectionsList.findIndex(c => c.id === srcId);
-      const pos = nodePositions.get(srcId) ?? getNodePos(srcId, srcIdx);
-      ngPortDrag = {
-        srcId,
-        sx: pos.x + NG_W + NG_PORT_R,
-        sy: pos.y + NG_H / 2,
-        ex: pos.x + NG_W + NG_PORT_R,
-        ey: pos.y + NG_H / 2,
-      };
-      cachedRect = canvas.getBoundingClientRect();
-      canvas.setPointerCapture(e.pointerId);
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-
-    const hdr = (e.target as HTMLElement).closest<HTMLElement>("[data-ng-drag]");
-    if (!hdr) return;
-    // Don't capture drag when the touch target is an interactive element inside the header
-    if ((e.target as HTMLElement).closest("select, input, button, label, a")) return;
-    draggingNode = hdr.dataset.ngDrag!;
-    const node = canvas.querySelector<HTMLElement>(`[data-ng-id="${draggingNode}"]`)!;
-    const rect = canvas.getBoundingClientRect();
-    cachedRect = rect;
-    const pos = nodePositions.get(draggingNode) ?? getNodePos(draggingNode, connectionsList.findIndex(c => c.id === draggingNode));
-    dragOffX = e.clientX - rect.left - pos.x;
-    dragOffY = e.clientY - rect.top  - pos.y;
-    node.style.zIndex = "10";
-    canvas.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  });
-
-  canvas.addEventListener("pointermove", e => {
-    const rect = cachedRect ?? canvas.getBoundingClientRect();
-    if (ngPortDrag) {
-      ngPortDrag.ex = e.clientX - rect.left;
-      ngPortDrag.ey = e.clientY - rect.top;
-      redrawNGSvg();
-      return;
-    }
-    if (!draggingNode) return;
-    const node = canvas.querySelector<HTMLElement>(`[data-ng-id="${draggingNode}"]`);
-    if (!node) return;
-    const x = Math.max(0, e.clientX - rect.left - dragOffX);
-    const y = Math.max(0, e.clientY - rect.top  - dragOffY);
-    nodePositions.set(draggingNode, { x, y });
-    node.style.left = x + "px";
-    node.style.top  = y + "px";
-    redrawNGSvg();
-  });
-
-  canvas.addEventListener("pointerup", e => {
-    if (ngPortDrag) {
-      const target = document.elementFromPoint(e.clientX, e.clientY);
-      const portIn = target?.closest<HTMLElement>("[data-ng-port-in]");
-      if (portIn) {
-        const outerId = portIn.dataset.ngPortIn!;
-        const innerId = ngPortDrag.srcId;
-        ngPortDrag = null;
-        if (outerId !== innerId) {
-          invoke("encapsulate_connection", { innerId, outerId })
-            .then(async () => {
-              await fetchConnections();
-              renderPage();
-              showToast(`${innerId.slice(0,6)}… ${t("encapsulatedIn")} ${outerId.slice(0,6)}…`, "success", 2500);
-            })
-            .catch(err => { showToast(String(err), "error", 4000); renderPage(); });
-        }
-      } else {
-        ngPortDrag = null;
-        redrawNGSvg();
-      }
-      return;
-    }
-    cachedRect = null;
-    if (draggingNode) {
-      const node = canvas.querySelector<HTMLElement>(`[data-ng-id="${draggingNode}"]`);
-      if (node) node.style.zIndex = "";
-      saveNodePositions();
-      draggingNode = null;
-    }
-  });
-
-  canvas.addEventListener("click", e => {
-    const unchainBtn = (e.target as HTMLElement).closest<HTMLElement>("[data-ng-unchain]");
-    if (unchainBtn) {
-      const innerID = unchainBtn.dataset.ngUnchain!;
-      invoke("encapsulate_connection", { innerId: innerID, outerId: "" })
-        .then(async () => {
-          await fetchConnections();
-          renderPage();
-          showToast(t("encapRemoved"), "info", 2000);
-        })
-        .catch(err => showToast(String(err), "error", 4000));
-      return;
-    }
-
-    const closeBtn = (e.target as HTMLElement).closest<HTMLElement>("[data-ng-close]");
-    if (closeBtn) {
-      const id = closeBtn.dataset.ngClose!;
-      invoke("close_connection", { id }).catch(() => {});
-      connectionsExpanded.delete(id);
-      showToast(t("connClosed"), "info", 2000);
-      fetchConnections().then(() => renderPage());
-      return;
-    }
-  });
-
-  document.querySelectorAll<HTMLInputElement>(".conn-toggle").forEach(cb => {
-    cb.addEventListener("change", async () => {
-      await invoke("toggle_connection", { id: cb.dataset.id!, enabled: cb.checked }).catch(() => {});
-      await fetchConnections();
-      renderPage();
-    });
-  });
-
-  document.querySelectorAll<HTMLInputElement>(".conn-mux-quick").forEach(cb => {
-    cb.addEventListener("change", async () => {
-      await invoke("set_connection_mux", { id: cb.dataset.id!, enabled: cb.checked }).catch(() => {});
-      showToast(cb.checked ? t("muxOn") : t("muxOff"), "success", 1400);
-    });
-  });
-
-  wireTransportCS();
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-speed-apply").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const inp = canvas.querySelector<HTMLInputElement>(`.conn-speed[data-id="${btn.dataset.id}"]`);
-      await invoke("set_connection_speed", { id: btn.dataset.id!, rateLimitKb: parseInt(inp?.value ?? "0") || 0 }).catch(() => {});
-      showToast(t("speedUpdated"), "success", 1500);
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-sni-apply").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const inp = canvas.querySelector<HTMLInputElement>(`.conn-sni[data-id="${btn.dataset.id}"]`);
-      await invoke("set_connection_sni", { id: btn.dataset.id!, sni: inp?.value ?? "" }).catch(() => {});
-      showToast("SNI →" + (inp?.value || "cleared"), "success", 1500);
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-bridge-apply").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const inp = canvas.querySelector<HTMLInputElement>(`.conn-bridge[data-id="${btn.dataset.id}"]`);
-      await invoke("set_connection_bridge", { id: btn.dataset.id!, bridge: inp?.value ?? "" }).catch(() => {});
-      showToast(t("bridgeUpdated"), "success", 1500);
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-duplicate-quick").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const newId = await invoke<string>("duplicate_connection", { id: btn.dataset.id! }).catch(() => "");
-      if (newId) {
-        connectionsExpanded.add(newId);
-        showToast(t("duplicated"), "success", 2000);
-      }
-      await fetchConnections();
-      renderPage();
-    });
-  });
-}
-
-// Перерисовывает только SVG-кривые без полного DOM rebuild.
-function redrawNGSvg(): void {
-  const svg = document.getElementById("ng-svg");
-  if (!svg) return;
-  svg.innerHTML = ngSvgCurves(ngPortDrag ?? undefined);
-}
-
-// ─── END Node-граф ────────────────────────────────────────────────────────────
-
 function renderAgentPanel(): string {
   const a = _agentStats;
   if (!a || (a as any).state === "disabled") {
@@ -2230,367 +1631,14 @@ function renderAgentPanel(): string {
   </div>`;
 }
 
-function renderP2PPanel(): string {
-  const s = _p2pStatus;
-  const relayAddr = settings.p2p_relay_addr || "";
-  const statusColor = s.connected ? "var(--success)" : s.registered ? "var(--accent)" : "var(--text-muted)";
-  const statusText = s.connected
-    ? t("p2pConnected")
-    : s.registered
-      ? t("p2pRegistered")
-      : t("p2pInactive");
-
-  return `<div class="card" style="margin-top:9px">
-    <div class="card-header">
-      <span class="card-title">${t("p2pRelay")}</span>
-      <span style="font-size:11px;color:${statusColor}">${statusText}</span>
-    </div>
-    <div class="info-row">
-      <span class="info-label">${t("p2pRelayAddr")}</span>
-      <input id="p2p-relay-addr" class="input-inline" style="flex:1;font-size:12px"
-        placeholder="host:8445" value="${esc(relayAddr)}" />
-    </div>
-    <div class="info-row">
-      <span class="info-label">${t("p2pSecret")}</span>
-      <input id="p2p-secret" class="input-inline" style="flex:1;font-size:12px" type="password"
-        placeholder="${t("p2pSharedSecret")}" value="${esc(settings.p2p_secret || "")}" />
-    </div>
-    ${s.registered && s.peer_id ? `<div class="info-row">
-      <span class="info-label">Peer ID</span>
-      <span class="info-value" style="font-family:monospace;font-size:11px;word-break:break-all">${esc(s.peer_id)}</span>
-      <button class="refresh-btn" id="btn-p2p-copy" title="${t("p2pCopied")}">${ICONS.link}</button>
-    </div>` : ""}
-    ${s.registered && !s.connected ? `<div class="info-row" style="margin-top:4px">
-      <span class="info-label">${t("p2pConnectTo")}</span>
-      <input id="p2p-target-id" class="input-inline" style="flex:1;font-size:12px" placeholder="peer ID hex" />
-    </div>` : ""}
-    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-      ${!s.registered
-        ? `<button class="btn-sm" id="btn-p2p-register" style="font-size:12px;padding:5px 14px">${t("p2pRegister")}</button>`
-        : s.connected
-          ? `<button class="btn-danger" id="btn-p2p-disconnect" style="font-size:12px;padding:5px 14px">${t("p2pDisconnect")}</button>`
-          : `<button class="btn-sm" id="btn-p2p-connect-peer" style="font-size:12px;padding:5px 14px">${t("p2pConnectPeer")}</button>
-             <button class="btn-danger" id="btn-p2p-disconnect" style="font-size:12px;padding:5px 14px">${t("p2pCancel")}</button>`
-      }
-    </div>
-  </div>`;
-}
-
-function renderConnections(): string {
-  const server = getServerHost() || (settings.conn_key ? t("connKeyEncrypted") : t("notSet"));
-  const uptimeStr = isConnected && connectTime ? formatDuration(Date.now() - connectTime) : "—";
-  const stChipCls = isConnected ? "chip-active" : "chip-idle";
-  const stChipTxt = isConnected ? t("active") : t("inactive");
-  const connCount = connectionsList.length;
-  const activeCount = connectionsList.filter(c => c.status === "connected").length;
-
-  const connCards = connectionsList.map(renderConnectionCard).join("");
-
-  return `
-    <div class="page-header">
-      <h2 class="page-title">${t("connections")}</h2>
-      <span class="conn-chip ${stChipCls}">${stChipTxt}</span>
-    </div>
-
-    <div class="card" style="margin-bottom:9px">
-      <div class="card-header">
-        <span class="card-title">${t("tunnel")}</span>
-        <button class="refresh-btn" id="btn-refresh-conns">${ICONS.refresh}</button>
-      </div>
-      <div class="info-row">
-        <span class="info-label">${t("server")}</span>
-        <span class="info-value">${esc(server)}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">${t("duration")}</span>
-        <span class="info-value" id="conn-uptime">${uptimeStr}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">${t("connCountLabel")}</span>
-        <span class="info-value">${activeCount} / ${connCount}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">${t("connKeysConfigured")}</span>
-        <span class="info-value">${1 + (settings.extra_keys?.length ?? 0)}
-          ${(settings.extra_keys?.length ?? 0) > 0
-            ? `<span style="font-size:11px;opacity:.5">(1 + ${settings.extra_keys!.length} extra)</span>`
-            : ""}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">Kill Switch</span>
-        <span class="info-value"><span class="${settings.kill_switch ? "badge-on" : "badge-off"}">${settings.kill_switch ? "ON" : "OFF"}</span></span>
-      </div>
-    </div>
-
-    <div id="conn-list">${nodeViewActive ? renderNodeGraph() : connCards}</div>
-
-    <div class="card" style="margin-top:9px">
-      <div class="card-header"><span class="card-title">${t("proxy")}</span></div>
-      <div class="info-row">
-        <span class="info-label">SOCKS5</span>
-        <span class="info-value">${esc(settings.socks_addr)}:10800</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">Mihomo</span>
-        <span class="info-value">:${settings.mihomo_port}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">IPv6</span>
-        <span class="info-value"><span class="${settings.ipv6 ? "badge-on" : "badge-off"}">${settings.ipv6 ? "ON" : "OFF"}</span></span>
-      </div>
-    </div>
-
-    <div class="card collapse-card" style="margin-top:9px" id="extra-keys-collapse-card">
-      <div class="card-header collapse-hdr" id="extra-keys-collapse-hdr">
-        <span class="card-title">${t("connEncapTitle")}</span>
-        <span class="collapse-arrow">▼</span>
-      </div>
-      <div class="collapse-body" id="extra-keys-collapse-body">
-        <div style="font-size:12px;opacity:.55;margin-bottom:8px">
-          ${t("connEncapDesc2")}
-        </div>
-        ${(settings.extra_keys || []).map((k, i) => `
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-            <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--accent-muted,#3d3d6b);color:var(--accent,#a78bfa)">key ${i + 2}</span>
-            <code style="flex:1;font-size:11px;opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(k)}</code>
-            <button class="btn-sm btn-danger extra-key-remove" data-idx="${i}" style="font-size:11px;padding:1px 7px">✕</button>
-          </div>`).join("")}
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
-          <input id="extra-key-new-input" class="input-sm" style="flex:1 1 100%;min-width:0" placeholder="whispera://...">
-          <button class="btn-sm" id="btn-extra-key-add">${t("connAdd")}</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:9px">
-      <div class="card-header">
-        <span class="card-title">${t("connEncap")}</span>
-      </div>
-      <div style="font-size:12px;opacity:.55;margin-bottom:10px">
-        ${t("connEncapDesc")}
-      </div>
-      ${connectionsList.length < 2
-        ? `<div style="font-size:12px;color:#fbbf24;display:flex;align-items:center;gap:5px">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M12 2L1 21h22L12 2zm0 3.5L20.5 19h-17L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>
-            ${t("connNeedTwo")}
-           </div>`
-        : `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <select id="encap-outer" class="input-inline" style="flex:1;font-size:12px">
-              <option value="">${t("connEncapOuter")}</option>
-              ${connectionsList.map(c => `<option value="${esc(c.id)}">${esc(c.transport)} (${esc(c.id)})</option>`).join("")}
-            </select>
-            <span style="opacity:.4;font-size:14px">⊃</span>
-            <select id="encap-inner" class="input-inline" style="flex:1;font-size:12px">
-              <option value="">${t("connEncapInner")}</option>
-              ${connectionsList.map(c => `<option value="${esc(c.id)}">${esc(c.transport)} (${esc(c.id)})</option>`).join("")}
-            </select>
-            <button class="btn-sm" id="btn-encapsulate">${t("connApply")}</button>
-          </div>`}
-    </div>
-
-    ${renderAgentPanel()}
-
-    ${renderP2PPanel()}
-
-    <div class="card" style="margin-top:9px">
-      <div class="card-header"><span class="card-title">TLS Fingerprint</span></div>
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <span style="font-size:12px;opacity:.55">${t("fpBrowser")}</span>
-        <div id="set-fingerprint" class="custom-select" data-value="${currentFingerprint}">
-          <div class="custom-select-trigger"><span class="custom-select-label">${({"chrome":"Chrome Auto","chrome_120":"Chrome 120","chrome_115":"Chrome 115","firefox":"Firefox Auto","firefox_120":"Firefox 120","safari":"Safari Auto","ios":"iOS Safari","android":"Android OkHttp","edge":"Edge Auto","random":t("fpRandom")} as Record<string,string>)[currentFingerprint] || currentFingerprint}</span><span class="arrow">▾</span></div>
-          <div class="custom-select-options">
-            ${[["chrome","Chrome Auto"],["chrome_120","Chrome 120"],["chrome_115","Chrome 115"],["firefox","Firefox Auto"],["firefox_120","Firefox 120"],["safari","Safari Auto"],["ios","iOS Safari"],["android","Android OkHttp"],["edge","Edge Auto"],["random",t("fpRandom")]].map(([v,l])=>`<div class="custom-select-option${currentFingerprint===v?" selected":""}" data-value="${v}">${l}</div>`).join("")}
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
-          <span id="fp-desc" style="font-size:12px;opacity:.45;flex:1">${getFPDescription(currentFingerprint)}</span>
-          ${isConnected ? `<button class="btn-sm" id="btn-fp-apply" style="font-size:11px;padding:3px 10px">${t("fpApplyNow")}</button>` : ""}
-        </div>
-      </div>
-    </div>
-
-    ${connectionsList.length === 0 && !nodeViewActive ? `
-    <div class="empty-state" style="padding:32px 0;margin-top:9px">
-      <p style="opacity:.4">${t("connNoActive")}</p>
-    </div>` : ""}`;
-
-}
-
 function bindConnectionsEvents(): void {
   document.getElementById("btn-refresh-conns")?.addEventListener("click", async () => {
     const btn = document.getElementById("btn-refresh-conns") as HTMLButtonElement | null;
     if (btn) btn.disabled = true;
-    await Promise.all([fetchConnections(), fetchAgentStats(), fetchP2PStatus()]);
+    await Promise.all([fetchConnections(), fetchAgentStats()]);
     if (btn) btn.disabled = false;
-    const main = document.getElementById("main-content")!;
-    main.innerHTML = renderConnections();
-    bindConnectionsEvents();
-  });
-
-  document.getElementById("btn-encapsulate")?.addEventListener("click", async () => {
-    const outer = (document.getElementById("encap-outer") as HTMLSelectElement)?.value;
-    const inner = (document.getElementById("encap-inner") as HTMLSelectElement)?.value;
-    if (!outer || !inner || outer === inner) {
-      showToast(t("selectTwoConns"), "error", 2000);
-      return;
-    }
-    try {
-      await invoke("encapsulate_connection", { innerId: inner, outerId: outer });
-      showToast(t("encapApplied"), "success", 2000);
-    } catch (e) {
-      showToast(String(e), "error", 3000);
-    }
-  });
-
-  document.getElementById("btn-toggle-node-view")?.addEventListener("click", () => {
-    nodeViewActive = !nodeViewActive;
-    ngPortDrag = null;
-    localStorage.setItem("whispera_ng_view", nodeViewActive ? "1" : "0");
     renderPage();
   });
-
-  document.getElementById("btn-agent-refresh")?.addEventListener("click", async () => {
-    await fetchAgentStats();
-    const main = document.getElementById("main-content")!;
-    main.innerHTML = renderConnections();
-    bindConnectionsEvents();
-  });
-
-  // P2P panel events
-  document.getElementById("btn-p2p-register")?.addEventListener("click", async () => {
-    const addrEl = document.getElementById("btn-p2p-register")?.closest(".card")?.querySelector<HTMLInputElement>("#p2p-relay-addr");
-    const secretEl = document.getElementById("btn-p2p-register")?.closest(".card")?.querySelector<HTMLInputElement>("#p2p-secret");
-    const relayAddr = addrEl?.value.trim() || settings.p2p_relay_addr || "";
-    const secret = secretEl?.value.trim() || settings.p2p_secret || "";
-    if (!relayAddr) { showToast(t("enterRelayAddr"), "error"); return; }
-    try {
-      if (relayAddr !== settings.p2p_relay_addr) { await invoke("patch_app_settings", { patch: { p2p_relay_addr: relayAddr } }).catch(() => {}); settings.p2p_relay_addr = relayAddr; }
-      if (secret !== settings.p2p_secret) { await invoke("patch_app_settings", { patch: { p2p_secret: secret } }).catch(() => {}); settings.p2p_secret = secret; }
-      const peerId = await invoke<string>("p2p_register", { relayAddr, secret });
-      showToast(`Peer ID: ${peerId.slice(0, 12)}…`, "success", 5000);
-      await fetchP2PStatus();
-      renderPage();
-    } catch (e) { showToast(String(e), "error"); }
-  });
-
-  document.getElementById("btn-p2p-copy")?.addEventListener("click", () => {
-    if (_p2pStatus.peer_id) {
-      clipboardWrite(_p2pStatus.peer_id).catch(() => navigator.clipboard?.writeText(_p2pStatus.peer_id));
-      showToast(t("copied"), "success", 1500);
-    }
-  });
-
-  document.getElementById("btn-p2p-connect-peer")?.addEventListener("click", async () => {
-    const targetEl = document.getElementById("p2p-target-id") as HTMLInputElement | null;
-    const target = targetEl?.value.trim() || "";
-    if (!target) { showToast(t("enterPeerId"), "error"); return; }
-    try {
-      await invoke("p2p_connect", { target, relayAddr: _p2pStatus.relay_addr, secret: settings.p2p_secret || "" });
-      showToast(t("p2pEstablished"), "success", 4000);
-      await fetchP2PStatus();
-      renderPage();
-    } catch (e) { showToast(String(e), "error"); }
-  });
-
-  document.getElementById("btn-p2p-disconnect")?.addEventListener("click", async () => {
-    try {
-      await invoke("p2p_disconnect");
-      await fetchP2PStatus();
-      renderPage();
-    } catch (e) { showToast(String(e), "error"); }
-  });
-
-  document.getElementById("btn-agent-apply")?.addEventListener("click", async () => {
-    try {
-      const rec = await invoke<{ transport: string; server: string }>("agent_recommend");
-      if (!rec.transport) { showToast(t("noRecommendation"), "error"); return; }
-      // Apply to all enabled connections
-      const connected = connectionsList.filter(c => c.status === "connected" || c.status === "connecting");
-      if (connected.length === 0) { showToast(t("noActiveConns"), "error"); return; }
-      await Promise.all(connected.map(c => invoke("switch_transport", { id: c.id, transport: rec.transport }).catch(() => {})));
-      showToast(`${t("transportSet")} ${rec.transport}`, "success", 3000);
-      await fetchConnections();
-      renderPage();
-    } catch (e) { showToast(String(e), "error"); }
-  });
-
-  document.getElementById("extra-keys-collapse-hdr")?.addEventListener("click", () => {
-    const card = document.getElementById("extra-keys-collapse-card");
-    card?.classList.toggle("open");
-  });
-
-  document.getElementById("btn-extra-key-add")?.addEventListener("click", async () => {
-    const inp = document.getElementById("extra-key-new-input") as HTMLInputElement | null;
-    const key = inp?.value.trim() ?? "";
-    if (!key.startsWith("whispera://")) {
-      showToast(t("keyInvalidFormat"), "error", 2000);
-      return;
-    }
-    const keys = [...(settings.extra_keys || []), key];
-    settings.extra_keys = keys;
-    await invoke("patch_app_settings", { patch: { extra_keys: keys } }).catch(() => {});
-    if (inp) inp.value = "";
-    showToast(`${t("keyAdded")} ${keys.length})`, "success", 2000);
-    renderPage();
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".extra-key-remove").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const idx = parseInt(btn.dataset.idx ?? "0");
-      const keys = [...(settings.extra_keys || [])];
-      keys.splice(idx, 1);
-      settings.extra_keys = keys;
-      await invoke("patch_app_settings", { patch: { extra_keys: keys } }).catch(() => {});
-      showToast(t("keyRemoved"), "info", 1500);
-      renderPage();
-    });
-  });
-
-  const fpSelect = document.getElementById("set-fingerprint");
-  if (fpSelect) {
-    const trigger = fpSelect.querySelector(".custom-select-trigger") as HTMLElement;
-    trigger?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      fpSelect.classList.toggle("open");
-    });
-    fpSelect.querySelectorAll(".custom-select-option").forEach((opt) => {
-      opt.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const val = (opt as HTMLElement).dataset.value || "";
-        currentFingerprint = val;
-        fpSelect.dataset.value = val;
-        fpSelect.classList.remove("open");
-        const label = fpSelect.querySelector(".custom-select-label");
-        if (label) label.textContent = opt.textContent || val;
-        fpSelect.querySelectorAll(".custom-select-option").forEach((o) => o.classList.remove("selected"));
-        opt.classList.add("selected");
-        const desc = document.getElementById("fp-desc");
-        if (desc) desc.textContent = getFPDescription(val);
-        localStorage.setItem("tls_fingerprint", val);
-        invoke("patch_app_settings", { patch: { tls_fingerprint: val } }).catch(() => {});
-        showToast(`${t("fingerprintSet")} ${val}`, "success", 2000);
-      });
-    });
-    document.addEventListener("click", () => fpSelect.classList.remove("open"));
-  }
-
-  document.getElementById("btn-fp-apply")?.addEventListener("click", async () => {
-    const btn = document.getElementById("btn-fp-apply") as HTMLButtonElement | null;
-    if (btn) btn.disabled = true;
-    try {
-      await invoke("apply_tls_fingerprint");
-      showToast(`${t("fingerprintSet")} ${currentFingerprint}`, "success", 2000);
-    } catch (e) {
-      showToast(String(e), "error", 3000);
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  });
-
-  if (nodeViewActive) {
-    bindNodeGraphEvents();
-    return; // node view управляет своими событиями самостоятельно
-  }
 
   document.querySelectorAll<HTMLElement>("[data-expand]").forEach(el => {
     el.addEventListener("click", () => {
@@ -2734,8 +1782,8 @@ function bindConnectionsEvents(): void {
 
 }
 
-function renderProfiles(): string {
-  const profileList = profiles.length === 0
+function renderProfileList(): string {
+  return profiles.length === 0
     ? `<div class="empty-state"><div class="empty-icon">${ICONS.user}</div><p>${t("noProfiles")}</p></div>`
     : profiles.map(p => `
         <div class="profile-card">
@@ -2745,8 +1793,10 @@ function renderProfiles(): string {
             <button class="btn-del-profile" data-id="${p.id}" title="${t("subDelete")}">${ICONS.x}</button>
           </div>
         </div>`).join("");
+}
 
-  const subList = subscriptions.length === 0
+function renderSubList(): string {
+  return subscriptions.length === 0
     ? `<div class="empty-state"><p>${t("noSubscriptions")}</p></div>`
     : subscriptions.map(s => {
         const keyRows = s.keys.map((k, i) => {
@@ -2766,7 +1816,8 @@ function renderProfiles(): string {
         const updLabel = s.updated ? `<span class="sub-meta">${t("subLastUpdated")}: ${s.updated.slice(0, 10)}</span>` : "";
         return `
           <div class="profile-card sub-card">
-            <div class="profile-info">
+            <div class="profile-info sub-collapse-hdr" data-sub-id="${s.id}" style="cursor:pointer">
+              <span class="sub-collapse-arrow" data-sub-id="${s.id}" style="opacity:.4;font-size:11px;flex-shrink:0">▶</span>
               <span>${ICONS.link}</span>
               <span class="sub-name" title="${esc(s.name || s.url)}">${esc(s.name || s.url)}</span>
               <span class="sub-meta">${s.keys.length} ${t("subKeys")}</span>
@@ -2778,21 +1829,9 @@ function renderProfiles(): string {
               <button class="btn-refresh-sub" data-id="${s.id}" title="${t("subRefresh")}">${subUpdateAvailable.has(s.id) ? '<span class="sub-update-dot"></span>' : ""}${ICONS.refresh}</button>
               <button class="btn-del-sub" data-id="${s.id}" title="${t("subDelete")}">${ICONS.x}</button>
             </div>
-            ${s.keys.length > 0 ? `<div class="sub-keys">${keyRows}</div>` : ""}
+            ${s.keys.length > 0 ? `<div class="sub-keys" data-sub-id="${s.id}" style="display:none">${keyRows}</div>` : ""}
           </div>`;
       }).join("");
-
-  return `
-    <div class="page-header">
-      <h2 class="page-title">${t("profiles")}</h2>
-      <button class="btn-add-profile" id="btn-add-profile">${t("addProfile")}</button>
-    </div>
-    ${profileList}
-    <div class="section-header">
-      <span class="section-title">${t("subscriptions")}</span>
-      <button class="btn-add-profile" id="btn-add-sub">${t("addSubscription")}</button>
-    </div>
-    ${subList}`;
 }
 
 function bindProfileEvents(): void {
@@ -2809,6 +1848,18 @@ function bindProfileEvents(): void {
   });
 
   document.getElementById("btn-add-sub")?.addEventListener("click", () => showSubModal());
+
+  document.querySelectorAll<HTMLElement>(".sub-collapse-hdr").forEach(hdr => {
+    hdr.addEventListener("click", () => {
+      const id = hdr.dataset.subId!;
+      const body = document.querySelector<HTMLElement>(`.sub-keys[data-sub-id="${id}"]`);
+      const arrow = document.querySelector<HTMLElement>(`.sub-collapse-arrow[data-sub-id="${id}"]`);
+      if (!body) return;
+      const open = body.style.display !== "none";
+      body.style.display = open ? "none" : "block";
+      if (arrow) arrow.textContent = open ? "▶" : "▼";
+    });
+  });
 
   document.querySelectorAll<HTMLElement>(".btn-ping-key").forEach(el => {
     el.addEventListener("click", async () => {
@@ -2932,7 +1983,7 @@ function showSubModal(): void {
       subscriptions.push(entry);
       ov.remove();
       showToast(t("subAdded"), "success", 3000);
-      if (currentPage === "profiles") renderPage();
+      if (currentPage === "home") renderPage();
     } catch (e) {
       errEl.textContent = String(e);
       errEl.style.display = "";
@@ -2943,12 +1994,12 @@ function showSubModal(): void {
 
 const DISCORD_RULE_ID = "discord-builtin";
 const DISCORD_UPDATE_RULE_ID = "discord-update-builtin";
-
+const DISCORD_PROCESS_VALUE = isAndroid ? "com.discord" : "Discord.exe";
 
 function getDiscordRule(): RoutingRule | undefined {
   return routingRules.find(r =>
     r.id === DISCORD_RULE_ID ||
-    (r.kind === "process" && r.value.toLowerCase() === "discord.exe")
+    (r.kind === "process" && r.value.toLowerCase() === DISCORD_PROCESS_VALUE.toLowerCase())
   );
 }
 
@@ -2956,24 +2007,28 @@ async function setDiscordMode(action: "PROXY" | "DIRECT"): Promise<void> {
   const main = getDiscordRule();
   if (main) {
     main.action = action;
+    main.value = DISCORD_PROCESS_VALUE;
   } else {
-    routingRules.push({ id: DISCORD_RULE_ID, kind: "process", value: "Discord.exe", action });
+    routingRules.push({ id: DISCORD_RULE_ID, kind: "process", value: DISCORD_PROCESS_VALUE, action });
   }
-  const upd = routingRules.find(r => r.id === DISCORD_UPDATE_RULE_ID ||
-    (r.kind === "process" && r.value.toLowerCase() === "update.exe"));
-  if (upd) {
-    upd.action = action;
-  } else {
-    routingRules.push({ id: DISCORD_UPDATE_RULE_ID, kind: "process", value: "Update.exe", action });
+  if (!isAndroid) {
+    const upd = routingRules.find(r => r.id === DISCORD_UPDATE_RULE_ID ||
+      (r.kind === "process" && r.value.toLowerCase() === "update.exe"));
+    if (upd) {
+      upd.action = action;
+    } else {
+      routingRules.push({ id: DISCORD_UPDATE_RULE_ID, kind: "process", value: "Update.exe", action });
+    }
   }
   await persistRoutingRules();
+  if (isAndroid) showToast(t("reconnectRequired"), "info", 3500);
 }
 
 function renderRouting(): string {
   const discordRule = getDiscordRule();
   const discordAction = discordRule?.action ?? "PROXY";
   const discordIds = new Set([DISCORD_RULE_ID, DISCORD_UPDATE_RULE_ID]);
-  const discordProcs = new Set(["discord.exe", "update.exe"]);
+  const discordProcs = new Set(isAndroid ? ["com.discord"] : ["discord.exe", "update.exe"]);
 
   // Unified rules list: routing + blocklist together
   const allRules: Array<{ r: RoutingRule; src: "routing" | "block" }> = [
@@ -3212,7 +2267,7 @@ function bindRoutingEvents(): void {
     _selectedExe = "";
     const inp = document.getElementById("rule-value-input") as HTMLInputElement;
     if (inp) inp.value = "";
-    if (isAndroid && currentType === "process") showToast(t("reconnectRequired"), "info", 3500);
+    if (isAndroid) showToast(t("reconnectRequired"), "info", 3500);
     renderPage();
   });
 
@@ -3228,6 +2283,7 @@ function bindRoutingEvents(): void {
         routingRules = routingRules.filter(r => r.id !== id);
         await persistRoutingRules();
       }
+      if (isAndroid) showToast(t("reconnectRequired"), "info", 3500);
       renderPage();
     });
   });
@@ -3339,20 +2395,13 @@ let logSearch = "";
 
 function renderLogs(): string {
   const filtered = logLines.filter(line => {
-    if (logFilter !== "all") {
-      const level = logFilter.toUpperCase();
-      if (!line.toUpperCase().includes(`[${level}]`) && !line.toUpperCase().includes(`"level":"${level}"`)) return false;
-    }
+    if (logFilter !== "all" && logLineLevel(line) !== logFilter) return false;
     if (logSearch && !line.toLowerCase().includes(logSearch.toLowerCase())) return false;
     return true;
   });
   const colorized = filtered.map(line => {
-    let cls = "log-line";
-    const upper = line.toUpperCase();
-    if (upper.includes("[ERROR]") || upper.includes('"level":"error"')) cls += " log-error";
-    else if (upper.includes("[WARN]") || upper.includes('"level":"warn"')) cls += " log-warn";
-    else if (upper.includes("[INFO]") || upper.includes('"level":"info"')) cls += " log-info";
-    else if (upper.includes("[DEBUG]") || upper.includes('"level":"debug"')) cls += " log-debug";
+    const lvl = logLineLevel(line);
+    const cls = "log-line" + (lvl ? ` log-${lvl}` : "");
     return `<div class="${cls}">${esc(line)}</div>`;
   }).join("");
   const txt = colorized || `<div class="log-line log-info">${t("logReady")}</div>`;
@@ -3469,6 +2518,9 @@ function renderSettings(): string {
         <button class="btn-sm" id="btn-check-updates" style="width:100%">${t("checkUpdates")}</button>
       </div>
     </div>
+    <div class="settings-section">
+      ${renderAgentPanel()}
+    </div>
     `;
   }
 
@@ -3574,10 +2626,89 @@ function renderSettings(): string {
         <button class="btn-sm" id="btn-check-updates" style="width:100%">${t("checkUpdates")}</button>
       </div>
     </div>
+    <div class="settings-section">
+      ${renderAgentPanel()}
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-title">TLS Fingerprint</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:12px;opacity:.55">${t("fpBrowser")}</span>
+        <div id="set-fingerprint" class="custom-select" data-value="${currentFingerprint}">
+          <div class="custom-select-trigger"><span class="custom-select-label">${({"chrome":"Chrome Auto","chrome_120":"Chrome 120","chrome_115":"Chrome 115","firefox":"Firefox Auto","firefox_120":"Firefox 120","safari":"Safari Auto","ios":"iOS Safari","android":"Android OkHttp","edge":"Edge Auto","random":t("fpRandom")} as Record<string,string>)[currentFingerprint] || currentFingerprint}</span><span class="arrow">▾</span></div>
+          <div class="custom-select-options">
+            ${[["chrome","Chrome Auto"],["chrome_120","Chrome 120"],["chrome_115","Chrome 115"],["firefox","Firefox Auto"],["firefox_120","Firefox 120"],["safari","Safari Auto"],["ios","iOS Safari"],["android","Android OkHttp"],["edge","Edge Auto"],["random",t("fpRandom")]].map(([v,l])=>`<div class="custom-select-option${currentFingerprint===v?" selected":""}" data-value="${v}">${l}</div>`).join("")}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
+          <span id="fp-desc" style="font-size:12px;opacity:.45;flex:1">${getFPDescription(currentFingerprint)}</span>
+          ${isConnected ? `<button class="btn-sm" id="btn-fp-apply" style="font-size:11px;padding:3px 10px">${t("fpApplyNow")}</button>` : ""}
+        </div>
+      </div>
+    </div>
     `;
 }
 
 function bindSettingsEvents(): void {
+  document.getElementById("btn-agent-refresh")?.addEventListener("click", async () => {
+    await fetchAgentStats();
+    renderPage();
+  });
+
+  document.getElementById("btn-agent-apply")?.addEventListener("click", async () => {
+    try {
+      const rec = await invoke<{ transport: string; server: string }>("agent_recommend");
+      if (!rec.transport) { showToast(t("noRecommendation"), "error"); return; }
+      // Apply to all enabled connections
+      const connected = connectionsList.filter(c => c.status === "connected" || c.status === "connecting");
+      if (connected.length === 0) { showToast(t("noActiveConns"), "error"); return; }
+      await Promise.all(connected.map(c => invoke("switch_transport", { id: c.id, transport: rec.transport }).catch(() => {})));
+      showToast(`${t("transportSet")} ${rec.transport}`, "success", 3000);
+      await fetchConnections();
+      renderPage();
+    } catch (e) { showToast(String(e), "error"); }
+  });
+
+  const fpSelect = document.getElementById("set-fingerprint");
+  if (fpSelect) {
+    const trigger = fpSelect.querySelector(".custom-select-trigger") as HTMLElement;
+    trigger?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      fpSelect.classList.toggle("open");
+    });
+    fpSelect.querySelectorAll(".custom-select-option").forEach((opt) => {
+      opt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const val = (opt as HTMLElement).dataset.value || "";
+        currentFingerprint = val;
+        fpSelect.dataset.value = val;
+        fpSelect.classList.remove("open");
+        const label = fpSelect.querySelector(".custom-select-label");
+        if (label) label.textContent = opt.textContent || val;
+        fpSelect.querySelectorAll(".custom-select-option").forEach((o) => o.classList.remove("selected"));
+        opt.classList.add("selected");
+        const desc = document.getElementById("fp-desc");
+        if (desc) desc.textContent = getFPDescription(val);
+        localStorage.setItem("tls_fingerprint", val);
+        invoke("patch_app_settings", { patch: { tls_fingerprint: val } }).catch(() => {});
+        showToast(`${t("fingerprintSet")} ${val}`, "success", 2000);
+      });
+    });
+    document.addEventListener("click", () => fpSelect.classList.remove("open"));
+  }
+
+  document.getElementById("btn-fp-apply")?.addEventListener("click", async () => {
+    const btn = document.getElementById("btn-fp-apply") as HTMLButtonElement | null;
+    if (btn) btn.disabled = true;
+    try {
+      await invoke("apply_tls_fingerprint");
+      showToast(`${t("fingerprintSet")} ${currentFingerprint}`, "success", 2000);
+    } catch (e) {
+      showToast(String(e), "error", 3000);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
   (document.getElementById("set-port") as HTMLInputElement)?.addEventListener("change", function () { settings.mihomo_port = parseInt(this.value, 10) || 7890; persistSettings(); });
   (document.getElementById("set-bind") as HTMLInputElement)?.addEventListener("change", function () { settings.socks_addr = this.value; persistSettings(); });
   (document.getElementById("set-custom-dns") as HTMLInputElement)?.addEventListener("change", function () {
@@ -3650,19 +2781,6 @@ function bindSettingsEvents(): void {
     clipboardWrite(settings.secret);
     showToast(t("secretCopied"), "success", 1800);
   });
-  document.getElementById("btn-encapsulate")?.addEventListener("click", async () => {
-    const outer = (document.getElementById("encap-outer") as HTMLSelectElement)?.value;
-    const inner = (document.getElementById("encap-inner") as HTMLSelectElement)?.value;
-    if (!outer || !inner || outer === inner) {
-      showToast(t("selectTwoConns"), "error", 2000);
-      return;
-    }
-    await invoke("close_connection", { id: inner }).catch(() => {});
-    showToast(`${inner} ${t("encapsulatedIn")} ${outer}`, "success", 3000);
-    await fetchConnections();
-    renderPage();
-  });
-
   document.getElementById("btn-open-repo")?.addEventListener("click", () => invoke("open_url", { url: "https://github.com/Jalaveyan/Whispera" }).catch(() => { }));
   document.getElementById("btn-open-config")?.addEventListener("click", () => invoke("open_config_dir").catch(() => { }));
   document.getElementById("btn-check-updates")?.addEventListener("click", async () => {
@@ -3903,9 +3021,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     loadRoutingRules(),
     loadBlocklist(),
     checkStatus(),
+    fetchConnections(),
+    fetchAgentStats(),
   ]);
   renderShell();
-  checkSites(); fetchIpInfo(); fetchSysInfo();
+  fetchIpInfo(); fetchSysInfo();
   startSubAutoCheck();
 
   if (settings.auto_connect && !isConnected && settings.conn_key && !isConnecting) {
@@ -3919,4 +3039,17 @@ window.addEventListener("DOMContentLoaded", async () => {
     await checkStatus();
     if (prev !== isConnected) updateHome();
   }, 10000);
+
+  // periodic connections list refresh while on the home page
+  setInterval(async () => {
+    if (currentPage !== "home") return;
+    await Promise.all([fetchConnections(), fetchAgentStats()]);
+    if (currentPage !== "home") return;
+    const main = document.getElementById("main-content")!;
+    const scrollY = main.scrollTop;
+    main.innerHTML = renderHome();
+    bindHomeEvents();
+    bindConnectionsEvents();
+    main.scrollTop = scrollY;
+  }, 15000);
 });

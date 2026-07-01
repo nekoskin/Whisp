@@ -522,6 +522,73 @@ body {
   color: var(--md-on-primary);
 }
 
+/* Circular power toggle — primary Home action */
+.power-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 18px 0 10px;
+}
+.btn-power {
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  border: none;
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 0 0 10px rgba(124,111,255,.10), 0 0 0 20px rgba(124,111,255,.05);
+  transition: all var(--tr);
+  position: relative;
+}
+.btn-power:hover { filter: brightness(1.08); }
+.btn-power:active { filter: brightness(0.95); }
+.btn-power.connected {
+  background: var(--md-err);
+  box-shadow: 0 0 0 10px rgba(229,85,85,.10), 0 0 0 20px rgba(229,85,85,.05);
+}
+.btn-power.connecting {
+  opacity: .65;
+  cursor: default;
+  animation: pulsePower 1.4s ease-in-out infinite;
+}
+@keyframes pulsePower {
+  0%, 100% { box-shadow: 0 0 0 10px rgba(124,111,255,.10), 0 0 0 20px rgba(124,111,255,.05); }
+  50%       { box-shadow: 0 0 0 14px rgba(124,111,255,.16), 0 0 0 26px rgba(124,111,255,.08); }
+}
+.power-status {
+  text-align: center;
+  margin-bottom: 4px;
+}
+.power-status .status-text {
+  font-size: 15px;
+  font-weight: 600;
+}
+.power-status .status-server {
+  font-size: 12px;
+  opacity: .55;
+  margin-top: 2px;
+}
+.btn-icon-add {
+  background: transparent;
+  border: 1px solid var(--md-outline-var);
+  color: var(--md-on-surface-var);
+  border-radius: var(--s-full);
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--tr);
+}
+.btn-icon-add:hover {
+  border-color: var(--md-primary);
+  color: var(--md-primary);
+}
+
 /* live uptime in status line */
 .status-uptime {
   margin-left: auto;

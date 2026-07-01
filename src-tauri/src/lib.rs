@@ -12,7 +12,7 @@ use tauri_plugin_shell::ShellExt;
 mod go_client;
 mod mihomo;
 
-use go_client::{ExtraKeySpec, GoClientConfig, GoClientManager};
+use go_client::{GoClientConfig, GoClientManager};
 use mihomo::MihomoManager;
 
 include!(concat!(env!("OUT_DIR"), "/sidecar_hashes.rs"));
@@ -46,9 +46,6 @@ fn verify_sidecar(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-static EXTRA_KEY_COUNT: std::sync::LazyLock<Mutex<usize>> =
-    std::sync::LazyLock::new(|| Mutex::new(0));
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RoutingRule {
@@ -58,8 +55,6 @@ struct RoutingRule {
     action: String,
 }
 
-/// Собирает routing_rules + blocklist в JSON для whisp_vpn_android::nativeStart.
-/// Формат — RoutingRule enum из crate::rules с tag="kind", rename_all=kebab-case.
 #[cfg(target_os = "android")]
 fn build_android_rules_json(settings: &AppSettings) -> String {
     let mut entries: Vec<serde_json::Value> = Vec::new();
@@ -76,7 +71,7 @@ fn build_android_rules_json(settings: &AppSettings) -> String {
             "domain-full" => "domain-exact",
             "ip" => "ip-cidr",
             "process" => "process-name",
-            _ => "domain-suffix", // включая 'domain'
+            _ => "domain-suffix",
         };
         let val_field = match kind {
             "domain-suffix" => ("suffix", r.value.clone()),
@@ -95,7 +90,6 @@ fn build_android_rules_json(settings: &AppSettings) -> String {
         obj.insert("action".to_string(), serde_json::Value::String(mapped.to_string()));
         dst.push(serde_json::Value::Object(obj));
     };
-    // bypass_ru: домены .ru/.su идут напрямую (prepend чтобы перекрыть MATCH,PROXY)
     if settings.bypass_ru {
         for suffix in &["ru", "su", "рф"] {
             let mut obj = serde_json::Map::new();
@@ -108,7 +102,6 @@ fn build_android_rules_json(settings: &AppSettings) -> String {
     for r in &settings.routing_rules {
         push(&mut entries, r, None);
     }
-    // blocklist всегда REJECT, action в самой записи может быть пустым — форсим
     for r in &settings.blocklist {
         push(&mut entries, r, Some("REJECT"));
     }
@@ -140,13 +133,7 @@ struct AppSettings {
     #[serde(default)]
     blocklist: Vec<RoutingRule>,
     #[serde(default)]
-    extra_keys: Vec<String>,
-    #[serde(default)]
     custom_dns: Vec<String>,
-    #[serde(default)]
-    p2p_relay_addr: String,
-    #[serde(default)]
-    p2p_secret: String,
     #[serde(default)]
     vpn_dns: String,
     #[serde(default)]
@@ -195,10 +182,7 @@ impl Default for AppSettings {
             secret: String::new(),
             routing_rules: Vec::new(),
             blocklist: Vec::new(),
-            extra_keys: Vec::new(),
             custom_dns: Vec::new(),
-            p2p_relay_addr: String::new(),
-            p2p_secret: String::new(),
             vpn_dns: String::new(),
             mitm_enabled: false,
             spoof_ips: String::new(),
@@ -217,8 +201,6 @@ impl Default for AppSettings {
 struct AppState {
     mihomo: Mutex<MihomoManager>,
     go_client: Mutex<GoClientManager>,
-    watchdog_specs: Mutex<Vec<ExtraKeySpec>>,
-    // socks5h://whisp:<sha256hex>@127.0.0.1:1080 — заполняется при connect на Android
     android_proxy: Mutex<Option<String>>,
 }
 
@@ -260,10 +242,7 @@ fn save_app_setting(app: tauri::AppHandle, mut settings: AppSettings) -> Result<
             if let Ok(existing) = serde_json::from_str::<AppSettings>(&raw) {
                 settings.routing_rules = existing.routing_rules;
                 settings.blocklist = existing.blocklist;
-                settings.extra_keys = existing.extra_keys;
                 if settings.custom_dns.is_empty() { settings.custom_dns = existing.custom_dns; }
-                if settings.p2p_relay_addr.is_empty() { settings.p2p_relay_addr = existing.p2p_relay_addr; }
-                if settings.p2p_secret.is_empty() { settings.p2p_secret = existing.p2p_secret; }
                 if settings.vpn_dns.is_empty() { settings.vpn_dns = existing.vpn_dns; }
                 if settings.spoof_ips.is_empty() { settings.spoof_ips = existing.spoof_ips; }
                 if !settings.mitm_enabled { settings.mitm_enabled = existing.mitm_enabled; }
@@ -277,7 +256,6 @@ fn save_app_setting(app: tauri::AppHandle, mut settings: AppSettings) -> Result<
     Ok(())
 }
 
-/// Patch a single field in settings.json by merging a JSON object.
 #[tauri::command]
 fn patch_app_settings(app: tauri::AppHandle, patch: serde_json::Value) -> Result<(), String> {
     let path = settings_path(&app);
@@ -299,11 +277,6 @@ fn patch_app_settings(app: tauri::AppHandle, patch: serde_json::Value) -> Result
 
 #[tauri::command]
 async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<String, String> {
-    // На Android реальный TUN устанавливается через WhispVpnService (Kotlin).
-    // Собираем правила пользователя в JSON, шлём intent с extra'ом — сервис
-    // делает Builder.establish(), получает TUN fd и через JNI отдаёт его +
-    // правила в whisp-vpn-android nativeStart. Mihomo стартует с этими
-    // правилами уже в config.yaml.
     #[cfg(target_os = "android")]
     {
         let settings = get_app_settings(app.clone())?;
@@ -313,8 +286,6 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         let ipv6 = settings.ipv6;
         let mitm = settings.mitm_enabled;
         let hwid = settings.hwid;
-
-        // Сохраняем SOCKS5 URL для check_site/get_ip_info через VPN
         if !conn_key.is_empty() {
             use sha2::Digest;
             let hash = sha2::Sha256::digest(conn_key.as_bytes());
@@ -332,8 +303,6 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         .unwrap_or(false);
 
         if !prepared {
-            // Сохраняем параметры до показа диалога — onActivityResult
-            // запустит VPN автоматически при RESULT_OK
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 whisp_vpn_android::service_intent::save_pending_start(
                     &rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid,
@@ -342,12 +311,9 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                 whisp_vpn_android::service_intent::request_vpn_permission,
             ));
-            // Ok — фронтенд переходит в "connecting", VPN стартует из onActivityResult
             return Ok("Android VPN starting".to_string());
         }
 
-        // JNI call is blocking — run it on the blocking thread pool so the
-        // tokio async executor is not held during VPN setup (fixes UI freeze).
         let res = tokio::task::spawn_blocking(move || {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid)
@@ -423,31 +389,6 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         });
     }
 
-    gc.stop_extras();
-    let mut active_extras = 0usize;
-    for (i, extra_key) in settings.extra_keys.iter().enumerate() {
-        if extra_key.is_empty() { continue; }
-        let socks_port = 10900u16 + i as u16;
-        let ctrl_port = GoClientManager::extra_control_port(i);
-        if let Err(e) = gc.start_extra(extra_key, socks_port, ctrl_port) {
-            eprintln!("[connect] extra key {} start failed: {}", i, e);
-        } else {
-            eprintln!("[connect] extra key {} started on socks:{} ctrl:{}", i, socks_port, ctrl_port);
-            active_extras += 1;
-        }
-    }
-    if let Ok(mut cnt) = EXTRA_KEY_COUNT.lock() { *cnt = active_extras; }
-    if let Ok(mut specs) = state.watchdog_specs.lock() {
-        *specs = settings.extra_keys.iter().enumerate()
-            .filter(|(_, k)| !k.is_empty())
-            .map(|(i, k)| ExtraKeySpec {
-                key: k.clone(),
-                socks_port: 10900u16 + i as u16,
-                ctrl_port: GoClientManager::extra_control_port(i),
-            })
-            .collect();
-    }
-
     let config_path = mihomo_config_path(&app);
     let mut routing_rules: Vec<mihomo::MihomoRoutingRule> = Vec::new();
     for r in &settings.blocklist {
@@ -465,11 +406,6 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         });
     }
 
-    let extra_addrs: Vec<String> = settings.extra_keys.iter().enumerate()
-        .filter(|(_, k)| !k.is_empty())
-        .map(|(i, _)| format!("127.0.0.1:{}", 10900u16 + i as u16))
-        .collect();
-
     let mihomo_config = mihomo::generate_config(&mihomo::MihomoConfig {
         socks_addr: &socks_addr,
         mixed_port: settings.mihomo_port,
@@ -477,7 +413,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         dns_redirect: settings.dns_redirect,
         ipv6: settings.ipv6,
         routing_rules: &routing_rules,
-        extra_socks_addrs: &extra_addrs,
+        extra_socks_addrs: &[],
         custom_dns: &settings.custom_dns,
         tls_fingerprint: &settings.tls_fingerprint,
         bypass_ru: settings.bypass_ru,
@@ -500,11 +436,6 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
 
 #[tauri::command]
 fn disconnect(state: tauri::State<AppState>) -> Result<String, String> {
-    // На Android весь mihomo-stack живёт внутри WhispVpnService — стопим
-    // через intent. Sidecar-managers в state.mihomo / state.go_client на
-    // Android всё равно ничего не запускают (nativeLibraryDir-paths,
-    // на которые они ссылаются, потребляются Kotlin-сервисом, а не
-    // напрямую отсюда).
     #[cfg(target_os = "android")]
     {
         if let Ok(mut p) = state.android_proxy.lock() { *p = None; }
@@ -520,13 +451,10 @@ fn disconnect(state: tauri::State<AppState>) -> Result<String, String> {
 
     #[allow(unreachable_code)]
     {
-        state.watchdog_specs.lock().ok().map(|mut s| s.clear());
-
         let mut mihomo = state.mihomo.lock().map_err(|e| e.to_string())?;
         mihomo.stop()?;
 
         let mut gc = state.go_client.lock().map_err(|e| e.to_string())?;
-        gc.stop_extras();
         gc.stop()?;
 
         Ok("Disconnected".to_string())
@@ -538,8 +466,6 @@ fn get_status(state: tauri::State<AppState>) -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
         let _ = state;
-        // is_vpn_active() корректен, пока процесс жив (foreground service).
-        // is_vpn_service_running() синхронизирует флаг на случай перезапуска Activity.
         let active = whisp_vpn_android::service_intent::is_vpn_active()
             || whisp_vpn_android::service_intent::is_vpn_service_running();
         if active { whisp_vpn_android::service_intent::set_vpn_active(true); }
@@ -563,25 +489,11 @@ fn conn_url(id: &str, action: &str) -> String {
     format!("{}/connections/{}/{}", control_base(control_port_for_id(id)), raw_id(id), action)
 }
 
-fn control_port_for_id(id: &str) -> u16 {
-    if let Some(rest) = id.strip_prefix('e') {
-        if let Some(colon) = rest.find(':') {
-            if let Ok(i) = rest[..colon].parse::<usize>() {
-                return GoClientManager::extra_control_port(i);
-            }
-        }
-    }
+fn control_port_for_id(_id: &str) -> u16 {
     CONTROL_PORT_MAIN
 }
 
 fn raw_id(id: &str) -> &str {
-    if let Some(rest) = id.strip_prefix('e') {
-        if let Some(colon) = rest.find(':') {
-            if rest[..colon].chars().all(|c| c.is_ascii_digit()) {
-                return &id[id.find(':').unwrap() + 1..];
-            }
-        }
-    }
     id
 }
 
@@ -592,29 +504,13 @@ async fn get_connections() -> Result<serde_json::Value, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut all: Vec<serde_json::Value> = match client
+    let all: Vec<serde_json::Value> = match client
         .get(format!("{}/connections", control_base(CONTROL_PORT_MAIN)))
         .send().await
     {
         Ok(r) => r.json::<Vec<serde_json::Value>>().await.unwrap_or_default(),
         Err(_) => vec![],
     };
-
-    let extra_count = EXTRA_KEY_COUNT.lock().map(|g| *g).unwrap_or(0);
-    for i in 0..extra_count {
-        let port = GoClientManager::extra_control_port(i);
-        if let Ok(r) = client.get(format!("{}/connections", control_base(port))).send().await {
-            if let Ok(mut entries) = r.json::<Vec<serde_json::Value>>().await {
-                for entry in &mut entries {
-                    if let Some(id) = entry.get("id").and_then(|v| v.as_str()) {
-                        entry["id"] = serde_json::Value::String(format!("e{}:{}", i, id));
-                        entry["key_index"] = serde_json::Value::Number(i.into());
-                    }
-                }
-                all.extend(entries);
-            }
-        }
-    }
 
     Ok(serde_json::Value::Array(all))
 }
@@ -660,56 +556,6 @@ async fn switch_transport(id: String, transport: String) -> Result<bool, String>
         let body = resp.text().await.unwrap_or_default();
         return Err(format!("transport switch failed ({}): {}", status.as_u16(), body.trim()));
     }
-    Ok(true)
-}
-
-#[tauri::command]
-async fn p2p_status() -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(3))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let resp = client.get(format!("{}/p2p", &control_base(CONTROL_PORT_MAIN)))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
-    resp.json::<serde_json::Value>().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn p2p_register(relay_addr: String, secret: String) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let resp = client.post(format!("{}/p2p/register", &control_base(CONTROL_PORT_MAIN)))
-        .json(&serde_json::json!({"relay_addr": relay_addr, "secret": secret}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
-    if !resp.status().is_success() {
-        return Err(resp.text().await.unwrap_or_default());
-    }
-    let v = resp.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
-    Ok(v["peer_id"].as_str().unwrap_or("").to_string())
-}
-
-#[tauri::command]
-async fn p2p_connect(target: String, relay_addr: String, secret: String) -> Result<bool, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(35))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let resp = client.post(format!("{}/p2p/connect", &control_base(CONTROL_PORT_MAIN)))
-        .json(&serde_json::json!({"target": target, "relay_addr": relay_addr, "secret": secret}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
-    Ok(resp.status().is_success())
-}
-
-#[tauri::command]
-async fn p2p_disconnect() -> Result<bool, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|e| e.to_string())?;
-    client.post(format!("{}/p2p/disconnect", &control_base(CONTROL_PORT_MAIN)))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
@@ -835,80 +681,6 @@ async fn set_behavioral_profile(id: String, profile: String) -> Result<bool, Str
         return Err(format!("set_profile failed: {}", msg));
     }
     Ok(true)
-}
-
-#[tauri::command]
-async fn encapsulate_connection(inner_id: String, outer_id: String) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()
-        .map_err(|e| e.to_string())?;
-    let resp = client
-        .post(conn_url(&inner_id, "encapsulate"))
-        .json(&serde_json::json!({ "wrap_in": outer_id }))
-        .send().await
-        .map_err(|_| "control server unavailable".to_string())?;
-    if !resp.status().is_success() {
-        let msg = resp.text().await.unwrap_or_default();
-        return Err(format!("encapsulate failed: {}", msg));
-    }
-    resp.json::<serde_json::Value>().await.map_err(|e| e.to_string())
-}
-
-#[derive(Serialize)]
-struct SiteCheckResult {
-    status: u16,
-    ping_ms: u64,
-}
-
-#[tauri::command]
-async fn check_site(url: String, state: tauri::State<'_, AppState>) -> Result<SiteCheckResult, String> {
-    let proxy_url = state.android_proxy.lock().ok().and_then(|g| g.clone());
-
-    let start = std::time::Instant::now();
-
-    if let Some(ref proxy) = proxy_url {
-        // На Android: проверяем через VPN-прокси (go-client SOCKS5)
-        let target = if url.starts_with("http") { url.clone() } else { format!("https://{}", url) };
-        let mut builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(8));
-        if let Ok(p) = reqwest::Proxy::all(proxy.as_str()) {
-            builder = builder.proxy(p);
-        }
-        let client = builder.build().map_err(|e| e.to_string())?;
-        match client.head(&target).send().await {
-            Ok(resp) => Ok(SiteCheckResult {
-                status: resp.status().as_u16(),
-                ping_ms: start.elapsed().as_millis() as u64,
-            }),
-            Err(e) if e.is_timeout() => Err("Timeout".to_string()),
-            Err(e) => Err(format!("Connect failed: {}", e)),
-        }
-    } else {
-        // Desktop / VPN не активен: прямой TCP connect
-        let host = url
-            .replace("https://", "")
-            .replace("http://", "")
-            .split('/')
-            .next()
-            .unwrap_or("")
-            .to_string();
-        if host.is_empty() {
-            return Err("Invalid URL".to_string());
-        }
-        let addr = format!("{}:443", host);
-        match tokio::time::timeout(
-            Duration::from_secs(5),
-            tokio::net::TcpStream::connect(&addr),
-        )
-        .await
-        {
-            Ok(Ok(_)) => Ok(SiteCheckResult {
-                status: 200,
-                ping_ms: start.elapsed().as_millis() as u64,
-            }),
-            Ok(Err(e)) => Err(format!("Connect failed: {}", e)),
-            Err(_) => Err("Timeout".to_string()),
-        }
-    }
 }
 
 #[derive(Serialize)]
@@ -1065,8 +837,6 @@ fn open_url(url: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        // Empty "" is the window-title slot for `start`; keeping it prevents
-        // the URL from being interpreted as a title when it contains spaces.
         std::process::Command::new("cmd")
             .args(["/c", "start", "", &url])
             .spawn()
@@ -1095,7 +865,6 @@ async fn install_mitm_ca(app: tauri::AppHandle) -> Result<(), String> {
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("mitm-ca.crt");
 
-    // Try to fetch fresh CA from go-client; fall back to cached copy.
     let ca_bytes: Vec<u8> = match reqwest::Client::new()
         .get("http://127.0.0.1:10801/mitm/ca")
         .timeout(Duration::from_secs(5))
@@ -1118,17 +887,14 @@ async fn install_mitm_ca(app: tauri::AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "android")]
     {
-        // KeyChain.createInstallIntent() expects DER-encoded bytes.
-        // go-client typically serves PEM — convert if needed.
         let der = if ca_bytes.starts_with(b"-----BEGIN") {
             pem_to_der(&ca_bytes).unwrap_or_else(|| ca_bytes.clone())
         } else {
             ca_bytes.clone()
         };
         match whisp_vpn_android::service_intent::install_ca_cert_android(&der)? {
-            None => return Ok(()), // KeyChain intent launched (Android < 11)
+            None => return Ok(()),
             Some(path) => {
-                // Android 11+: cert saved to Downloads, user must install manually
                 return Err(format!(
                     "ca_saved_to_downloads:{}",
                     path
@@ -1141,7 +907,6 @@ async fn install_mitm_ca(app: tauri::AppHandle) -> Result<(), String> {
     {
         let tmp_path = std::env::temp_dir().join("whispera-ca.crt");
         fs::write(&tmp_path, &ca_bytes).map_err(|e| format!("write temp: {}", e))?;
-        // Use PowerShell X509Store — no confirmation dialog unlike certutil
         let ps_script = format!(
             "$cert=New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('{}'); \
              $store=New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','CurrentUser'); \
@@ -1245,8 +1010,6 @@ async fn save_routing_rules(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> R
     Ok(())
 }
 
-/// Regenerate mihomo config with current settings (incl. tls_fingerprint) and hot-reload via external controller.
-/// On Android mihomo does not run — fingerprint is saved and picked up by go-client on next connect.
 #[tauri::command]
 async fn apply_tls_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
     if cfg!(target_os = "android") { return Ok(()); }
@@ -1303,10 +1066,56 @@ async fn apply_tls_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// The go-client process itself writes its logs to this file (-log-file flag
+// in WhispVpnService.launchGoClient). It runs in the app's own UID, so the
+// file is readable from any process of this app — including the main/UI
+// process, which is where this Tauri command runs. This does NOT rely on
+// whisp_vpn_android::LOG_BUFFER, which lives in the :vpn process and is a
+// separate memory space (Rust statics aren't shared across processes).
+#[cfg(target_os = "android")]
+static GO_CLIENT_LOG_OFFSET: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
+
+#[cfg(target_os = "android")]
+fn go_client_log_path() -> Option<std::path::PathBuf> {
+    for candidate in [
+        "/data/data/com.whispera.whisp/files/go-client.log",
+        "/data/user/0/com.whispera.whisp/files/go-client.log",
+    ] {
+        let p = std::path::PathBuf::from(candidate);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 #[tauri::command]
 fn get_vpn_log() -> Vec<String> {
     #[cfg(target_os = "android")]
-    { return whisp_vpn_android::drain_log(); }
+    {
+        use std::io::{Read, Seek, SeekFrom};
+        let Some(path) = go_client_log_path() else { return Vec::new(); };
+        let Ok(mut f) = std::fs::File::open(&path) else { return Vec::new(); };
+        let Ok(meta) = f.metadata() else { return Vec::new(); };
+        let len = meta.len();
+        let Ok(mut offset) = GO_CLIENT_LOG_OFFSET.lock() else { return Vec::new(); };
+        if len < *offset {
+            *offset = 0;
+        }
+        if f.seek(SeekFrom::Start(*offset)).is_err() {
+            return Vec::new();
+        }
+        let mut buf = Vec::new();
+        if f.read_to_end(&mut buf).is_err() {
+            return Vec::new();
+        }
+        let Some(last_newline) = buf.iter().rposition(|&b| b == b'\n') else {
+            return Vec::new();
+        };
+        *offset += (last_newline + 1) as u64;
+        let text = String::from_utf8_lossy(&buf[..=last_newline]);
+        return text.lines().map(|l| l.to_string()).collect();
+    }
     #[allow(unreachable_code)]
     Vec::new()
 }
@@ -1517,7 +1326,6 @@ async fn fetch_sub_url(url: &str) -> Result<SubscriptionEntry, String> {
     validate_subscription_url(url)?;
     let client = reqwest::Client::builder()
         .min_tls_version(reqwest::tls::Version::TLS_1_2)
-        // Subscription servers often use self-signed certs on raw IP addresses.
         .danger_accept_invalid_certs(true)
         .timeout(Duration::from_secs(12))
         .redirect(reqwest::redirect::Policy::none())
@@ -1650,10 +1458,8 @@ async fn ping_key(key: String, state: tauri::State<'_, AppState>) -> Result<u64,
     let start = std::time::Instant::now();
 
     if let Some(ref proxy) = proxy_url {
-        // Android + VPN активен: подключаемся через SOCKS5 чтобы измерить латентность туннеля
         socks5_ping(proxy, host, port).await?;
     } else {
-        // Desktop или VPN не активен: прямой TCP
         tokio::time::timeout(
             Duration::from_secs(5),
             tokio::net::TcpStream::connect(&host_port),
@@ -1665,11 +1471,9 @@ async fn ping_key(key: String, state: tauri::State<'_, AppState>) -> Result<u64,
     Ok(start.elapsed().as_millis() as u64)
 }
 
-// Минимальный SOCKS5 CONNECT-хендшейк для измерения латентности.
 async fn socks5_ping(proxy_url: &str, target_host: &str, target_port: u16) -> Result<(), String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    // Парсим socks5h://user:pass@host:port
     let after_scheme = proxy_url
         .strip_prefix("socks5h://")
         .or_else(|| proxy_url.strip_prefix("socks5://"))
@@ -1687,7 +1491,6 @@ async fn socks5_ping(proxy_url: &str, target_host: &str, target_port: u16) -> Re
     .map_err(|_| "socks5 timeout".to_string())?
     .map_err(|e| e.to_string())?;
 
-    // Greeting: VER=5, NMETHODS=1, METHOD=2(username/password)
     stream.write_all(&[5, 1, 2]).await.map_err(|e| e.to_string())?;
     let mut buf = [0u8; 2];
     stream.read_exact(&mut buf).await.map_err(|e| e.to_string())?;
@@ -1695,7 +1498,6 @@ async fn socks5_ping(proxy_url: &str, target_host: &str, target_port: u16) -> Re
         return Err("socks5 auth rejected".to_string());
     }
 
-    // Username/password sub-negotiation (RFC 1929)
     let u = user.as_bytes();
     let p = pass.as_bytes();
     let mut auth = vec![1u8, u.len() as u8];
@@ -1708,7 +1510,6 @@ async fn socks5_ping(proxy_url: &str, target_host: &str, target_port: u16) -> Re
         return Err("socks5 auth failed".to_string());
     }
 
-    // CONNECT request: VER=5, CMD=1, RSV=0, ATYP=3(domain)
     let h = target_host.as_bytes();
     let mut req = vec![5u8, 1, 0, 3, h.len() as u8];
     req.extend_from_slice(h);
@@ -1716,7 +1517,6 @@ async fn socks5_ping(proxy_url: &str, target_host: &str, target_port: u16) -> Re
     req.push(target_port as u8);
     stream.write_all(&req).await.map_err(|e| e.to_string())?;
 
-    // Response: VER, REP, RSV, ATYP, ...
     let mut hdr = [0u8; 4];
     tokio::time::timeout(Duration::from_secs(5), stream.read_exact(&mut hdr))
         .await
@@ -1743,9 +1543,7 @@ fn uninstall_services(state: tauri::State<AppState>) -> Result<String, String> {
 
 #[derive(Debug, Clone, Serialize)]
 struct ProcessInfo {
-    // rule value: package name on Android, process name on desktop
     name: String,
-    // display label: app label on Android, same as name on desktop
     label: String,
     pid: u32,
 }
@@ -1754,8 +1552,6 @@ struct ProcessInfo {
 fn list_processes() -> Result<Vec<ProcessInfo>, String> {
     let mut result = Vec::new();
 
-    // На Android нет понятия 'process list' для других приложений (security),
-    // зато есть PackageManager — отдадим установленные пользовательские пакеты.
     #[cfg(target_os = "android")]
     {
         let apps = whisp_vpn_android::pkg_list::list_user_packages()
@@ -1794,8 +1590,6 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
         }
     }
 
-    // Linux/macOS: ps. На android этот блок не достигается (выше Android-ветка
-    // делает return), потому исключаем его явно — иначе warning unreachable_code.
     #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
     {
         let out = std::process::Command::new("ps")
@@ -1824,7 +1618,6 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
     }
 }
 
-// ── In-app update ──────────────────────────────────────────────────────────
 
 #[derive(Serialize, Clone)]
 struct UpdateInfo {
@@ -1997,26 +1790,15 @@ pub fn run() {
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
 
-    // .exe suffix только для Windows. Tauri sidecars на macOS/Linux/Android
-    // ставятся без расширения. До этого фикса клиент на не-Windows не находил
-    // ни mihomo, ни go-client, ни ml-server — verify_sidecar() падал и через
-    // std::process::exit(1) убивал app.
-    // На desktop/iOS используется для построения путей к sidecar'ам
-    // (whispera-go-client / mihomo / whispera-ml-server). На Android всё
-    // резолвится через resolve_android_sidecar — EXE_EXT там не нужен.
     #[cfg(all(target_os = "windows", not(target_os = "android")))]
     const EXE_EXT: &str = ".exe";
     #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
     const EXE_EXT: &str = "";
 
-    // На Android current_exe() указывает на app_process64, а не на наш .so.
-    // Читаем /proc/self/maps чтобы найти реальный nativeLibraryDir по пути
-    // любого загруженного .so из нашего пакета.
     #[cfg(target_os = "android")]
     let android_native_lib_dir: Option<PathBuf> = (|| {
         let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
         for line in maps.lines() {
-            // Формат: addr perms offset dev inode [path]
             let parts: Vec<&str> = line.splitn(6, ' ').collect();
             let path_str = parts.get(5)?.trim();
             if path_str.contains("com.whispera.whisp") && path_str.ends_with(".so") {
@@ -2032,7 +1814,6 @@ pub fn run() {
     #[cfg(target_os = "android")]
     let resolve_android_sidecar = |name: &str| -> PathBuf {
         let so_name = format!("lib{}.so", name);
-        // Сначала пробуем реальный nativeLibraryDir из /proc/self/maps
         if let Some(ref lib_dir) = android_native_lib_dir {
             let p = lib_dir.join(&so_name);
             if p.exists() { return p; }
@@ -2052,8 +1833,6 @@ pub fn run() {
 
     #[cfg(not(target_os = "android"))]
     let mihomo_path = exe_dir.join(format!("mihomo{}", EXE_EXT));
-    // На Android mihomo тоже резолвим из nativeLibraryDir — будет получать
-    // TUN-fd через JNI от WhispVpnService.kt (см. crates/whisp-vpn-android).
     #[cfg(target_os = "android")]
     let mihomo_path = resolve_android_sidecar("mihomo");
 
@@ -2077,11 +1856,10 @@ pub fn run() {
         .manage(AppState {
             mihomo: Mutex::new(MihomoManager::new(mihomo_path)),
             go_client: Mutex::new(GoClientManager::new(go_client_path)),
-            watchdog_specs: Mutex::new(Vec::new()),
             android_proxy: Mutex::new(None),
         })
         .setup(|app| {
-            // Android: восстанавливаем android_proxy если VPN ещё работает (START_STICKY перезапуск).
+            let _ = &app;
             #[cfg(target_os = "android")]
             {
                 let init_app = app.handle().clone();
@@ -2103,51 +1881,14 @@ pub fn run() {
                 });
             }
 
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    // Collect specs without holding the State reference across await
-                    let specs: Vec<ExtraKeySpec> = {
-                        let state: tauri::State<AppState> = app_handle.state();
-                        let guard = match state.watchdog_specs.lock() {
-                            Ok(g) => g,
-                            Err(_) => continue,
-                        };
-                        let cloned = guard.clone();
-                        drop(guard);
-                        cloned
-                    };
-                    if specs.is_empty() { continue; }
-                    let n: usize = {
-                        let state: tauri::State<AppState> = app_handle.state();
-                        let x = match state.go_client.lock() {
-                            Ok(mut gc) => {
-                                let n = gc.check_and_restart_extras(&specs);
-                                drop(gc);
-                                n
-                            }
-                            Err(_) => 0,
-                        }; x
-                    };
-                    if n > 0 {
-                        eprintln!("[watchdog] restarted {} extra process(es)", n);
-                    }
-                }
-            });
-
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Не блокируем главный поток: stop() может вызвать child.wait()
-                // и зависнуть если процесс не реагирует. Переносим в поток,
-                // после попытки остановки — жёсткий exit(0).
                 api.prevent_close();
                 let app = window.app_handle().clone();
                 std::thread::spawn(move || {
                     let state: tauri::State<AppState> = app.state();
-                    // try_lock чтобы не дедлочиться если mutex занят watchdog'ом
                     let _ = state.mihomo.try_lock().map(|mut m| m.stop().ok());
                     let _ = state.go_client.try_lock().map(|mut gc| gc.stop().ok());
                     std::process::exit(0);
@@ -2163,7 +1904,6 @@ pub fn run() {
             connect,
             disconnect,
             get_status,
-            check_site,
             get_ip_info,
             get_system_info,
             open_config_dir,
@@ -2194,16 +1934,11 @@ pub fn run() {
             duplicate_connection,
             set_connection_mux,
             change_connection_port,
-            encapsulate_connection,
             set_transport_secure,
             set_behavioral_profile,
             get_agent_stats,
             agent_recommend,
             agent_report,
-            p2p_status,
-            p2p_register,
-            p2p_connect,
-            p2p_disconnect,
             check_for_updates,
             install_update,
         ])

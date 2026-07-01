@@ -1,13 +1,6 @@
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
-#[derive(Clone)]
-pub struct ExtraKeySpec {
-    pub key: String,
-    pub socks_port: u16,
-    pub ctrl_port: u16,
-}
-
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -22,7 +15,6 @@ pub struct GoClientManager {
     binary_path: PathBuf,
     process: Option<Child>,
     use_service: bool,
-    extra_processes: Vec<Child>,
 }
 
 pub struct GoClientConfig<'a> {
@@ -43,100 +35,7 @@ impl GoClientManager {
             binary_path,
             process: None,
             use_service: false,
-            extra_processes: Vec::new(),
         }
-    }
-
-    fn spawn_extra_child(
-        &self,
-        conn_key: &str,
-        socks_port: u16,
-        control_port: u16,
-    ) -> Result<Child, String> {
-        let log_path =
-            std::env::temp_dir().join(format!("whispera-go-client-extra-{}.log", socks_port));
-        let log_file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .map(Stdio::from)
-            .unwrap_or(Stdio::null());
-        let log_file2 = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .map(Stdio::from)
-            .unwrap_or(Stdio::null());
-
-        let mut cmd = Command::new(&self.binary_path);
-        cmd.arg("-key")
-            .arg(conn_key)
-            .arg("-socks")
-            .arg(format!("127.0.0.1:{}", socks_port))
-            .arg("-control-port")
-            .arg(control_port.to_string())
-            .arg("-no-tun")
-            .stdout(log_file)
-            .stderr(log_file2);
-
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
-
-        cmd.spawn()
-            .map_err(|e| format!("spawn extra client: {}", e))
-    }
-
-    pub fn start_extra(
-        &mut self,
-        conn_key: &str,
-        socks_port: u16,
-        control_port: u16,
-    ) -> Result<(), String> {
-        let child = self.spawn_extra_child(conn_key, socks_port, control_port)?;
-        self.extra_processes.push(child);
-        Ok(())
-    }
-
-    /// Check all extra processes; restart any that have exited. Returns number restarted.
-    pub fn check_and_restart_extras(&mut self, specs: &[ExtraKeySpec]) -> usize {
-        let mut restarted = 0;
-        for i in 0..self.extra_processes.len() {
-            let dead = matches!(self.extra_processes[i].try_wait(), Ok(Some(_)));
-            if dead {
-                if let Some(spec) = specs.get(i) {
-                    match self.spawn_extra_child(&spec.key, spec.socks_port, spec.ctrl_port) {
-                        Ok(new_child) => {
-                            self.extra_processes[i] = new_child;
-                            restarted += 1;
-                            eprintln!(
-                                "[watchdog] restarted extra process {} (socks:{})",
-                                i, spec.socks_port
-                            );
-                        }
-                        Err(e) => eprintln!("[watchdog] restart failed for extra {}: {}", i, e),
-                    }
-                }
-            }
-        }
-        restarted
-    }
-
-    pub fn extra_control_port(idx: usize) -> u16 {
-        10802u16 + idx as u16
-    }
-
-    pub fn stop_extras(&mut self) {
-        for mut child in self.extra_processes.drain(..) {
-            child.kill().ok();
-            child.wait().ok();
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn extra_socks_addrs(count: usize) -> Vec<String> {
-        (0..count)
-            .map(|i| format!("127.0.0.1:{}", 10900 + i))
-            .collect()
     }
 
     pub fn install_service(&self, cfg: &GoClientConfig) -> Result<(), String> {
@@ -360,14 +259,10 @@ impl GoClientManager {
             child.wait().ok();
         }
         self.process = None;
-        // Always blanket-kill to clean up orphaned processes from previous sessions
-        // (e.g. Tauri crashed without calling stop, or dev-mode restart).
         self.kill_all_by_name();
         Ok(())
     }
 
-    /// Kill all whispera-go-client processes by image name (orphan cleanup).
-    /// Use only during full disconnect or shutdown, not during reconnect.
     pub fn kill_all_by_name(&self) {
         #[cfg(windows)]
         {
@@ -399,7 +294,6 @@ impl GoClientManager {
 
 impl Drop for GoClientManager {
     fn drop(&mut self) {
-        self.stop_extras();
         self.stop().ok();
         self.kill_all_by_name();
     }
