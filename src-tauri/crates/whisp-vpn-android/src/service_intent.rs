@@ -27,6 +27,12 @@ const EXTRA_VPN_DNS: &str = "com.whispera.whisp.EXTRA_VPN_DNS";
 const EXTRA_IPV6: &str = "com.whispera.whisp.EXTRA_IPV6";
 const EXTRA_MITM: &str = "com.whispera.whisp.EXTRA_MITM";
 const EXTRA_HWID: &str = "com.whispera.whisp.EXTRA_HWID";
+const EXTRA_TLS_FINGERPRINT: &str = "com.whispera.whisp.EXTRA_TLS_FINGERPRINT";
+const EXTRA_MIXED_PORT: &str = "com.whispera.whisp.EXTRA_MIXED_PORT";
+const EXTRA_ALLOW_LAN: &str = "com.whispera.whisp.EXTRA_ALLOW_LAN";
+const EXTRA_SOCKS_USER: &str = "com.whispera.whisp.EXTRA_SOCKS_USER";
+const EXTRA_SOCKS_PASS: &str = "com.whispera.whisp.EXTRA_SOCKS_PASS";
+const EXTRA_DNS_MODE: &str = "com.whispera.whisp.EXTRA_DNS_MODE";
 
 fn vm_and_ctx() -> Result<(JavaVM, *mut std::ffi::c_void), String> {
     // SAFETY: ndk_context::android_context() возвращает указатели,
@@ -42,7 +48,7 @@ fn vm_and_ctx() -> Result<(JavaVM, *mut std::ffi::c_void), String> {
     Ok((vm, ctx.context()))
 }
 
-fn send_action(action: &str, rules_json: Option<&str>, conn_key: Option<&str>, vpn_dns: Option<&str>, ipv6: Option<bool>, mitm: Option<bool>, hwid: Option<bool>, _stop: bool) -> Result<(), String> {
+fn send_action(action: &str, rules_json: Option<&str>, conn_key: Option<&str>, vpn_dns: Option<&str>, ipv6: Option<bool>, mitm: Option<bool>, hwid: Option<bool>, tls_fingerprint: Option<&str>, mixed_port: Option<u16>, allow_lan: Option<bool>, socks_user: Option<&str>, socks_pass: Option<&str>, dns_mode: Option<&str>, _stop: bool) -> Result<(), String> {
     let (vm, ctx_ptr) = vm_and_ctx()?;
     let mut env = vm
         .attach_current_thread()
@@ -111,6 +117,12 @@ fn send_action(action: &str, rules_json: Option<&str>, conn_key: Option<&str>, v
     if let Some(v6) = ipv6 { put_extra(EXTRA_IPV6, if v6 { "1" } else { "0" })?; }
     if let Some(m) = mitm { put_extra(EXTRA_MITM, if m { "1" } else { "0" })?; }
     if let Some(h) = hwid { put_extra(EXTRA_HWID, if h { "1" } else { "0" })?; }
+    if let Some(fp) = tls_fingerprint { put_extra(EXTRA_TLS_FINGERPRINT, fp)?; }
+    if let Some(p) = mixed_port { put_extra(EXTRA_MIXED_PORT, &p.to_string())?; }
+    if let Some(lan) = allow_lan { put_extra(EXTRA_ALLOW_LAN, if lan { "1" } else { "0" })?; }
+    if let Some(u) = socks_user { put_extra(EXTRA_SOCKS_USER, u)?; }
+    if let Some(pw) = socks_pass { put_extra(EXTRA_SOCKS_PASS, pw)?; }
+    if let Some(dm) = dns_mode { put_extra(EXTRA_DNS_MODE, dm)?; }
 
     // Для старта и для стопа используем startForegroundService:
     // stopService() не вызывает onStartCommand, поэтому ACTION_STOP не доходит.
@@ -126,15 +138,19 @@ fn send_action(action: &str, rules_json: Option<&str>, conn_key: Option<&str>, v
     Ok(())
 }
 
-pub fn start_vpn_service(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6: bool, mitm: bool, hwid: bool) -> Result<(), String> {
+pub fn start_vpn_service(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6: bool, mitm: bool, hwid: bool, tls_fingerprint: &str, mixed_port: u16, allow_lan: bool, socks_user: &str, socks_pass: &str, dns_mode: &str) -> Result<(), String> {
     let dns = if vpn_dns.is_empty() { None } else { Some(vpn_dns) };
-    let r = send_action(ACTION_START, Some(rules_json), Some(conn_key), dns, Some(ipv6), Some(mitm), Some(hwid), false);
+    let fp = if tls_fingerprint.is_empty() { None } else { Some(tls_fingerprint) };
+    let user = if socks_user.is_empty() { None } else { Some(socks_user) };
+    let pass = if socks_pass.is_empty() { None } else { Some(socks_pass) };
+    let dm = if dns_mode.is_empty() { None } else { Some(dns_mode) };
+    let r = send_action(ACTION_START, Some(rules_json), Some(conn_key), dns, Some(ipv6), Some(mitm), Some(hwid), fp, Some(mixed_port), Some(allow_lan), user, pass, dm, false);
     if r.is_ok() { set_vpn_active(true); }
     r
 }
 
 pub fn stop_vpn_service() -> Result<(), String> {
-    let r = send_action(ACTION_STOP, None, None, None, None, None, None, true);
+    let r = send_action(ACTION_STOP, None, None, None, None, None, None, None, None, None, None, None, None, true);
     set_vpn_active(false);
     r
 }
@@ -202,7 +218,7 @@ pub fn request_vpn_permission() -> Result<i32, String> {
 
 /// Сохраняет параметры VPN в WhispVpnPrep.savePending() для авто-запуска
 /// после onActivityResult (пользователь разрешил VPN).
-pub fn save_pending_start(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6: bool, mitm: bool, hwid: bool) -> Result<(), String> {
+pub fn save_pending_start(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6: bool, mitm: bool, hwid: bool, tls_fingerprint: &str, mixed_port: u16, allow_lan: bool, socks_user: &str, socks_pass: &str, dns_mode: &str) -> Result<(), String> {
     let (vm, ctx_ptr) = vm_and_ctx()?;
     let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
     let context = unsafe { JObject::from_raw(ctx_ptr as jni::sys::jobject) };
@@ -219,10 +235,14 @@ pub fn save_pending_start(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6:
     let j_rules  = env.new_string(rules_json).map_err(|e| e.to_string())?;
     let j_key    = env.new_string(conn_key).map_err(|e| e.to_string())?;
     let j_dns    = env.new_string(vpn_dns).map_err(|e| e.to_string())?;
+    let j_fp     = env.new_string(tls_fingerprint).map_err(|e| e.to_string())?;
+    let j_user   = env.new_string(socks_user).map_err(|e| e.to_string())?;
+    let j_pass   = env.new_string(socks_pass).map_err(|e| e.to_string())?;
+    let j_mode   = env.new_string(dns_mode).map_err(|e| e.to_string())?;
     env.call_static_method(
         &cls_class,
         "savePending",
-        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZZ)V",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZZLjava/lang/String;IZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
         &[
             JValue::Object(&j_rules.into()),
             JValue::Object(&j_key.into()),
@@ -230,6 +250,12 @@ pub fn save_pending_start(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6:
             JValue::Bool(if ipv6 { 1 } else { 0 }),
             JValue::Bool(if mitm { 1 } else { 0 }),
             JValue::Bool(if hwid { 1 } else { 0 }),
+            JValue::Object(&j_fp.into()),
+            JValue::Int(mixed_port as i32),
+            JValue::Bool(if allow_lan { 1 } else { 0 }),
+            JValue::Object(&j_user.into()),
+            JValue::Object(&j_pass.into()),
+            JValue::Object(&j_mode.into()),
         ],
     )
     .map_err(|e| format!("savePending: {}", e))?;

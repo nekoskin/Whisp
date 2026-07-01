@@ -25,6 +25,12 @@ object WhispVpnPrep {
     @Volatile private var pendingIpv6: Boolean = true
     @Volatile private var pendingMitm: Boolean = false
     @Volatile private var pendingHwid: Boolean = true
+    @Volatile private var pendingTlsFingerprint: String = ""
+    @Volatile private var pendingMixedPort: Int = 0
+    @Volatile private var pendingAllowLan: Boolean = false
+    @Volatile private var pendingSocksUser: String = ""
+    @Volatile private var pendingSocksPass: String = ""
+    @Volatile private var pendingDnsMode: String = "udp"
 
     @JvmStatic fun setActivity(a: Activity?) { currentActivity = a }
 
@@ -47,15 +53,21 @@ object WhispVpnPrep {
         }
     }
 
-    @JvmStatic fun savePending(rulesJson: String, connKey: String, vpnDns: String, ipv6: Boolean, mitm: Boolean, hwid: Boolean) {
+    @JvmStatic fun savePending(rulesJson: String, connKey: String, vpnDns: String, ipv6: Boolean, mitm: Boolean, hwid: Boolean, tlsFingerprint: String, mixedPort: Int, allowLan: Boolean, socksUser: String, socksPass: String, dnsMode: String) {
         pendingRulesJson = rulesJson
         pendingConnKey   = connKey
         pendingVpnDns    = vpnDns.ifEmpty { "1.1.1.1" }
         pendingIpv6      = ipv6
         pendingMitm      = mitm
         pendingHwid      = hwid
+        pendingTlsFingerprint = tlsFingerprint
+        pendingMixedPort = mixedPort
+        pendingAllowLan  = allowLan
+        pendingSocksUser = socksUser
+        pendingSocksPass = socksPass
+        pendingDnsMode   = dnsMode.ifEmpty { "udp" }
         hasPending       = true
-        Log.d("WhispVpnPrep", "savePending: key=${connKey.take(6)}… dns=$vpnDns ipv6=$ipv6 mitm=$mitm hwid=$hwid")
+        Log.d("WhispVpnPrep", "savePending: key=${connKey.take(6)}… dns=$vpnDns ipv6=$ipv6 mitm=$mitm hwid=$hwid fp=$tlsFingerprint mixedPort=$mixedPort allowLan=$allowLan dnsMode=$pendingDnsMode")
     }
 
     @JvmStatic fun startPending(ctx: Context) {
@@ -70,6 +82,12 @@ object WhispVpnPrep {
             putExtra(WhispVpnService.EXTRA_IPV6,       if (pendingIpv6) "1" else "0")
             putExtra(WhispVpnService.EXTRA_MITM,       if (pendingMitm) "1" else "0")
             putExtra(WhispVpnService.EXTRA_HWID,       if (pendingHwid) "1" else "0")
+            putExtra(WhispVpnService.EXTRA_TLS_FINGERPRINT, pendingTlsFingerprint)
+            putExtra(WhispVpnService.EXTRA_MIXED_PORT, pendingMixedPort.toString())
+            putExtra(WhispVpnService.EXTRA_ALLOW_LAN,  if (pendingAllowLan) "1" else "0")
+            putExtra(WhispVpnService.EXTRA_SOCKS_USER, pendingSocksUser)
+            putExtra(WhispVpnService.EXTRA_SOCKS_PASS, pendingSocksPass)
+            putExtra(WhispVpnService.EXTRA_DNS_MODE,   pendingDnsMode)
         }
         ctx.startForegroundService(intent)
     }

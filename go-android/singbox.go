@@ -177,7 +177,7 @@ func (p *platform) LocalDNSTransport() libbox.LocalDNSTransport              { r
 func (p *platform) ClearDNSCache()                                           {}
 func (p *platform) SendNotification(notification *libbox.Notification) error { return nil }
 
-func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson string, ipv6 bool, dnsMode string, dnsServer string) (retErr error) {
+func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson string, ipv6 bool, dnsMode string, dnsServer string, mixedPort int32, mixedUser string, mixedPass string, allowLan bool) (retErr error) {
 	alog(fmt.Sprintf("Start() ENTER fd=%d workDir=%s socksAddr=%s", fd, workDir, socksAddr))
 
 	defer func() {
@@ -252,6 +252,19 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		}
 	}
 
+	mixedInbound := ""
+	if mixedPort > 0 {
+		listenAddr := "127.0.0.1"
+		if allowLan {
+			listenAddr = "0.0.0.0"
+		}
+		usersJSON := ""
+		if mixedUser != "" && mixedPass != "" {
+			usersJSON = fmt.Sprintf(`,"users":[{"username":%q,"password":%q}]`, mixedUser, mixedPass)
+		}
+		mixedInbound = fmt.Sprintf(`,{"type":"mixed","tag":"mixed-in","listen":%q,"listen_port":%d%s}`, listenAddr, mixedPort, usersJSON)
+	}
+
 	tunAddrs := `"172.19.0.1/30"`
 	fakeRange := `"inet4_range":"198.18.0.0/15"`
 	if ipv6 {
@@ -298,14 +311,14 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
     "mtu": 1500,
     "auto_route": false,
     "stack": "mixed"
-  }],
+  }%s],
   "outbounds": %s,
   "route": {
     "rules": %s,
     "final": "%s",
     "auto_detect_interface": false
   }
-}`, dnsObject, tunAddrs, outbounds, routeRules, finalOut)
+}`, dnsObject, tunAddrs, mixedInbound, outbounds, routeRules, finalOut)
 
 	alog(fmt.Sprintf("calling NewService fd=%d", fd))
 	s, err := libbox.NewService(config, &platform{tunFd: fd})

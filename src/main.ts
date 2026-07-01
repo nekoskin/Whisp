@@ -51,6 +51,7 @@ interface AppSettings {
   allow_lan?: boolean;
   log_level?: string;
   routing_mode?: string;
+  dns_mode?: string;
 }
 
 interface Profile { id: string; name: string; key: string; }
@@ -84,7 +85,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "Активные соединения", connectToSee: "Подключитесь чтобы увидеть соединения",
     noProfiles: "Нет сохранённых профилей", addProfile: "Добавить профиль",
     systemLog: "Системный журнал", logReady: "Система готова. Ожидание логов...",
-    mixedPort: "Смешанный порт :", bindAddr: "Привязать адрес :", tunStack: "Tun Stack :",
+    mixedPort: "Смешанный порт :", bindAddr: "Привязать адрес :", tunStack: "Tun Stack :", shareProxy: "Общий доступ к прокси",
     theme: "Тема :", dark: "Тёмная", auto: "Белая", dnsRedirect: "DNS перенаправление :",
     ipv6Label: "IPv6 :", secretLabel: "Secret :", copy: "Копировать",
     hwid: "HWID :", autostart: "Автозапуск :", authTip: "Совет по аутентификации :",
@@ -206,6 +207,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     dnsCommaSep: "Через запятую, пусто = по умолчанию",
     vpnDns: "Прокси DNS (клиент)",
     vpnDnsHint: "DNS для прокси-клиента. 'Провайдер' = системный резолвер",
+    dnsMode: "Режим DNS",
     isp: "Провайдер",
     bypassRu: "Обходить .ru / .su напрямую",
     bypassRuHint: "GEOIP Россия + домены .ru/.su идут напрямую, минуя VPN",
@@ -254,7 +256,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "Active connections", connectToSee: "Connect to see connections",
     noProfiles: "No saved profiles", addProfile: "Add profile",
     systemLog: "System Log", logReady: "System ready. Waiting for logs...",
-    mixedPort: "Mixed port :", bindAddr: "Bind address :", tunStack: "Tun Stack :",
+    mixedPort: "Mixed port :", bindAddr: "Bind address :", tunStack: "Tun Stack :", shareProxy: "Share proxy",
     theme: "Theme :", dark: "Dark", auto: "Light", dnsRedirect: "DNS redirect :",
     ipv6Label: "IPv6 :", secretLabel: "Secret :", copy: "Copy",
     hwid: "HWID :", autostart: "Autostart :", authTip: "Auth tip :",
@@ -376,6 +378,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     dnsCommaSep: "Comma-separated, empty = default",
     vpnDns: "Proxy DNS (client)",
     vpnDnsHint: "DNS for the proxy client. 'ISP' = system resolver",
+    dnsMode: "DNS mode",
     isp: "ISP",
     bypassRu: "Bypass .ru / .su direct",
     bypassRuHint: "GEOIP Russia + .ru/.su domains go direct, bypassing VPN",
@@ -424,7 +427,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "活跃连接", connectToSee: "连接后查看连接",
     noProfiles: "无保存配置", addProfile: "添加配置",
     systemLog: "系统日志", logReady: "系统就绪，等待日志...",
-    mixedPort: "混合端口：", bindAddr: "绑定地址：", tunStack: "Tun堆栈：",
+    mixedPort: "混合端口：", bindAddr: "绑定地址：", tunStack: "Tun堆栈：", shareProxy: "共享代理",
     theme: "主题：", dark: "深色", auto: "浅色", dnsRedirect: "DNS重定向：",
     ipv6Label: "IPv6：", secretLabel: "密钥：", copy: "复制",
     hwid: "HWID：", autostart: "自动启动：", authTip: "认证提示：",
@@ -546,6 +549,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     dnsCommaSep: "逗号分隔，留空=默认",
     vpnDns: "代理 DNS（客户端）",
     vpnDnsHint: "代理客户端DNS。'运营商'=系统解析器",
+    dnsMode: "DNS 模式",
     isp: "运营商",
     bypassRu: "直连 .ru / .su 域名",
     bypassRuHint: "俄罗斯IP + .ru/.su域名直连，不走VPN",
@@ -594,7 +598,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "اتصالات فعال", connectToSee: "برای مشاهده متصل شوید",
     noProfiles: "پروفایلی ذخیره نشده", addProfile: "افزودن پروفایل",
     systemLog: "گزارش سیستم", logReady: "سیستم آماده است. منتظر گزارش...",
-    mixedPort: "پورت ترکیبی:", bindAddr: "آدرس bind:", tunStack: "Tun Stack:",
+    mixedPort: "پورت ترکیبی:", bindAddr: "آدرس bind:", tunStack: "Tun Stack:", shareProxy: "اشتراک پراکسی",
     theme: "پوسته:", dark: "تیره", auto: "روشن", dnsRedirect: "هدایت DNS:",
     ipv6Label: "IPv6:", secretLabel: "رمز:", copy: "کپی",
     hwid: "HWID:", autostart: "شروع خودکار:", authTip: "راهنمای احراز هویت:",
@@ -716,6 +720,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     dnsCommaSep: "جداشده با کاما، خالی = پیش‌فرض",
     vpnDns: "Proxy DNS (کلاینت)",
     vpnDnsHint: "DNS برای کلاینت پراکسی. 'ISP' = رزولور سیستم",
+    dnsMode: "حالت DNS",
     isp: "ISP",
     bypassRu: "دور زدن .ru / .su مستقیم",
     bypassRuHint: "دامنه‌های روسی و GEOIP Russia مستقیم، بدون VPN",
@@ -2475,6 +2480,11 @@ function renderSettings(): string {
         <input type="text" id="set-vpn-dns" value="${esc(vpnDnsVal)}" placeholder="1.1.1.1" style="width:100%;box-sizing:border-box"/>
         <span style="font-size:11px;opacity:.5">${t("vpnDnsHint")}</span>
       </div></div>
+      <div class="setting-row"><span class="setting-label">${t("dnsMode")}</span><div class="setting-value"><div class="pill-group">
+        <button class="pill-btn ${!settings.dns_mode || settings.dns_mode === "udp" ? "active" : ""}" data-dnsmode="udp">UDP</button>
+        <button class="pill-btn ${settings.dns_mode === "tcp" ? "active" : ""}" data-dnsmode="tcp">TCP</button>
+        <button class="pill-btn ${settings.dns_mode === "doh" ? "active" : ""}" data-dnsmode="doh">DoH</button>
+      </div></div></div>
       <div class="setting-row"><span class="setting-label">${t("ipv6Label")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ipv6" ${settings.ipv6 ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row" style="align-items:flex-start">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
@@ -2495,6 +2505,29 @@ function renderSettings(): string {
         <button class="pill-btn ${settings.theme === "dark" ? "active" : ""}" data-theme="dark">${t("dark")}</button>
         <button class="pill-btn ${settings.theme === "auto" ? "active" : ""}" data-theme="auto">${t("auto")}</button>
       </div></div></div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-title">${t("shareProxy")}</div>
+      <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/><span class="edit-icon">✎</span></div></div>
+      <div class="setting-row" style="align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
+          <span class="setting-label">${t("allowLan")}</span>
+          <span style="font-size:11px;opacity:.5;font-weight:400">${t("allowLanHint")}</span>
+        </div>
+        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-allow-lan" ${settings.allow_lan ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
+      </div>
+      <div class="setting-row" style="align-items:flex-start">
+        <span class="setting-label">${t("socksAuth")}</span>
+        <div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px">
+          <input type="text" id="set-socks-user" value="${esc(settings.socks_user || '')}" placeholder="${t("socksUser")}" autocomplete="off" style="width:100%;box-sizing:border-box"/>
+          <div style="display:flex;gap:4px;align-items:center">
+            <input type="password" id="set-socks-pass" value="${esc(settings.socks_pass || '')}" placeholder="${t("socksPass")}" autocomplete="new-password" style="flex:1;box-sizing:border-box"/>
+            <button class="btn-sm" id="btn-toggle-socks-pass" style="flex-shrink:0">👁</button>
+          </div>
+          ${(settings.socks_user || settings.socks_pass) ? `<div style="font-size:11px;opacity:.5;word-break:break-all;display:flex;align-items:center;gap:4px"><span id="socks-proxy-url">socks5://${esc(settings.socks_user||'')}:${esc(settings.socks_pass||'')}@127.0.0.1:${settings.mihomo_port}</span><button class="btn-sm" id="btn-copy-socks-url" style="flex-shrink:0">${t("copy")}</button></div>` : ''}
+          <button class="btn-sm" id="btn-save-socks-auth" style="align-self:flex-end">${t("socksSave")}</button>
+        </div>
+      </div>
     </div>
     <div class="settings-section">
       <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link">${t("installed")}</span></div>
@@ -2700,7 +2733,14 @@ function bindSettingsEvents(): void {
     const btn = document.getElementById("btn-fp-apply") as HTMLButtonElement | null;
     if (btn) btn.disabled = true;
     try {
-      await invoke("apply_tls_fingerprint");
+      // apply_tls_fingerprint only hot-reloads mihomo's own fingerprint (its side
+      // connections); the real tunnel's ClientHello is set by go-client at
+      // startup via -force-fingerprint, so it only takes effect after a reconnect.
+      await invoke("apply_tls_fingerprint").catch(() => {});
+      if (isConnected) {
+        await doDisconnect();
+        await doConnect();
+      }
       showToast(`${t("fingerprintSet")} ${currentFingerprint}`, "success", 2000);
     } catch (e) {
       showToast(String(e), "error", 3000);
@@ -2709,7 +2749,11 @@ function bindSettingsEvents(): void {
     }
   });
 
-  (document.getElementById("set-port") as HTMLInputElement)?.addEventListener("change", function () { settings.mihomo_port = parseInt(this.value, 10) || 7890; persistSettings(); });
+  (document.getElementById("set-port") as HTMLInputElement)?.addEventListener("change", function () {
+    settings.mihomo_port = parseInt(this.value, 10) || 7890;
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
+  });
   (document.getElementById("set-bind") as HTMLInputElement)?.addEventListener("change", function () { settings.socks_addr = this.value; persistSettings(); });
   (document.getElementById("set-custom-dns") as HTMLInputElement)?.addEventListener("change", function () {
     const servers = this.value.split(",").map(s => s.trim()).filter(s => s.length > 0);
@@ -2720,6 +2764,12 @@ function bindSettingsEvents(): void {
   document.querySelectorAll<HTMLElement>(".pill-btn[data-rmode]").forEach(el => el.addEventListener("click", () => { settings.routing_mode = el.dataset.rmode || "rule"; persistSettings(); renderPage(); }));
   document.querySelectorAll<HTMLElement>(".pill-btn[data-loglevel]").forEach(el => el.addEventListener("click", () => { settings.log_level = el.dataset.loglevel || "info"; persistSettings(); renderPage(); }));
   document.querySelectorAll<HTMLElement>(".pill-btn[data-theme]").forEach(el => el.addEventListener("click", () => { settings.theme = el.dataset.theme || "dark"; persistSettings(); renderPage(); }));
+  document.querySelectorAll<HTMLElement>(".pill-btn[data-dnsmode]").forEach(el => el.addEventListener("click", () => {
+    settings.dns_mode = el.dataset.dnsmode || "udp";
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
+    renderPage();
+  }));
   document.querySelectorAll<HTMLElement>(".pill-btn[data-vpndns]").forEach(el => el.addEventListener("click", () => {
     const val = el.dataset.vpndns || "1.1.1.1:53";
     settings.vpn_dns = val === "1.1.1.1:53" && !el.classList.contains("active") ? val : val;
@@ -2757,6 +2807,7 @@ function bindSettingsEvents(): void {
     settings.socks_user = user;
     settings.socks_pass = pass;
     persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
     renderPage();
   });
   document.getElementById("btn-copy-socks-url")?.addEventListener("click", () => {
@@ -2775,8 +2826,13 @@ function bindSettingsEvents(): void {
     persistSettings();
     if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
   });
-  const toggles: [string, keyof AppSettings][] = [["set-dns", "dns_redirect"], ["set-ipv6", "ipv6"], ["set-hwid", "hwid"], ["set-autostart", "auto_connect"], ["set-authtip", "auth_tip"], ["set-bypass-ru", "bypass_ru"], ["set-allow-lan", "allow_lan"]];
+  const toggles: [string, keyof AppSettings][] = [["set-dns", "dns_redirect"], ["set-ipv6", "ipv6"], ["set-hwid", "hwid"], ["set-autostart", "auto_connect"], ["set-authtip", "auth_tip"], ["set-bypass-ru", "bypass_ru"]];
   toggles.forEach(([id, key]) => { (document.getElementById(id) as HTMLInputElement)?.addEventListener("change", function () { (settings as any)[key] = this.checked; persistSettings(); }); });
+  (document.getElementById("set-allow-lan") as HTMLInputElement)?.addEventListener("change", function () {
+    settings.allow_lan = this.checked;
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
+  });
   document.getElementById("btn-copy-secret")?.addEventListener("click", () => {
     clipboardWrite(settings.secret);
     showToast(t("secretCopied"), "success", 1800);

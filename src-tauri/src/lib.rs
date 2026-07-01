@@ -156,6 +156,8 @@ struct AppSettings {
     log_level: String,
     #[serde(default)]
     routing_mode: String,
+    #[serde(default = "default_dns_mode")]
+    dns_mode: String,
 }
 
 fn default_true() -> bool {
@@ -163,6 +165,9 @@ fn default_true() -> bool {
 }
 fn default_tun() -> String {
     "Mixed".to_string()
+}
+fn default_dns_mode() -> String {
+    "udp".to_string()
 }
 
 impl Default for AppSettings {
@@ -194,6 +199,7 @@ impl Default for AppSettings {
             allow_lan: false,
             log_level: String::new(),
             routing_mode: String::new(),
+            dns_mode: "udp".to_string(),
         }
     }
 }
@@ -286,6 +292,13 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         let ipv6 = settings.ipv6;
         let mitm = settings.mitm_enabled;
         let hwid = settings.hwid;
+        let tls_fingerprint = settings.tls_fingerprint.clone();
+        let mixed_port = settings.mihomo_port;
+        let allow_lan = settings.allow_lan;
+        let socks_user = settings.socks_user.clone();
+        let socks_pass = settings.socks_pass.clone();
+        let dns_mode = settings.dns_mode.clone();
+
         if !conn_key.is_empty() {
             use sha2::Digest;
             let hash = sha2::Sha256::digest(conn_key.as_bytes());
@@ -305,7 +318,8 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         if !prepared {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 whisp_vpn_android::service_intent::save_pending_start(
-                    &rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid,
+                    &rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid, &tls_fingerprint,
+                    mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode,
                 )
             }));
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
@@ -316,7 +330,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
 
         let res = tokio::task::spawn_blocking(move || {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid)
+                whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid, &tls_fingerprint, mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode)
             }))
         }).await.map_err(|e| format!("spawn_blocking: {}", e))?;
         match res {
@@ -356,6 +370,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         mitm_enabled: settings.mitm_enabled,
         spoof_ips: &settings.spoof_ips,
         hwid: settings.hwid,
+        tls_fingerprint: &settings.tls_fingerprint,
     }).map_err(|e| { eprintln!("[connect] go-client start FAILED: {}", e); e })?;
     eprintln!("[connect] go-client started OK");
 
@@ -1236,6 +1251,7 @@ fn install_services(
             mitm_enabled: settings.mitm_enabled,
             spoof_ips: &settings.spoof_ips,
             hwid: settings.hwid,
+            tls_fingerprint: &settings.tls_fingerprint,
         })?;
     }
 

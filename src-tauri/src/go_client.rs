@@ -27,6 +27,11 @@ pub struct GoClientConfig<'a> {
     pub mitm_enabled: bool,
     pub spoof_ips: &'a str,
     pub hwid: bool,
+    pub tls_fingerprint: &'a str,
+}
+
+fn is_forceable_fingerprint(v: &str) -> bool {
+    !v.is_empty() && v != "random"
 }
 
 impl GoClientManager {
@@ -55,6 +60,9 @@ impl GoClientManager {
         }
         if !cfg.hwid {
             args.push_str(" -hwid=false");
+        }
+        if is_forceable_fingerprint(cfg.tls_fingerprint) {
+            args.push_str(&format!(" -force-fingerprint {}", cfg.tls_fingerprint));
         }
 
         let bin_path = format!("\"{}\" {}", bin.replace('"', "\\\""), args);
@@ -216,6 +224,10 @@ impl GoClientManager {
 
         if !cfg.hwid {
             cmd.arg("-hwid=false");
+        }
+
+        if is_forceable_fingerprint(cfg.tls_fingerprint) {
+            cmd.arg("-force-fingerprint").arg(cfg.tls_fingerprint);
         }
 
         if !cfg.spoof_ips.is_empty() {
