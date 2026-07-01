@@ -233,8 +233,6 @@ pub fn save_pending_start(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6:
     Ok(())
 }
 
-/// Проверяет статический флаг WhispVpnService.isRunning.
-/// Если процесс жив (foreground service), флаг корректен после перезапуска Activity.
 pub fn is_vpn_service_running() -> bool {
     let Ok((vm, ctx_ptr)) = vm_and_ctx() else { return false; };
     let Ok(mut env) = vm.attach_current_thread() else { return false; };
@@ -247,9 +245,14 @@ pub fn is_vpn_service_running() -> bool {
         .call_method(&loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&cls_name.into())])
         .and_then(|v| v.l()) else { return false; };
     let cls_class: jni::objects::JClass = cls.into();
-    env.get_static_field(&cls_class, "isRunning", "Z")
-        .and_then(|v| v.z())
-        .unwrap_or(false)
+    env.call_static_method(
+        &cls_class,
+        "isActuallyRunning",
+        "(Landroid/content/Context;)Z",
+        &[JValue::Object(&context)],
+    )
+    .and_then(|v| v.z())
+    .unwrap_or(false)
 }
 
 /// Installs a CA certificate via WhispVpnPrep.installCaCert().

@@ -1,5 +1,6 @@
 package com.whispera.whisp
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -36,6 +37,17 @@ class WhispVpnService : VpnService() {
         const val NOTIF_ID_EVENT = 18
 
         @Volatile @JvmField var isRunning: Boolean = false
+
+        @JvmStatic
+        fun isActuallyRunning(ctx: Context): Boolean {
+            val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+            return try {
+                @Suppress("DEPRECATION")
+                am.getRunningServices(Int.MAX_VALUE).any { it.service.className == WhispVpnService::class.java.name }
+            } catch (_: Throwable) {
+                false
+            }
+        }
     }
 
     @Volatile private var didConnect = false

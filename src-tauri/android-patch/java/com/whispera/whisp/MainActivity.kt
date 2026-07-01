@@ -38,7 +38,7 @@ class MainActivity : TauriActivity() {
     // while a foreground service is keeping the tunnel alive.
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (WhispVpnService.isRunning) {
+        if (WhispVpnService.isActuallyRunning(this)) {
             moveTaskToBack(true)
         } else {
             @Suppress("DEPRECATION")
