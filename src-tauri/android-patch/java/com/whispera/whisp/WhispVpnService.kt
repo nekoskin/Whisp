@@ -237,7 +237,17 @@ class WhispVpnService : VpnService() {
         Log.i(TAG, "stopVpn")
         unregisterNetworkCallback()
         try { Singbox.stop() } catch (_: Throwable) {}
-        goClientProc?.destroy()
+        goClientProc?.let { p ->
+            p.destroy()
+            Thread({
+                try {
+                    if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                        Log.w(TAG, "go-client did not exit within 2s, forcing kill")
+                        p.destroyForcibly()
+                    }
+                } catch (_: Throwable) {}
+            }, "goclient-stop-wait").apply { isDaemon = true }.start()
+        }
         goClientProc = null
         try { tunInterface?.close() } catch (_: Throwable) {}
         tunInterface = null
