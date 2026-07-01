@@ -831,6 +831,14 @@ body {
 }
 .sub-card .profile-info { flex: 1; min-width: 0; }
 .sub-card .sub-keys { flex-basis: 100%; margin-top: 4px; }
+.sub-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 30px;
+  flex: 1;
+}
+.sub-card .sub-meta { flex-shrink: 0; white-space: nowrap; }
 
 /* M3 Icon Button */
 .profile-actions button {

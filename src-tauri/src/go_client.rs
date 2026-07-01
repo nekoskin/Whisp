@@ -28,14 +28,13 @@ pub struct GoClientManager {
 pub struct GoClientConfig<'a> {
     pub conn_key: &'a str,
     pub server_addr: &'a str,
-    pub ml_token: &'a str,
     pub socks_addr: &'a str,
     pub kill_switch: bool,
     pub transport: &'a str,
-    pub ml_server_url: &'a str,
     pub vpn_dns: &'a str,
     pub mitm_enabled: bool,
     pub spoof_ips: &'a str,
+    pub hwid: bool,
 }
 
 impl GoClientManager {
@@ -149,14 +148,14 @@ impl GoClientManager {
             format!("-server \"{}\"", cfg.server_addr)
         };
         let mut args = format!("{} -socks \"{}\" -no-tun", key_part, cfg.socks_addr);
-        if !cfg.ml_token.is_empty() {
-            args.push_str(&format!(" -ml-token \"{}\"", cfg.ml_token));
-        }
         if cfg.kill_switch {
             args.push_str(" -kill-switch");
         }
         if !cfg.transport.is_empty() {
             args.push_str(&format!(" -transport {}", cfg.transport));
+        }
+        if !cfg.hwid {
+            args.push_str(" -hwid=false");
         }
 
         let bin_path = format!("\"{}\" {}", bin.replace('"', "\\\""), args);
@@ -297,10 +296,6 @@ impl GoClientManager {
             return Err("No connection key or server address provided".to_string());
         }
 
-        if !cfg.ml_token.is_empty() {
-            cmd.arg("-ml-token").arg(cfg.ml_token);
-        }
-
         cmd.arg("-socks").arg(cfg.socks_addr);
         cmd.arg("-no-tun");
 
@@ -312,16 +307,16 @@ impl GoClientManager {
             cmd.arg("-transport").arg(cfg.transport);
         }
 
-        if !cfg.ml_server_url.is_empty() {
-            cmd.arg("-ml-server").arg(cfg.ml_server_url);
-        }
-
         if !cfg.vpn_dns.is_empty() {
             cmd.arg("-dns").arg(cfg.vpn_dns);
         }
 
         if cfg.mitm_enabled {
             cmd.arg("-mitm");
+        }
+
+        if !cfg.hwid {
+            cmd.arg("-hwid=false");
         }
 
         if !cfg.spoof_ips.is_empty() {

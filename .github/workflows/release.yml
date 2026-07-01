@@ -124,15 +124,6 @@ jobs:
           out-file-path: src-tauri/binaries/
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download whispera-ml-server
-        uses: robinraju/release-downloader@v1.10
-        with:
-          repository: Jalaveyan/Whispera
-          tag: ${{ steps.wver.outputs.tag }}
-          fileName: 'whispera-ml-server-${{ matrix.triple }}${{ matrix.ext }}'
-          out-file-path: src-tauri/binaries/
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Download mihomo
         shell: bash
         env:
@@ -278,16 +269,6 @@ jobs:
           repository: Jalaveyan/Whispera
           tag: ${{ steps.wver.outputs.tag }}
           fileName: 'whispera-go-client-aarch64-linux-android'
-          out-file-path: src-tauri/binaries/
-          token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      - name: Download whispera-ml-server (arm64)
-        uses: robinraju/release-downloader@v1.10
-        with:
-          repository: Jalaveyan/Whispera
-          tag: ${{ steps.wver.outputs.tag }}
-          fileName: 'whispera-ml-server-aarch64-linux-android'
           out-file-path: src-tauri/binaries/
           token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true

@@ -24,6 +24,7 @@ object WhispVpnPrep {
     @Volatile private var pendingVpnDns: String = "1.1.1.1"
     @Volatile private var pendingIpv6: Boolean = true
     @Volatile private var pendingMitm: Boolean = false
+    @Volatile private var pendingHwid: Boolean = true
 
     @JvmStatic fun setActivity(a: Activity?) { currentActivity = a }
 
@@ -46,14 +47,15 @@ object WhispVpnPrep {
         }
     }
 
-    @JvmStatic fun savePending(rulesJson: String, connKey: String, vpnDns: String, ipv6: Boolean, mitm: Boolean) {
+    @JvmStatic fun savePending(rulesJson: String, connKey: String, vpnDns: String, ipv6: Boolean, mitm: Boolean, hwid: Boolean) {
         pendingRulesJson = rulesJson
         pendingConnKey   = connKey
         pendingVpnDns    = vpnDns.ifEmpty { "1.1.1.1" }
         pendingIpv6      = ipv6
         pendingMitm      = mitm
+        pendingHwid      = hwid
         hasPending       = true
-        Log.d("WhispVpnPrep", "savePending: key=${connKey.take(6)}… dns=$vpnDns ipv6=$ipv6 mitm=$mitm")
+        Log.d("WhispVpnPrep", "savePending: key=${connKey.take(6)}… dns=$vpnDns ipv6=$ipv6 mitm=$mitm hwid=$hwid")
     }
 
     @JvmStatic fun startPending(ctx: Context) {
@@ -67,6 +69,7 @@ object WhispVpnPrep {
             putExtra(WhispVpnService.EXTRA_VPN_DNS,    pendingVpnDns)
             putExtra(WhispVpnService.EXTRA_IPV6,       if (pendingIpv6) "1" else "0")
             putExtra(WhispVpnService.EXTRA_MITM,       if (pendingMitm) "1" else "0")
+            putExtra(WhispVpnService.EXTRA_HWID,       if (pendingHwid) "1" else "0")
         }
         ctx.startForegroundService(intent)
     }

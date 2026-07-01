@@ -22,7 +22,7 @@ cp "$ROOT/android-patch/java/com/whispera/whisp/"*.kt "$PKG_DIR/"
 # с правом exec (data dir noexec на Android 10+).
 JNILIBS="$GEN/app/src/main/jniLibs/arm64-v8a"
 mkdir -p "$JNILIBS"
-for sidecar in whispera-go-client whispera-ml-server; do
+for sidecar in whispera-go-client; do
   src="$ROOT/binaries/${sidecar}-aarch64-linux-android"
   dst="$JNILIBS/lib${sidecar}.so"
   if [ -f "$src" ]; then

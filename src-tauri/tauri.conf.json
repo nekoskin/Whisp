@@ -10,8 +10,7 @@
     "targets": "all",
     "externalBin": [
       "binaries/mihomo",
-      "binaries/whispera-go-client",
-      "binaries/whispera-ml-server"
+      "binaries/whispera-go-client"
     ],
     "android": {
       "minSdkVersion": 24,

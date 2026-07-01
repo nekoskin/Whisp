@@ -26,6 +26,7 @@ const EXTRA_CONN_KEY: &str = "com.whispera.whisp.EXTRA_CONN_KEY";
 const EXTRA_VPN_DNS: &str = "com.whispera.whisp.EXTRA_VPN_DNS";
 const EXTRA_IPV6: &str = "com.whispera.whisp.EXTRA_IPV6";
 const EXTRA_MITM: &str = "com.whispera.whisp.EXTRA_MITM";
+const EXTRA_HWID: &str = "com.whispera.whisp.EXTRA_HWID";
 
 fn vm_and_ctx() -> Result<(JavaVM, *mut std::ffi::c_void), String> {
     // SAFETY: ndk_context::android_context() возвращает указатели,
@@ -41,7 +42,7 @@ fn vm_and_ctx() -> Result<(JavaVM, *mut std::ffi::c_void), String> {
     Ok((vm, ctx.context()))
 }
 
-fn send_action(action: &str, rules_json: Option<&str>, conn_key: Option<&str>, vpn_dns: Option<&str>, ipv6: Option<bool>, mitm: Option<bool>, _stop: bool) -> Result<(), String> {
+fn send_action(action: &str, rules_json: Option<&str>, conn_key: Option<&str>, vpn_dns: Option<&str>, ipv6: Option<bool>, mitm: Option<bool>, hwid: Option<bool>, _stop: bool) -> Result<(), String> {
     let (vm, ctx_ptr) = vm_and_ctx()?;
     let mut env = vm
         .attach_current_thread()
@@ -109,6 +110,7 @@ fn send_action(action: &str, rules_json: Option<&str>, conn_key: Option<&str>, v
     if let Some(dns) = vpn_dns { put_extra(EXTRA_VPN_DNS, dns)?; }
     if let Some(v6) = ipv6 { put_extra(EXTRA_IPV6, if v6 { "1" } else { "0" })?; }
     if let Some(m) = mitm { put_extra(EXTRA_MITM, if m { "1" } else { "0" })?; }
+    if let Some(h) = hwid { put_extra(EXTRA_HWID, if h { "1" } else { "0" })?; }
 
     // Для старта и для стопа используем startForegroundService:
     // stopService() не вызывает onStartCommand, поэтому ACTION_STOP не доходит.
@@ -124,15 +126,15 @@ fn send_action(action: &str, rules_json: Option<&str>, conn_key: Option<&str>, v
     Ok(())
 }
 
-pub fn start_vpn_service(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6: bool, mitm: bool) -> Result<(), String> {
+pub fn start_vpn_service(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6: bool, mitm: bool, hwid: bool) -> Result<(), String> {
     let dns = if vpn_dns.is_empty() { None } else { Some(vpn_dns) };
-    let r = send_action(ACTION_START, Some(rules_json), Some(conn_key), dns, Some(ipv6), Some(mitm), false);
+    let r = send_action(ACTION_START, Some(rules_json), Some(conn_key), dns, Some(ipv6), Some(mitm), Some(hwid), false);
     if r.is_ok() { set_vpn_active(true); }
     r
 }
 
 pub fn stop_vpn_service() -> Result<(), String> {
-    let r = send_action(ACTION_STOP, None, None, None, None, None, true);
+    let r = send_action(ACTION_STOP, None, None, None, None, None, None, true);
     set_vpn_active(false);
     r
 }
@@ -200,7 +202,7 @@ pub fn request_vpn_permission() -> Result<i32, String> {
 
 /// Сохраняет параметры VPN в WhispVpnPrep.savePending() для авто-запуска
 /// после onActivityResult (пользователь разрешил VPN).
-pub fn save_pending_start(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6: bool, mitm: bool) -> Result<(), String> {
+pub fn save_pending_start(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6: bool, mitm: bool, hwid: bool) -> Result<(), String> {
     let (vm, ctx_ptr) = vm_and_ctx()?;
     let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
     let context = unsafe { JObject::from_raw(ctx_ptr as jni::sys::jobject) };
@@ -220,13 +222,14 @@ pub fn save_pending_start(rules_json: &str, conn_key: &str, vpn_dns: &str, ipv6:
     env.call_static_method(
         &cls_class,
         "savePending",
-        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZ)V",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZZ)V",
         &[
             JValue::Object(&j_rules.into()),
             JValue::Object(&j_key.into()),
             JValue::Object(&j_dns.into()),
             JValue::Bool(if ipv6 { 1 } else { 0 }),
             JValue::Bool(if mitm { 1 } else { 0 }),
+            JValue::Bool(if hwid { 1 } else { 0 }),
         ],
     )
     .map_err(|e| format!("savePending: {}", e))?;

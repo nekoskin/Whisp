@@ -1,20 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { readText as clipboardRead, writeText as clipboardWrite } from "@tauri-apps/plugin-clipboard-manager";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
-import * as topojson from "topojson-client";
-import worldAtlas from "world-atlas/land-110m.json";
 import "./styles.css";
 
-const _landGeo = topojson.feature(worldAtlas as any, (worldAtlas as any).objects.land);
-
 const ICONS = {
-  ml: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>`,
   bolt: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
   home: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
   wifi: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>`,
   user: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
   log: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
-  globe: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
   settings: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
   refresh: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`,
   copy: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
@@ -45,9 +39,6 @@ interface AppSettings {
   hwid: boolean;
   auth_tip: boolean;
   secret: string;
-  ml_token?: string;
-  ml_server?: string;
-  ml_transport?: string;
   p2p_relay_addr?: string;
   p2p_secret?: string;
   custom_dns?: string[];
@@ -84,62 +75,8 @@ interface SiteCheck {
   ping: number;
 }
 
-type Page = "home" | "connections" | "profiles" | "routing" | "logs" | "settings" | "bridges";
+type Page = "home" | "connections" | "profiles" | "routing" | "logs" | "settings";
 type Lang = "ru" | "en" | "zh" | "fa";
-
-interface BridgeInfo {
-  id: string;
-  name?: string;
-  lat: number;
-  lon: number;
-  country?: string;
-  city?: string;
-  region?: string;
-  alive: boolean;
-  latency_ms?: number;
-  type?: string;
-  address?: string;
-  load?: number;
-  bandwidth_mbps?: number;
-  cur_users?: number;
-  max_users?: number;
-  version?: string;
-  distance_km?: number;
-  ml_score?: number;
-  ml_reason?: string;
-  blacklisted?: boolean;
-  loss_pct?: number;
-  provider?: string;
-  last_check?: string;
-}
-
-interface MLNetworkAnalysis {
-  dpi_risk: "low" | "medium" | "high" | "critical";
-  recommended_transport: string;
-  recommended_reason: string;
-  avg_rtt_ms: number | null;
-  reachable: number;
-  total_probed: number;
-}
-
-interface MLTransportRecommendation {
-  dpi_risk: string;
-  transport: string;
-  options: string;
-  description: string;
-}
-
-/** Haversine distance between two coordinates, returns km. */
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-}
-
-let userLat = 0, userLon = 0;
 
 interface RoutingRule {
   id: string;
@@ -150,49 +87,7 @@ interface RoutingRule {
 
 const i18n: Record<Lang, Record<string, string>> = {
   ru: {
-    home: "Главная", connections: "Соединения", profiles: "Профили", routing: "Маршруты", logs: "Журнал", settings: "Настройки", bridges: "Мосты", ml: "Режим ML",
-    mlTitle: "Режим ML", mlStatus: "Статус", mlRunning: "Запущен", mlStopped: "Остановлен",
-    mlStart: "Запустить", mlStop: "Остановить", mlRestart: "Перезапустить",
-    mlNoBinary: "Файл whispera-ml-server.exe не найден рядом с клиентом",
-    mlServer: "ML Сервер", mlEndpoint: "Адрес", mlLogs: "Логи",
-    mlClearLogs: "Очистить", mlRefreshLogs: "Обновить",
-    mlFallback: "Режим работы", mlFallbackOn: "Fallback (встроенный)", mlFallbackOff: "Go ML активен",
-    mlDesc: "ML анализирует трафик в реальном времени и адаптирует обфускацию под текущий DPI",
-    mlNetworkAnalysis: "Анализ сети", mlRunAnalysis: "Анализировать сеть", mlAnalyzing: "Анализирую...",
-    mlDpiRisk: "Риск DPI", mlDpiLow: "Низкий", mlDpiMedium: "Средний", mlDpiHigh: "Высокий", mlDpiCritical: "Критический",
-    mlAvgRtt: "Средний RTT", mlReachable: "Хостов доступно",
-    mlTransportRec: "Рекомендуемый транспорт", mlTransportDesc: "Почему",
-    mlScanFirst: "Нажмите «Анализировать сеть» для рекомендации транспорта",
-    mlTraining: "Тренировка модели", mlTrainStart: "Запустить тренировку", mlTrainStop: "Остановить",
-    mlTrainRunning: "Тренируется...", mlTrainEpoch: "Эпоха", mlTrainLoss: "Loss", mlTrainProgress: "Прогресс",
-    mlTrainDone: "Тренировка завершена", mlTrainFailed: "Ошибка тренировки",
-    mlPortScan: "Сканирование портов", mlScanStart: "Сканировать", mlScanRunning: "Сканирование...",
-    mlScanHost: "Хост", mlScanPort: "Порт", mlScanService: "Сервис", mlScanLatency: "Задержка",
-    mlScanOpen: "открыт", mlScanClosed: "закрыт", mlScanNoResults: "Нет результатов",
-    mlFederated: "Федеративное обучение", mlFedExport: "Экспорт дельты", mlFedImport: "Импорт дельты",
-    mlFedLosses: "Loss метрики", mlFedExported: "Дельта экспортирована", mlFedImported: "Дельта импортирована",
-    mlDatasets: "Датасеты", mlDsCapture: "Захватить", mlDsUpload: "Загрузить", mlDsEmpty: "Нет датасетов", mlDsExport: "Экспорт датасета", mlDsExporting: "Экспорт...", mlDsAutoExport: "Авто-экспорт",
-    mlFeedback: "Обратная связь", mlFbSuccess: "Успех", mlFbFail: "Ошибка", mlFbTotal: "Всего", mlFbLatency: "Задержка",
-    mlFbNoData: "Нет данных", mlFbSend: "Отправить результат",
-    mlModelMgmt: "Управление моделью", mlModelReload: "Перезагрузить модель", mlModelParams: "Параметров",
-    mlModelAccuracy: "Точность", mlModelSamples: "Сэмплов", mlModelEngine: "Движок",
-    mlTargetServer: "Целевой сервер", mlTargetServerHint: "host:port, например 1.2.3.4:8443",
-    mlToken: "ML Токен", mlTokenHint: "PSK токен для авторизации",
-    mlConnect: "Подключить через ML", mlConnecting: "Подключение...", mlDisconnect: "Отключить",
-    mlBridgesRanked: "Мосты проранжированы ML", mlScore: "ML",
-    bridgesTitle: "Карта мостов", noBridges: "Нет доступных мостов", bridgeConnect: "Подключить",
-    bridgesAlive: "Активных", bridgesTotal: "Всего", bridgesLatency: "Пинг", bridgesRefresh: "Обновить",
-    bridgesNoKey: "Укажите ключ подключения в Настройках чтобы загрузить мосты",
-    bridgesLoadError: "Не удалось загрузить список мостов",
-    bridgesConnecting: "Подключение к мосту...", bridgesConnected: "Ключ моста установлен",
-    bridgesTabAll: "Все", bridgesMLBest: "ML лучший", bridgeMLExpertTip: "Только для опытных: нейросеть ещё плохо обучена. Результаты могут быть неточными.",
-    bridgesPinging: "Пингуем мосты...", bridgesScanPing: "TCP пинг всех",
-    bridgeLoad: "Нагрузка", bridgeUsers: "Пользователи", bridgeBW: "Канал", bridgeLocation: "Локация",
-    bridgeProvider: "Провайдер", bridgeVersion: "Версия", bridgeDist: "Расстояние",
-    bridgeSSHTitle: "SSH ключ доступа", bridgeSSHUser: "User ID", bridgeSSHIssue: "Выдать ключ",
-    bridgeRolloutTitle: "Раскатка обновления", bridgeRolloutVer: "Версия", bridgeRolloutBtn: "Раскатить",
-    bridgeRolloutStarted: "Раскатка запущена...", bridgeRolloutDone: "Раскатка завершена",
-    bridgesMLNotReady: "ML не готов или список мостов пуст",
+    home: "Главная", connections: "Соединения", profiles: "Профили", routing: "Маршруты", logs: "Журнал", settings: "Настройки",
     connection: "ПОДКЛЮЧЕНИЕ", noProfile: "Нет профиля", disconnected: "Отключено", connected: "Подключено",
     keyPlaceholder: "Вставьте ключ...", connect: "Connect", disconnect: "Disconnect",
     siteCheck: "ПРОВЕРКА САЙТОВ", timeout: "Timeout", ok: "OK", checking: "...",
@@ -387,26 +282,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     socksProxyUrl: "URL прокси",
     socksSave: "Сохранить",
     reconnectRequired: "Переподключитесь для применения правила",
-    bridgesTitle2: "Бриджи",
-    bridgeRefreshTip: "Обновить",
-    bridgePingAllTip: "Пинг всех",
-    bridgeSearchPlaceholder: "Поиск бриджа…",
-    bridgesAllTab: "Все", bridgeTabWhite: "Белые", bridgeTabBlocked: "Заблокированные",
-    bridgeLocationMap: "Карта расположения",
-    bridgeVersionLabel: "Версия",
-    bridgeNoConnData: "Нет данных подключения",
     logSearchPlaceholder: "Поиск в логах...",
     logAll: "Все",
-    mlServerStarting: "ML сервер запускается...",
-    mlServerStopped: "ML сервер остановлен",
-    mlServerRestarted: "ML сервер перезапущен",
-    mlUnavailable: "ML сервер недоступен",
-    mlInvalidToken: "ML: неверный токен — обновите в настройках",
-    mlScanFailed: "Ошибка сканирования",
-    mlModelReloaded: "Модель перезагружена",
-    mlDatasetCaptured: "Датасет захвачен",
-    mlTrainClickHint: "Нажмите чтобы начать тренировку",
-    vpnConnTransport: "Подключено · транспорт:",
     encapsulatedIn: "инкапсулировано в",
     transportSet: "Транспорт →",
     duplicated: "Дублировано",
@@ -427,49 +304,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     releaseNotes: "Изменения",
   },
   en: {
-    home: "Home", connections: "Connections", profiles: "Profiles", routing: "Routing", logs: "Logs", settings: "Settings", bridges: "Bridges", ml: "ML Mode",
-    mlTitle: "ML Mode", mlStatus: "Status", mlRunning: "Running", mlStopped: "Stopped",
-    mlStart: "Start", mlStop: "Stop", mlRestart: "Restart",
-    mlNoBinary: "whispera-ml-server.exe not found next to the client",
-    mlServer: "ML Server", mlEndpoint: "Endpoint", mlLogs: "Logs",
-    mlClearLogs: "Clear", mlRefreshLogs: "Refresh",
-    mlFallback: "Mode", mlFallbackOn: "Fallback (built-in)", mlFallbackOff: "Go ML active",
-    mlDesc: "ML analyses traffic in real-time and adapts obfuscation to the current DPI",
-    mlNetworkAnalysis: "Network Analysis", mlRunAnalysis: "Analyse network", mlAnalyzing: "Analysing...",
-    mlDpiRisk: "DPI Risk", mlDpiLow: "Low", mlDpiMedium: "Medium", mlDpiHigh: "High", mlDpiCritical: "Critical",
-    mlAvgRtt: "Avg RTT", mlReachable: "Hosts reachable",
-    mlTransportRec: "Recommended transport", mlTransportDesc: "Why",
-    mlScanFirst: "Click «Analyse network» to get a transport recommendation",
-    mlTraining: "Model Training", mlTrainStart: "Start Training", mlTrainStop: "Stop",
-    mlTrainRunning: "Training...", mlTrainEpoch: "Epoch", mlTrainLoss: "Loss", mlTrainProgress: "Progress",
-    mlTrainDone: "Training complete", mlTrainFailed: "Training failed",
-    mlPortScan: "Port Scan", mlScanStart: "Scan", mlScanRunning: "Scanning...",
-    mlScanHost: "Host", mlScanPort: "Port", mlScanService: "Service", mlScanLatency: "Latency",
-    mlScanOpen: "open", mlScanClosed: "closed", mlScanNoResults: "No results",
-    mlFederated: "Federated Learning", mlFedExport: "Export Delta", mlFedImport: "Import Delta",
-    mlDatasets: "Datasets", mlDsCapture: "Capture", mlDsUpload: "Upload", mlDsEmpty: "No datasets", mlDsExport: "Export Dataset", mlDsExporting: "Exporting...", mlDsAutoExport: "Auto-export",
-    mlFeedback: "Feedback", mlFbSuccess: "Success", mlFbFail: "Fail", mlFbTotal: "Total", mlFbLatency: "Latency",
-    mlFbNoData: "No data", mlFbSend: "Send result",
-    mlModelMgmt: "Model Management", mlModelReload: "Reload Model", mlModelParams: "Parameters",
-    mlModelAccuracy: "Accuracy", mlModelSamples: "Samples", mlModelEngine: "Engine",
-    mlFedLosses: "Loss Metrics", mlFedExported: "Delta exported", mlFedImported: "Delta imported",
-    mlTargetServer: "Target server", mlTargetServerHint: "host:port, e.g. 1.2.3.4:8443",
-    mlToken: "ML Token", mlTokenHint: "PSK auth token",
-    mlConnect: "Connect via ML", mlConnecting: "Connecting...", mlDisconnect: "Disconnect",
-    mlBridgesRanked: "Bridges ranked by ML", mlScore: "ML",
-    bridgesTitle: "Bridge Map", noBridges: "No bridges available", bridgeConnect: "Connect",
-    bridgesAlive: "Alive", bridgesTotal: "Total", bridgesLatency: "Latency", bridgesRefresh: "Refresh",
-    bridgesNoKey: "Set a connection key in Settings to load bridges",
-    bridgesLoadError: "Failed to load bridge list",
-    bridgesConnecting: "Connecting to bridge...", bridgesConnected: "Bridge key set",
-    bridgesTabAll: "All", bridgesMLBest: "ML Best", bridgeMLExpertTip: "Expert users only: neural network is not well-trained yet. Results may be inaccurate.",
-    bridgesPinging: "Pinging bridges...", bridgesScanPing: "TCP ping all",
-    bridgeLoad: "Load", bridgeUsers: "Users", bridgeBW: "Bandwidth", bridgeLocation: "Location",
-    bridgeProvider: "Provider", bridgeVersion: "Version", bridgeDist: "Distance",
-    bridgeSSHTitle: "SSH Access Key", bridgeSSHUser: "User ID", bridgeSSHIssue: "Issue Key",
-    bridgeRolloutTitle: "Update Rollout", bridgeRolloutVer: "Version", bridgeRolloutBtn: "Roll Out",
-    bridgeRolloutStarted: "Rollout started...", bridgeRolloutDone: "Rollout complete",
-    bridgesMLNotReady: "ML not ready or bridge list is empty",
+    home: "Home", connections: "Connections", profiles: "Profiles", routing: "Routing", logs: "Logs", settings: "Settings",
     connection: "CONNECTION", noProfile: "No profile", disconnected: "Disconnected", connected: "Connected",
     keyPlaceholder: "Paste key...", connect: "Connect", disconnect: "Disconnect",
     siteCheck: "SITE CHECK", timeout: "Timeout", ok: "OK", checking: "...",
@@ -664,26 +499,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     socksProxyUrl: "Proxy URL",
     socksSave: "Save",
     reconnectRequired: "Reconnect to apply the rule",
-    bridgesTitle2: "Bridges",
-    bridgeRefreshTip: "Refresh",
-    bridgePingAllTip: "Ping all",
-    bridgeSearchPlaceholder: "Search bridge…",
-    bridgesAllTab: "All", bridgeTabWhite: "White", bridgeTabBlocked: "Blocked",
-    bridgeLocationMap: "Location map",
-    bridgeVersionLabel: "Version",
-    bridgeNoConnData: "No connection data",
     logSearchPlaceholder: "Search logs...",
     logAll: "All",
-    mlServerStarting: "ML server starting...",
-    mlServerStopped: "ML server stopped",
-    mlServerRestarted: "ML server restarted",
-    mlUnavailable: "ML server unavailable",
-    mlInvalidToken: "ML: invalid token — update in settings",
-    mlScanFailed: "Scan failed",
-    mlModelReloaded: "Model reloaded",
-    mlDatasetCaptured: "Dataset captured",
-    mlTrainClickHint: "Click to start training",
-    vpnConnTransport: "Connected · transport:",
     encapsulatedIn: "encapsulated in",
     transportSet: "Transport →",
     duplicated: "Duplicated",
@@ -704,49 +521,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     releaseNotes: "Release notes",
   },
   zh: {
-    home: "主页", connections: "连接", profiles: "配置", routing: "路由", logs: "日志", settings: "设置", bridges: "桥接", ml: "ML模式",
-    mlTitle: "ML模式", mlStatus: "状态", mlRunning: "运行中", mlStopped: "已停止",
-    mlStart: "启动", mlStop: "停止", mlRestart: "重启",
-    mlNoBinary: "未找到 whispera-ml-server.exe",
-    mlServer: "ML服务器", mlEndpoint: "地址", mlLogs: "日志",
-    mlClearLogs: "清空", mlRefreshLogs: "刷新",
-    mlFallback: "模式", mlFallbackOn: "回退（内置）", mlFallbackOff: "Go ML 激活",
-    mlDesc: "ML实时分析流量并根据当前DPI调整混淆",
-    mlNetworkAnalysis: "网络分析", mlRunAnalysis: "分析网络", mlAnalyzing: "分析中...",
-    mlDpiRisk: "DPI风险", mlDpiLow: "低", mlDpiMedium: "中", mlDpiHigh: "高", mlDpiCritical: "严重",
-    mlAvgRtt: "平均RTT", mlReachable: "可达主机",
-    mlTransportRec: "推荐传输", mlTransportDesc: "原因",
-    mlScanFirst: "点击「分析网络」获取传输建议",
-    mlTraining: "模型训练", mlTrainStart: "开始训练", mlTrainStop: "停止",
-    mlTrainRunning: "训练中...", mlTrainEpoch: "轮次", mlTrainLoss: "损失", mlTrainProgress: "进度",
-    mlTrainDone: "训练完成", mlTrainFailed: "训练失败",
-    mlPortScan: "端口扫描", mlScanStart: "扫描", mlScanRunning: "扫描中...",
-    mlScanHost: "主机", mlScanPort: "端口", mlScanService: "服务", mlScanLatency: "延迟",
-    mlScanOpen: "开放", mlScanClosed: "关闭", mlScanNoResults: "无结果",
-    mlFederated: "联邦学习", mlFedExport: "导出增量", mlFedImport: "导入增量",
-    mlFedLosses: "损失指标", mlFedExported: "增量已导出", mlFedImported: "增量已导入",
-    mlDatasets: "数据集", mlDsCapture: "捕获", mlDsUpload: "上传", mlDsEmpty: "无数据集", mlDsExport: "导出数据集", mlDsExporting: "导出中...", mlDsAutoExport: "自动导出",
-    mlFeedback: "反馈", mlFbSuccess: "成功", mlFbFail: "失败", mlFbTotal: "总计", mlFbLatency: "延迟",
-    mlFbNoData: "无数据", mlFbSend: "发送结果",
-    mlModelMgmt: "模型管理", mlModelReload: "重新加载模型", mlModelParams: "参数",
-    mlModelAccuracy: "准确率", mlModelSamples: "样本", mlModelEngine: "引擎",
-    mlTargetServer: "目标服务器", mlTargetServerHint: "host:port，例如 1.2.3.4:8443",
-    mlToken: "ML令牌", mlTokenHint: "PSK认证令牌",
-    mlConnect: "通过ML连接", mlConnecting: "连接中...", mlDisconnect: "断开",
-    mlBridgesRanked: "ML排名的桥接", mlScore: "ML",
-    bridgesTitle: "桥接地图", noBridges: "无可用桥接", bridgeConnect: "连接",
-    bridgesAlive: "在线", bridgesTotal: "总计", bridgesLatency: "延迟", bridgesRefresh: "刷新",
-    bridgesNoKey: "在设置中填写连接密钥以加载桥接",
-    bridgesLoadError: "无法加载桥接列表",
-    bridgesConnecting: "连接桥接中...", bridgesConnected: "桥接密钥已设置",
-    bridgesTabAll: "全部", bridgesMLBest: "ML最优", bridgeMLExpertTip: "仅限高级用户：神经网络尚未充分训练，结果可能不准确。",
-    bridgesPinging: "正在Ping桥接...", bridgesScanPing: "TCP Ping全部",
-    bridgeLoad: "负载", bridgeUsers: "用户", bridgeBW: "带宽", bridgeLocation: "位置",
-    bridgeProvider: "提供商", bridgeVersion: "版本", bridgeDist: "距离",
-    bridgeSSHTitle: "SSH访问密钥", bridgeSSHUser: "用户ID", bridgeSSHIssue: "颁发密钥",
-    bridgeRolloutTitle: "更新推送", bridgeRolloutVer: "版本", bridgeRolloutBtn: "推送",
-    bridgeRolloutStarted: "推送已启动...", bridgeRolloutDone: "推送完成",
-    bridgesMLNotReady: "ML未就绪或桥接列表为空",
+    home: "主页", connections: "连接", profiles: "配置", routing: "路由", logs: "日志", settings: "设置",
     connection: "连接", noProfile: "无配置", disconnected: "已断开", connected: "已连接",
     keyPlaceholder: "粘贴密钥...", connect: "连接", disconnect: "断开",
     siteCheck: "网站检测", timeout: "超时", ok: "正常", checking: "...",
@@ -941,26 +716,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     socksProxyUrl: "代理 URL",
     socksSave: "保存",
     reconnectRequired: "重连以应用规则",
-    bridgesTitle2: "桥接",
-    bridgeRefreshTip: "刷新",
-    bridgePingAllTip: "Ping全部",
-    bridgeSearchPlaceholder: "搜索桥接…",
-    bridgesAllTab: "全部", bridgeTabWhite: "白名单", bridgeTabBlocked: "已屏蔽",
-    bridgeLocationMap: "位置地图",
-    bridgeVersionLabel: "版本",
-    bridgeNoConnData: "无连接数据",
     logSearchPlaceholder: "搜索日志...",
     logAll: "全部",
-    mlServerStarting: "ML服务器正在启动...",
-    mlServerStopped: "ML服务器已停止",
-    mlServerRestarted: "ML服务器已重启",
-    mlUnavailable: "ML服务器不可用",
-    mlInvalidToken: "ML: 令牌无效 — 请在设置中更新",
-    mlScanFailed: "扫描失败",
-    mlModelReloaded: "模型已重新加载",
-    mlDatasetCaptured: "数据集已捕获",
-    mlTrainClickHint: "点击开始训练",
-    vpnConnTransport: "已连接 · 传输:",
     encapsulatedIn: "封装于",
     transportSet: "传输 →",
     duplicated: "已复制",
@@ -981,49 +738,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     releaseNotes: "发布说明",
   },
   fa: {
-    home: "خانه", connections: "اتصالات", profiles: "پروفایل‌ها", routing: "مسیریابی", logs: "گزارش", settings: "تنظیمات", bridges: "پل‌ها", ml: "حالت ML",
-    mlTitle: "حالت ML", mlStatus: "وضعیت", mlRunning: "در حال اجرا", mlStopped: "متوقف",
-    mlStart: "شروع", mlStop: "توقف", mlRestart: "راه‌اندازی مجدد",
-    mlNoBinary: "فایل whispera-ml-server.exe یافت نشد",
-    mlServer: "سرور ML", mlEndpoint: "آدرس", mlLogs: "گزارش‌ها",
-    mlClearLogs: "پاک کردن", mlRefreshLogs: "بروزرسانی",
-    mlFallback: "حالت", mlFallbackOn: "بازگشتی (داخلی)", mlFallbackOff: "Go ML فعال",
-    mlDesc: "ML ترافیک را در زمان واقعی تحلیل کرده و مبهم‌سازی را تنظیم می‌کند",
-    mlNetworkAnalysis: "تحلیل شبکه", mlRunAnalysis: "تحلیل شبکه", mlAnalyzing: "در حال تحلیل...",
-    mlDpiRisk: "خطر DPI", mlDpiLow: "پایین", mlDpiMedium: "متوسط", mlDpiHigh: "بالا", mlDpiCritical: "بحرانی",
-    mlAvgRtt: "میانگین RTT", mlReachable: "هاست‌های قابل دسترس",
-    mlTransportRec: "انتقال پیشنهادی", mlTransportDesc: "دلیل",
-    mlScanFirst: "روی «تحلیل شبکه» کلیک کنید",
-    mlTraining: "آموزش مدل", mlTrainStart: "شروع آموزش", mlTrainStop: "توقف",
-    mlTrainRunning: "در حال آموزش...", mlTrainEpoch: "دوره", mlTrainLoss: "خطا", mlTrainProgress: "پیشرفت",
-    mlTrainDone: "آموزش تمام شد", mlTrainFailed: "آموزش ناموفق",
-    mlPortScan: "اسکن پورت", mlScanStart: "اسکن", mlScanRunning: "در حال اسکن...",
-    mlScanHost: "هاست", mlScanPort: "پورت", mlScanService: "سرویس", mlScanLatency: "تأخیر",
-    mlScanOpen: "باز", mlScanClosed: "بسته", mlScanNoResults: "بدون نتیجه",
-    mlFederated: "یادگیری فدرال", mlFedExport: "صادرات دلتا", mlFedImport: "واردات دلتا",
-    mlFedLosses: "معیارهای خطا", mlFedExported: "دلتا صادر شد", mlFedImported: "دلتا وارد شد",
-    mlDatasets: "مجموعه داده", mlDsCapture: "ضبط", mlDsUpload: "بارگذاری", mlDsEmpty: "بدون داده", mlDsExport: "صادرات", mlDsExporting: "در حال صادرات...", mlDsAutoExport: "صادرات خودکار",
-    mlFeedback: "بازخورد", mlFbSuccess: "موفق", mlFbFail: "ناموفق", mlFbTotal: "جمع", mlFbLatency: "تأخیر",
-    mlFbNoData: "بدون داده", mlFbSend: "ارسال نتیجه",
-    mlModelMgmt: "مدیریت مدل", mlModelReload: "بارگذاری مجدد", mlModelParams: "پارامترها",
-    mlModelAccuracy: "دقت", mlModelSamples: "نمونه‌ها", mlModelEngine: "موتور",
-    mlTargetServer: "سرور هدف", mlTargetServerHint: "host:port، مثلاً 1.2.3.4:8443",
-    mlToken: "توکن ML", mlTokenHint: "توکن احراز هویت PSK",
-    mlConnect: "اتصال از طریق ML", mlConnecting: "در حال اتصال...", mlDisconnect: "قطع اتصال",
-    mlBridgesRanked: "پل‌های رتبه‌بندی شده توسط ML", mlScore: "ML",
-    bridgesTitle: "نقشه پل‌ها", noBridges: "پل‌ موجود نیست", bridgeConnect: "اتصال",
-    bridgesAlive: "فعال", bridgesTotal: "کل", bridgesLatency: "پینگ", bridgesRefresh: "بروزرسانی",
-    bridgesNoKey: "برای بارگذاری پل‌ها، کلید اتصال را در تنظیمات وارد کنید",
-    bridgesLoadError: "بارگذاری لیست پل‌ها ناموفق بود",
-    bridgesConnecting: "در حال اتصال به پل...", bridgesConnected: "کلید پل تنظیم شد",
-    bridgesTabAll: "همه", bridgesMLBest: "بهترین ML", bridgeMLExpertTip: "فقط برای کاربران پیشرفته: شبکه عصبی هنوز به خوبی آموزش ندیده است.",
-    bridgesPinging: "در حال پینگ پل‌ها...", bridgesScanPing: "پینگ TCP همه",
-    bridgeLoad: "بار", bridgeUsers: "کاربران", bridgeBW: "پهنای باند", bridgeLocation: "موقعیت",
-    bridgeProvider: "ارائه‌دهنده", bridgeVersion: "نسخه", bridgeDist: "فاصله",
-    bridgeSSHTitle: "کلید دسترسی SSH", bridgeSSHUser: "شناسه کاربر", bridgeSSHIssue: "صدور کلید",
-    bridgeRolloutTitle: "راه‌اندازی به‌روزرسانی", bridgeRolloutVer: "نسخه", bridgeRolloutBtn: "راه‌اندازی",
-    bridgeRolloutStarted: "راه‌اندازی شروع شد...", bridgeRolloutDone: "راه‌اندازی کامل شد",
-    bridgesMLNotReady: "ML آماده نیست یا لیست پل‌ها خالی است",
+    home: "خانه", connections: "اتصالات", profiles: "پروفایل‌ها", routing: "مسیریابی", logs: "گزارش", settings: "تنظیمات",
     connection: "اتصال", noProfile: "بدون پروفایل", disconnected: "قطع شده", connected: "متصل",
     keyPlaceholder: "کلید را وارد کنید...", connect: "اتصال", disconnect: "قطع",
     siteCheck: "بررسی سایت", timeout: "تایم‌اوت", ok: "خوب", checking: "...",
@@ -1218,26 +933,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     socksProxyUrl: "آدرس پروکسی",
     socksSave: "ذخیره",
     reconnectRequired: "برای اعمال قانون دوباره متصل شوید",
-    bridgesTitle2: "پل‌ها",
-    bridgeRefreshTip: "بروزرسانی",
-    bridgePingAllTip: "پینگ همه",
-    bridgeSearchPlaceholder: "جستجوی پل…",
-    bridgesAllTab: "همه", bridgeTabWhite: "سفید", bridgeTabBlocked: "مسدود",
-    bridgeLocationMap: "نقشه موقعیت",
-    bridgeVersionLabel: "نسخه",
-    bridgeNoConnData: "داده اتصال وجود ندارد",
     logSearchPlaceholder: "جستجو در گزارش‌ها...",
     logAll: "همه",
-    mlServerStarting: "سرور ML در حال راه‌اندازی...",
-    mlServerStopped: "سرور ML متوقف شد",
-    mlServerRestarted: "سرور ML راه‌اندازی مجدد شد",
-    mlUnavailable: "سرور ML در دسترس نیست",
-    mlInvalidToken: "ML: توکن نامعتبر — در تنظیمات به‌روز کنید",
-    mlScanFailed: "اسکن ناموفق",
-    mlModelReloaded: "مدل مجدداً بارگذاری شد",
-    mlDatasetCaptured: "مجموعه داده ضبط شد",
-    mlTrainClickHint: "برای شروع آموزش کلیک کنید",
-    vpnConnTransport: "متصل شد · انتقال:",
     encapsulatedIn: "کپسوله شده در",
     transportSet: "انتقال →",
     duplicated: "کپی شد",
@@ -1348,7 +1045,6 @@ let subAutoCheckTimer: ReturnType<typeof setInterval> | null = null;
 let routingRules: RoutingRule[] = [];
 let blocklistRules: RoutingRule[] = [];
 let multiBridges: MultiBridgeEntry[] = [];
-let bridgeList: BridgeInfo[] = [];
 let currentFingerprint = localStorage.getItem("tls_fingerprint") || "chrome";
 let logLines: string[] = [];
 let connectTime: number | null = null;
@@ -1369,35 +1065,6 @@ const sites: SiteCheck[] = [
 ];
 
 function t(key: string): string { return i18n[lang][key] || key; }
-
-
-function getServerBaseURL(): string {
-  const key = settings.conn_key.trim();
-  if (!key) return "";
-  if (key.startsWith("whispera://")) {
-    // Try base64-JSON format: whispera://<base64({server:"host:port",...})>
-    try {
-      const raw = key.slice("whispera://".length).split("?")[0];
-      const decoded = atob(raw);
-      const j = JSON.parse(decoded) as Record<string, unknown>;
-      const srv = (j.server as string) || "";
-      if (srv) {
-        const parts = srv.split(":");
-        const host = parts[0];
-        const port = parts[1] || "8443";
-        return `https://${host}:${port}`;
-      }
-    } catch { /* not base64 JSON */ }
-    // Legacy format: whispera://host:port?params
-    try {
-      const u = new URL(key);
-      const host = u.hostname;
-      if (!host || host.includes("=") || (host.length > 40 && !host.includes("."))) return "";
-      return `https://${u.host}`;
-    } catch { return ""; }
-  }
-  return "";
-}
 
 function getServerHost(): string {
   const key = settings.conn_key.trim();
@@ -1496,9 +1163,6 @@ async function persistBlocklist(): Promise<void> {
   try { await invoke("save_blocklist", { rules: blocklistRules }); } catch {/**/ }
 }
 
-let _appliedMlTransport = "";
-let _mlEnabledInKey = false; // tracks whether user toggled "Enable ML" checkbox on home page
-
 interface AgentArm {
   name: string;
   attempts: number;
@@ -1540,65 +1204,19 @@ async function doConnect(): Promise<void> {
   isConnecting = true;
   if (currentPage === "home") renderPage();
 
-  const connectStart = Date.now();
   try {
     const msg = await invoke<string>("connect");
     isConnected = true;
     connectTime = Date.now();
-    const latencyMs = connectTime - connectStart;
     addLog("✓ " + msg);
     startLogPolling();
     playConnectSound();
-    try { _appliedMlTransport = await invoke<string>("get_ml_transport"); } catch { _appliedMlTransport = ""; }
-    const transportMsg = _appliedMlTransport
-      ? `${t("vpnConnTransport")} ${_appliedMlTransport}`
-      : t("vpnConnected");
-    showToast(transportMsg, "success", 4000);
-    if (!isAndroid) osNotify("Whisp VPN", transportMsg);
-
-    // Report successful connection to ML server for RL training.
-    if (_mlStatus && _appliedMlTransport) {
-      _mlFetch("/feedback/connection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transport: _appliedMlTransport, success: true, latency_ms: latencyMs }),
-      }).catch(() => {});
-    }
-
-    // Auto-start ML server if key contains ml=enabled
-    try {
-      const keyStr = settings.conn_key.trim();
-      if (keyStr.startsWith("whispera://")) {
-        const keyUrl = new URL(keyStr);
-        if (keyUrl.searchParams.get("ml") === "enabled") {
-          const keyMlToken = keyUrl.searchParams.get("ml_token");
-          if (keyMlToken && keyMlToken !== _mlToken) {
-            _mlToken = keyMlToken;
-            _mlTokenInvalid = false;
-            localStorage.setItem("ml_token", _mlToken);
-          }
-          if (!_mlStatus && _mlBinaryExists) {
-            await invoke("start_ml_server");
-            addLog("✓ ML auto-started from key");
-          }
-        }
-      }
-    } catch { /**/ }
+    showToast(t("vpnConnected"), "success", 4000);
+    if (!isAndroid) osNotify("Whisp VPN", t("vpnConnected"));
   } catch (e) {
-    const latencyMs = Date.now() - connectStart;
     addLog("✗ " + e);
     showToast(String(e), "error", 5000);
     osNotify("Whisp VPN — ошибка", String(e));
-
-    // Report failed connection to ML server for RL training.
-    if (_mlStatus) {
-      const tr = _appliedMlTransport || settings.ml_transport || "tcp";
-      _mlFetch("/feedback/connection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transport: tr, success: false, latency_ms: latencyMs }),
-      }).catch(() => {});
-    }
   }
   isConnecting = false;
   if (currentPage === "home") renderPage();
@@ -1671,13 +1289,6 @@ async function fetchIpInfo(): Promise<void> {
   try {
     const info = await invoke<{ ip: string; city: string; region: string; country: string; org: string; loc: string }>("get_ip_info");
     ipInfo = { ip: info.ip || "—", location: (info.city || "—") + ", " + (info.country || ""), provider: info.org || "—" };
-    if (info.loc) {
-      const parts = info.loc.split(",");
-      if (parts.length === 2) {
-        userLat = parseFloat(parts[0]);
-        userLon = parseFloat(parts[1]);
-      }
-    }
   } catch { ipInfo = { ip: "—", location: "—", provider: "—" }; }
   updateIPDOM();
 }
@@ -1781,7 +1392,6 @@ function renderNav(): void {
     { id: "connections", icon: ICONS.wifi,     label: t("connections") },
     { id: "profiles",   icon: ICONS.user,     label: t("profiles") },
     { id: "routing",    icon: routeIcon,      label: t("routing") },
-    { id: "bridges",    icon: ICONS.globe,    label: t("bridges") },
     { id: "logs",       icon: ICONS.log,      label: t("logs") },
     { id: "settings",   icon: ICONS.settings, label: t("settings") },
   ];
@@ -1830,8 +1440,15 @@ function renderPage(): void {
     case "connections":
       main.innerHTML = `<div style="padding:32px;text-align:center;opacity:.5">${t("loading")}</div>`;
       Promise.all([fetchConnections(), fetchAgentStats(), fetchP2PStatus()]).then(() => {
-        main.innerHTML = renderConnections();
-        bindConnectionsEvents();
+        try {
+          main.innerHTML = renderConnections();
+          bindConnectionsEvents();
+        } catch (e) {
+          console.error("renderConnections failed:", e);
+          connectionsList = [];
+          main.innerHTML = renderConnections();
+          bindConnectionsEvents();
+        }
       });
       break;
     case "profiles": main.innerHTML = renderProfiles(); bindProfileEvents(); break;
@@ -1847,7 +1464,6 @@ function renderPage(): void {
       });
       break;
     case "settings": main.innerHTML = renderSettings(); bindSettingsEvents(); break;
-    case "bridges": main.innerHTML = renderBridges(); bindBridgesEvents(); break;
   }
   document.querySelectorAll<HTMLElement>(".copy-icon[data-copy]").forEach(el => {
     el.addEventListener("click", () => {
@@ -1869,17 +1485,6 @@ function updateHome(): void {
   if (!dot || !btnConnect || !stateMatches) {
     renderPage();
     return;
-  }
-  // Same connection state — only patch ML-section badge in place.
-  const mlBadge = document.getElementById("ml-status-badge");
-  if (mlBadge) {
-    mlBadge.className = _mlStatus ? "badge-on" : "badge-off";
-    mlBadge.textContent = _mlStatus ? t("mlRunning") : t("mlStopped");
-  }
-  const mlMode = document.getElementById("ml-mode-badge");
-  if (mlMode) {
-    mlMode.className = _mlStatus ? "badge-on" : "badge-off";
-    mlMode.textContent = _mlStatus ? t("mlFallbackOff") : t("mlFallbackOn");
   }
 }
 
@@ -1924,7 +1529,6 @@ function renderHome(): string {
           <span class="status-uptime" id="status-uptime">${uptimeStr}</span>
         </div>
         ${serverHost ? `<div class="info-row conn-server-row"><span class="info-label">${t("server")}</span><span class="info-value">${esc(serverHost)}</span></div>` : ""}
-        ${_appliedMlTransport ? `<div class="info-row"><span class="info-label">ML транспорт</span><span class="info-value"><span class="badge-on">${esc(_appliedMlTransport)}</span></span></div>` : ""}
         <div class="ks-row">
           <span class="ks-label">${t("killSwitch")}</span>
           <span class="${settings.kill_switch ? "badge-on" : "badge-off"}">${settings.kill_switch ? "ON" : "OFF"}</span>
@@ -1949,10 +1553,6 @@ function renderHome(): string {
             <span class="key-hint">Ctrl+Enter</span>
             <button class="paste-btn" id="btn-paste"${dis ? " disabled" : ""}>${t("paste")}</button>
           </div>
-        </div>
-        <div class="ks-row">
-          <span class="ks-label">Enable ML</span>
-          <label class="toggle"><input type="checkbox" id="ml-enable-key" ${_mlEnabledInKey ? "checked" : ""}${dis ? " disabled" : ""}/><span class="toggle-slider"></span></label>
         </div>
         <div class="ks-row">
           <span class="ks-label">${t("killSwitch")}</span>
@@ -1993,8 +1593,7 @@ function renderHome(): string {
       <div class="info-row"><span class="info-label">${t("version")}</span><span class="info-value" id="sys-ver">${sysInfo.version}</span></div>
       <div class="info-row"><span class="info-label">${t("admin")}</span><span class="info-value ${sysInfo.admin ? "badge-on" : "badge-off"}" id="sys-admin">${sysInfo.admin ? "ON" : "OFF"}</span></div>
     </div>
-  </div>
-  ${renderMLSection()}`;
+  </div>`;
 }
 
 function bindHomeEvents(): void {
@@ -2042,30 +1641,6 @@ function bindHomeEvents(): void {
 
   document.getElementById("btn-refresh-sites")?.addEventListener("click", () => checkSites());
   document.getElementById("btn-refresh-ip")?.addEventListener("click", () => fetchIpInfo());
-
-  // ML Enable checkbox: append/remove ml=enabled from key
-  document.getElementById("ml-enable-key")?.addEventListener("change", function () {
-    _mlEnabledInKey = (this as HTMLInputElement).checked;
-    const ta = document.getElementById("conn-key") as HTMLTextAreaElement | null;
-    if (!ta) return;
-    let keyStr = ta.value.trim();
-    if (!keyStr.startsWith("whispera://")) return;
-    try {
-      const u = new URL(keyStr);
-      if (_mlEnabledInKey) {
-        u.searchParams.set("ml", "enabled");
-        if (_mlToken) u.searchParams.set("ml_token", _mlToken);
-      } else {
-        u.searchParams.delete("ml");
-        u.searchParams.delete("ml_token");
-      }
-      ta.value = u.toString();
-      settings.conn_key = ta.value;
-      persistSettings();
-    } catch { /**/ }
-  });
-
-  bindMLSectionEvents();
 }
 
 async function fetchConnections(): Promise<void> {
@@ -3193,7 +2768,7 @@ function renderProfiles(): string {
           <div class="profile-card sub-card">
             <div class="profile-info">
               <span>${ICONS.link}</span>
-              <span>${esc(s.name || s.url)}</span>
+              <span class="sub-name" title="${esc(s.name || s.url)}">${esc(s.name || s.url)}</span>
               <span class="sub-meta">${s.keys.length} ${t("subKeys")}</span>
               ${updLabel}
             </div>
@@ -4145,1357 +3720,6 @@ function bindSettingsEvents(): void {
   });
 }
 
-let _selectedBridge: BridgeInfo | null = null;
-let _bridgeTab: "all" | "white" | "black" = "all";
-let _mapScale = 1.0;
-let _mapOffsetX = 0;
-let _mapOffsetY = 0;
-let _mapDragging = false;
-let _mapDragStartX = 0;
-let _mapDragStartY = 0;
-let _mapDragOriginX = 0;
-let _mapDragOriginY = 0;
-let _bridgePingInProgress = false;
-let _bridgeRolloutInProgress = false;
-let _bridgeMapAC: AbortController | null = null;
-
-function _mlScoreColor(score: number): string {
-  if (score >= 75) return "#4ade80";
-  if (score >= 50) return "#fbbf24";
-  return "#f87171";
-}
-
-function _bridgeRow(b: BridgeInfo): string {
-  const isWhite = b.type === "white";
-  const loadPct = b.load != null ? Math.round(b.load) : null;
-  const loadColor = loadPct != null ? (loadPct > 80 ? "#f87171" : loadPct > 50 ? "#fbbf24" : "#4ade80") : "var(--text-muted)";
-  const typeBadge = b.blacklisted
-    ? '<span class="bridge-badge black">BLACK</span>'
-    : isWhite
-    ? '<span class="bridge-badge white">WHITE</span>'
-    : '<span class="bridge-badge">PUBLIC</span>';
-  const latColor = b.latency_ms == null ? "var(--text-muted)" : b.latency_ms < 80 ? "#4ade80" : b.latency_ms < 200 ? "#fbbf24" : "#f87171";
-  const location = esc(b.city || b.region || b.country || "—");
-  const mlLine = b.ml_score != null
-    ? `<span class="bc-ml" style="color:${_mlScoreColor(b.ml_score)}" title="${esc(b.ml_reason || "")}">ML ${Math.round(b.ml_score)}</span>`
-    : "";
-  const lossChip = b.loss_pct != null && b.loss_pct > 0
-    ? `<span class="bc-chip" style="color:${b.loss_pct > 20 ? "#f87171" : "#fbbf24"}">${b.loss_pct.toFixed(0)}% loss</span>`
-    : "";
-
-  return `
-    <div class="bridge-card${b.blacklisted ? " blacklisted" : ""}${isWhite ? " bc-white" : ""}" data-id="${esc(b.id)}">
-      <span class="bridge-dot ${b.alive ? "alive" : "dead"}"></span>
-      <div class="bc-body">
-        <div class="bc-top">
-          ${b.name ? `<span class="bc-name">${esc(b.name)}</span>` : ""}
-          <span class="bc-loc">${location}</span>
-          ${typeBadge}
-          ${mlLine}
-        </div>
-        <div class="bc-metrics">
-          <span class="bc-chip" style="color:${latColor}">${b.latency_ms != null ? b.latency_ms + " ms" : "—"}</span>
-          ${loadPct != null ? `<span class="bc-chip" style="color:${loadColor}">${loadPct}% load</span>` : ""}
-          ${b.distance_km != null ? `<span class="bc-chip">${b.distance_km} km</span>` : ""}
-          ${lossChip}
-        </div>
-      </div>
-      <button class="btn-sm btn-bridge-connect" data-id="${esc(b.id)}">${t("bridgeConnect")}</button>
-    </div>`;
-}
-
-function _filteredBridges(): BridgeInfo[] {
-  if (_bridgeTab === "white") return bridgeList.filter(b => b.type === "white");
-  if (_bridgeTab === "black") return bridgeList.filter(b => b.blacklisted);
-  return bridgeList;
-}
-
-function renderBridges(): string {
-  const white = bridgeList.filter(b => b.type === "white").length;
-  const black = bridgeList.filter(b => b.blacklisted).length;
-  const filtered = _filteredBridges();
-  const cards = filtered.map(b => _bridgeRow(b)).join("")
-    || `<div class="empty-state" style="padding:32px 0">
-         <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:.25;margin-bottom:10px"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-         <p style="opacity:.4;font-size:13px">${t("noBridges")}</p>
-       </div>`;
-
-  return `
-    <div class="page-header" style="margin-bottom:12px">
-      <h2 class="page-title">${t("bridgesTitle2")}</h2>
-      <div class="btn-group">
-        <button class="btn-group-item" id="btn-bridges-refresh" title="${t("bridgeRefreshTip")}">${ICONS.refresh}</button>
-        <button class="btn-group-item${_bridgePingInProgress ? " loading" : ""}" id="btn-bridge-scan-ping" title="${t("bridgePingAllTip")}">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="pointer-events:none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-          <span style="pointer-events:none">Ping</span>
-        </button>
-        <button class="btn-group-item" id="btn-bridge-ml-best" title="${t("bridgeMLExpertTip") || "ML ranking"}">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="pointer-events:none"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-          <span style="pointer-events:none">ML</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="bridge-toolbar">
-      <input class="bridge-search-input" id="bridge-search" placeholder="${t("bridgeSearchPlaceholder")}" />
-      <div class="bridge-tabs">
-        <button class="bridge-tab${_bridgeTab === "all" ? " active" : ""}" data-tab="all">${t("bridgesAllTab")} <span class="bridge-tab-count">${bridgeList.length}</span></button>
-        <button class="bridge-tab${_bridgeTab === "white" ? " active" : ""}" data-tab="white">${t("bridgeTabWhite")} <span class="bridge-tab-count">${white}</span></button>
-        ${black > 0 ? `<button class="bridge-tab${_bridgeTab === "black" ? " active" : ""}" data-tab="black">${t("bridgeTabBlocked")} <span class="bridge-tab-count">${black}</span></button>` : ""}
-      </div>
-    </div>
-
-    <div class="card" style="padding:0;overflow:hidden;margin-bottom:10px;min-height:60px">
-      <div id="bridge-table">${cards}</div>
-    </div>
-
-    <div id="bridge-details-panel" style="display:none"></div>
-
-    <div class="card" style="padding:0;overflow:hidden">
-      <div class="bridge-map-hdr" id="bridge-map-toggle" style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;cursor:pointer;user-select:none">
-        <span style="font-size:12px;font-weight:600;opacity:.7">${t("bridgeLocationMap")}</span>
-        <span id="bridge-map-arrow" style="font-size:11px;opacity:.4">▼</span>
-      </div>
-      <div id="bridge-map-body" style="display:none">
-        <div class="bridge-map-wrap" style="border-radius:0;border:none">
-          <div class="bridge-map-controls">
-            <button class="map-ctrl-btn" id="map-zoom-in">+</button>
-            <button class="map-ctrl-btn" id="map-zoom-out">−</button>
-            <button class="map-ctrl-btn" id="map-zoom-reset">⊙</button>
-          </div>
-          <canvas id="bridge-map-canvas" style="cursor:grab"></canvas>
-          <div class="bridge-map-tooltip" id="bridge-tooltip" style="display:none"></div>
-          <div class="bridge-popup" id="bridge-popup" style="display:none">
-            <div class="bridge-popup-header">
-              <span class="bridge-popup-name" id="bridge-popup-name"></span>
-              <button class="bridge-popup-close" id="bridge-popup-close">${ICONS.x}</button>
-            </div>
-            <div class="bridge-popup-latency" id="bridge-popup-latency"></div>
-            <button class="btn-connect bridge-popup-btn" id="bridge-popup-connect">${ICONS.bolt} ${t("bridgeConnect")}</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div id="bridge-ssh-panel" style="display:none" class="card" style="margin-top:12px">
-      <div class="card-header"><span class="card-title">${t("bridgeSSHTitle") || "SSH Key"}</span></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:4px">
-        <div class="modal-field" style="margin:0;flex:1;min-width:100px">
-          <label>${t("bridgeSSHUser") || "User ID"}</label>
-          <input id="bridge-ssh-user" placeholder="user123" />
-        </div>
-        <div class="modal-field" style="margin:0;width:80px">
-          <label>TTL (h)</label>
-          <input id="bridge-ssh-ttl" type="number" value="1" min="1" max="720" />
-        </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);padding-bottom:2px">
-          <input id="bridge-ssh-onetime" type="checkbox" checked /> One-time
-        </label>
-        <button class="btn-sm" id="btn-bridge-issue-key" style="margin-bottom:1px">${t("bridgeSSHIssue") || "Issue"}</button>
-      </div>
-      <div id="bridge-ssh-result" style="margin-top:10px;font-size:11px;font-family:monospace;color:#4ade80;word-break:break-all;display:none"></div>
-    </div>
-
-    <div id="bridge-rollout-panel" style="display:none" class="card" style="margin-top:12px">
-      <div class="card-header"><span class="card-title">${t("bridgeRolloutTitle") || "Rollout"}</span></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding-top:4px">
-        <div class="modal-field" style="margin:0;width:90px"><label>${t("bridgeVersionLabel")}</label><input id="rollout-version" placeholder="2.1.7" /></div>
-        <div class="modal-field" style="margin:0;flex:2;min-width:160px"><label>URL</label><input id="rollout-url" placeholder="https://…" /></div>
-        <div class="modal-field" style="margin:0;flex:1;min-width:100px"><label>SHA256</label><input id="rollout-checksum" placeholder="abc123…" /></div>
-        <button class="btn-sm${_bridgeRolloutInProgress ? " loading" : ""}" id="btn-bridge-rollout" style="margin-bottom:1px">${t("bridgeRolloutBtn") || "Deploy"}</button>
-      </div>
-      <div id="rollout-result" style="margin-top:8px;font-size:11px;color:var(--text-muted);display:none"></div>
-    </div>`;
-}
-
-const LAT_MAX = 80;
-const LAT_MIN = -58;
-const LAT_RANGE = LAT_MAX - LAT_MIN;
-
-function _drawBridgeMap(bridges: BridgeInfo[], selected: BridgeInfo | null): void {
-  const canvas = document.getElementById("bridge-map-canvas") as HTMLCanvasElement | null;
-  if (!canvas) return;
-  const wrap = canvas.parentElement!;
-  const W = wrap.clientWidth || 600;
-  const H = Math.round(W / (360 / LAT_RANGE));
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = W * dpr;
-  canvas.height = H * dpr;
-  canvas.style.width = W + "px";
-  canvas.style.height = H + "px";
-
-  const ctx = canvas.getContext("2d")!;
-  ctx.scale(dpr, dpr);
-
-  ctx.fillStyle = "#080c14";
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, W, H);
-  ctx.clip();
-
-  // Apply zoom/pan transform
-  ctx.translate(_mapOffsetX, _mapOffsetY);
-  ctx.scale(_mapScale, _mapScale);
-
-  const baseW = W / _mapScale;
-  const baseH = H / _mapScale;
-  const lonX = (lon: number) => ((lon + 180) / 360) * baseW;
-  const latY = (lat: number) => ((LAT_MAX - lat) / LAT_RANGE) * baseH;
-
-  function buildPath(geom: any): Path2D {
-    const p = new Path2D();
-    const drawRing = (ring: number[][]) => {
-      for (let i = 0; i < ring.length; i++) {
-        const [lon, lat] = ring[i];
-        if (i === 0) {
-          p.moveTo(lonX(lon), latY(lat));
-        } else {
-          const prevLon = ring[i - 1][0];
-          if (Math.abs(lon - prevLon) > 180) {
-            p.moveTo(lonX(lon), latY(lat));
-          } else {
-            p.lineTo(lonX(lon), latY(lat));
-          }
-        }
-      }
-      p.closePath();
-    };
-    if (geom.type === "Polygon") {
-      geom.coordinates.forEach(drawRing);
-    } else if (geom.type === "MultiPolygon") {
-      geom.coordinates.forEach((poly: number[][][]) => poly.forEach(drawRing));
-    }
-    return p;
-  }
-
-  const landPath = new Path2D();
-  const geo = _landGeo as any;
-  const features: any[] = geo.type === "FeatureCollection" ? geo.features : [geo];
-  features.forEach(f => {
-    const sub = buildPath(f.geometry ?? f);
-    landPath.addPath(sub);
-  });
-
-  ctx.fillStyle = "rgba(88,108,150,0.22)";
-  ctx.fill(landPath);
-  ctx.strokeStyle = "rgba(140,165,210,0.45)";
-  ctx.lineWidth = 0.6;
-  ctx.stroke(landPath);
-
-  bridges.forEach(b => {
-    if (!b.lat && !b.lon) return;
-    const x = lonX(b.lon);
-    const y = latY(b.lat);
-    const isSel = selected?.id === b.id;
-    const isWhite = b.type === "white";
-    const aliveColor = isWhite ? "#a78bfa" : "#4ade80";
-    const color = b.alive ? (isSel ? "#00e5ff" : aliveColor) : "#f87171";
-    const r = isSel ? 8 : (isWhite ? 6 : 5);
-
-    if (isSel) {
-      ctx.strokeStyle = "rgba(0,229,255,0.35)";
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(x, y, 15, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = "rgba(0,229,255,0.15)";
-      ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI * 2); ctx.stroke();
-    }
-    ctx.shadowColor = color + "bb";
-    ctx.shadowBlur = isSel ? 18 : 10;
-    ctx.fillStyle = color;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = isWhite ? "rgba(167,139,250,0.6)" : "rgba(0,0,0,0.55)";
-    ctx.lineWidth = isWhite ? 2 : 1.5;
-    ctx.stroke();
-
-    if (isWhite && !isSel) {
-      ctx.strokeStyle = "rgba(167,139,250,0.2)";
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();
-    }
-
-    const label = b.name || b.city || "";
-    if (label) {
-      ctx.save();
-      ctx.font = isSel ? "bold 10px sans-serif" : "10px sans-serif";
-      ctx.fillStyle = isSel ? "#00e5ff" : "rgba(210,220,255,0.75)";
-      ctx.textAlign = "center";
-      ctx.shadowBlur = 0;
-      ctx.fillText(label, x, y + r + 10);
-      ctx.restore();
-    }
-  });
-
-  (canvas as any)._bridges = bridges;
-  // Store coordinate functions that account for zoom/pan
-  (canvas as any)._lonX = (lon: number) => lonX(lon) * _mapScale + _mapOffsetX;
-  (canvas as any)._latY = (lat: number) => latY(lat) * _mapScale + _mapOffsetY;
-}
-
-function _showBridgePopup(b: BridgeInfo): void {
-  _selectedBridge = b;
-  const popup = document.getElementById("bridge-popup");
-  const nameEl = document.getElementById("bridge-popup-name");
-  const latEl = document.getElementById("bridge-popup-latency");
-  if (!popup || !nameEl || !latEl) return;
-  const loc = b.city ? `${b.city}, ${b.country || ""}` : (b.region || b.country || b.id);
-  const typeLabel = b.blacklisted ? " [BLACK]" : b.type === "white" ? " [WHITE]" : "";
-  nameEl.textContent = (b.name ? b.name + " — " : "") + loc + typeLabel;
-  const details: string[] = [];
-  if (b.latency_ms) details.push("🏓 " + b.latency_ms + " ms");
-  if (b.distance_km != null) details.push("📍 " + b.distance_km + " km");
-  if (b.load != null) details.push("load: " + Math.round(b.load) + "%");
-  if (b.cur_users != null) details.push(b.cur_users + (b.max_users ? "/" + b.max_users : "") + " users");
-  if (b.loss_pct != null && b.loss_pct > 0) details.push("loss: " + b.loss_pct.toFixed(1) + "%");
-  latEl.textContent = details.join(" · ");
-  popup.style.display = "flex";
-
-  // Show details panel
-  _showBridgeDetailsPanel(b);
-
-  _drawBridgeMap(bridgeList, b);
-}
-
-function _showBridgeDetailsPanel(b: BridgeInfo): void {
-  const panel = document.getElementById("bridge-details-panel");
-  if (!panel) return;
-  const typeColor = b.blacklisted ? "#f87171" : b.type === "white" ? "#a78bfa" : "#4ade80";
-  const typeName = b.blacklisted ? "BLACKLISTED" : b.type === "white" ? "WHITE" : b.type?.toUpperCase() || "PUBLIC";
-  panel.innerHTML = `
-    <div class="bridge-details-card">
-      <div class="bridge-details-header">
-        <span style="font-weight:600;font-size:13px">${esc(b.name || b.city || b.id)}</span>
-        <span class="bridge-badge" style="background:${typeColor}20;color:${typeColor};border-color:${typeColor}50">${typeName}</span>
-        ${b.alive ? '<span class="badge-on" style="font-size:10px">ONLINE</span>' : '<span class="badge-off" style="font-size:10px">OFFLINE</span>'}
-      </div>
-      <div class="bridge-details-grid">
-        <div class="bridge-detail-item"><span class="bdl">ID</span><span class="bdv" style="font-size:10px;font-family:monospace">${esc(b.id)}</span></div>
-        <div class="bridge-detail-item"><span class="bdl">${t("bridgesAlive") || "Статус"}</span><span class="bdv">${b.alive ? "Online" : "Offline"}</span></div>
-        <div class="bridge-detail-item"><span class="bdl">Ping</span><span class="bdv">${b.latency_ms ? b.latency_ms + " ms" : "—"}</span></div>
-        <div class="bridge-detail-item"><span class="bdl">Loss</span><span class="bdv" style="color:${b.loss_pct && b.loss_pct > 10 ? "#f87171" : "inherit"}">${b.loss_pct != null ? b.loss_pct.toFixed(1) + "%" : "—"}</span></div>
-        <div class="bridge-detail-item"><span class="bdl">${t("bridgeLoad") || "Нагрузка"}</span><span class="bdv">${b.load != null ? Math.round(b.load) + "%" : "—"}</span></div>
-        <div class="bridge-detail-item"><span class="bdl">${t("bridgeUsers") || "Пользователи"}</span><span class="bdv">${b.cur_users != null ? b.cur_users + (b.max_users ? "/" + b.max_users : "") : "—"}</span></div>
-        <div class="bridge-detail-item"><span class="bdl">${t("bridgeBW") || "Пропускная"}</span><span class="bdv">${b.bandwidth_mbps ? b.bandwidth_mbps + " Mbps" : "—"}</span></div>
-        <div class="bridge-detail-item"><span class="bdl">${t("bridgeLocation") || "Локация"}</span><span class="bdv">${esc([b.city, b.region, b.country].filter(Boolean).join(", ") || "—")}</span></div>
-        <div class="bridge-detail-item"><span class="bdl">${t("bridgeProvider") || "Провайдер"}</span><span class="bdv">${esc(b.provider || "—")}</span></div>
-        <div class="bridge-detail-item"><span class="bdl">${t("bridgeVersion") || "Версия"}</span><span class="bdv">${esc(b.version || "—")}</span></div>
-        ${b.distance_km != null ? `<div class="bridge-detail-item"><span class="bdl">${t("bridgeDist") || "Расстояние"}</span><span class="bdv">${b.distance_km} km</span></div>` : ""}
-        ${b.ml_score != null ? `<div class="bridge-detail-item"><span class="bdl">ML Score</span><span class="bdv" style="color:${_mlScoreColor(b.ml_score)}">${Math.round(b.ml_score)}/100</span></div>` : ""}
-      </div>
-      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
-        <button class="btn-sm btn-bridge-connect" data-id="${esc(b.id)}">${t("bridgeConnect") || "Подключиться"}</button>
-        ${b.type === "white" || b.type === "operator" ? `<button class="btn-sm" id="btn-detail-ping" data-id="${esc(b.id)}">⚡ TCP Ping</button>` : ""}
-        ${b.type === "white" ? `<button class="btn-sm" id="btn-detail-ssh" data-id="${esc(b.id)}">🔑 ${t("bridgeSSHTitle") || "SSH ключ"}</button>` : ""}
-        <button class="btn-sm" id="btn-detail-label-toggle" data-id="${esc(b.id)}" data-blacklisted="${b.blacklisted ? "1" : "0"}" style="color:${b.blacklisted ? "#f87171" : "#aaa"}">
-          ${b.blacklisted ? "✓ Unblacklist" : "⛔ Blacklist"}
-        </button>
-      </div>
-    </div>`;
-  panel.style.display = "block";
-  _bindDetailsPanelEvents(b);
-}
-
-function _updateBridgeTable(): void {
-  const filtered = _filteredBridges();
-  const rows = filtered.map(b => _bridgeRow(b)).join("")
-    || `<div class="empty-state"><p>${t("noBridges")}</p></div>`;
-  const table = document.getElementById("bridge-table");
-  if (table) table.innerHTML = rows;
-  const alive = bridgeList.filter(b => b.alive).length;
-  const sa = document.getElementById("bstat-alive"); if (sa) sa.textContent = String(alive);
-  const st = document.getElementById("bstat-total"); if (st) st.textContent = String(bridgeList.length);
-  requestAnimationFrame(() => {
-    if (document.getElementById("bridge-map-body")?.style.display !== "none") {
-      _drawBridgeMap(bridgeList, _selectedBridge);
-    }
-    bindBridgeRowEvents();
-  });
-}
-
-function _bindDetailsPanelEvents(b: BridgeInfo): void {
-  document.getElementById("btn-detail-ping")?.addEventListener("click", async () => {
-    const baseURL = getServerBaseURL();
-    if (!baseURL) return;
-    showToast("Pinging bridge...", "info", 1500);
-    try {
-      const res = await invoke<Record<string, unknown>>("bridge_ping", {
-        bridgeId: b.id,
-        count: 5,
-        mode: "tcp",
-      });
-      const loss = res["loss_pct"] as number ?? 0;
-      const avg = res["avg_latency"] as number ?? 0;
-      showToast(`Ping: ${avg} ms, loss: ${loss.toFixed(0)}%`, loss > 20 ? "error" : "success", 3000);
-      const idx = bridgeList.findIndex(x => x.id === b.id);
-      if (idx >= 0) {
-        bridgeList[idx].loss_pct = loss;
-        bridgeList[idx].latency_ms = avg;
-      }
-      _showBridgeDetailsPanel({ ...b, loss_pct: loss, latency_ms: avg });
-    } catch (e) {
-      showToast(String(e), "error", 3000);
-    }
-  });
-
-  document.getElementById("btn-detail-ssh")?.addEventListener("click", () => {
-    const panel = document.getElementById("bridge-ssh-panel");
-    if (panel) {
-      panel.style.display = panel.style.display === "none" ? "block" : "none";
-      const hiddenId = document.getElementById("bridge-ssh-bridge-id");
-      if (!hiddenId) {
-        const inp = document.createElement("input");
-        inp.type = "hidden";
-        inp.id = "bridge-ssh-bridge-id";
-        inp.value = b.id;
-        panel.appendChild(inp);
-      } else {
-        (hiddenId as HTMLInputElement).value = b.id;
-      }
-    }
-  });
-
-  document.getElementById("btn-detail-label-toggle")?.addEventListener("click", async () => {
-    const newBlacklisted = !b.blacklisted;
-    try {
-      await invoke<boolean>("bridge_set_label", { bridgeId: b.id, blacklisted: newBlacklisted });
-      const idx = bridgeList.findIndex(x => x.id === b.id);
-      if (idx >= 0) bridgeList[idx].blacklisted = newBlacklisted;
-      showToast(newBlacklisted ? "Bridge blacklisted" : "Bridge unblacklisted", "success", 2000);
-      _showBridgeDetailsPanel({ ...b, blacklisted: newBlacklisted });
-      _updateBridgeTable();
-    } catch (e) {
-      showToast(String(e), "error", 3000);
-    }
-  });
-}
-
-function _hideBridgePopup(): void {
-  _selectedBridge = null;
-  const popup = document.getElementById("bridge-popup");
-  if (popup) popup.style.display = "none";
-  _drawBridgeMap(bridgeList, null);
-}
-
-function bindBridgesEvents(): void {
-  _bridgeMapAC?.abort();
-  _bridgeMapAC = new AbortController();
-  const mapSig = _bridgeMapAC.signal;
-
-  const refresh = async () => {
-    _hideBridgePopup();
-    const btn = document.getElementById("btn-bridges-refresh") as HTMLButtonElement | null;
-    if (btn) { btn.disabled = true; btn.classList.add("spinning"); }
-    const baseURL = getServerBaseURL();
-    if (!baseURL) {
-      const tbl = document.getElementById("bridge-table");
-      if (tbl) tbl.innerHTML = `<div class="empty-state"><p>${t("bridgesNoKey")}</p></div>`;
-      if (btn) { btn.disabled = false; btn.classList.remove("spinning"); }
-      return;
-    }
-    try {
-      const res = await fetch(`${baseURL}/api/bridge-map`, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      bridgeList = (Array.isArray(data) ? data : (data.bridges || [])) as BridgeInfo[];
-      if (userLat !== 0 || userLon !== 0) {
-        bridgeList.forEach(b => {
-          if (b.lat || b.lon) b.distance_km = haversineKm(userLat, userLon, b.lat, b.lon);
-        });
-      }
-      showToast(`${t("bridges")}: ${bridgeList.length}`, "success", 1500);
-    } catch (e) {
-      bridgeList = [];
-      showToast(t("bridgesLoadError") || "Bridges: load error", "error", 2000);
-    }
-    if (btn) { btn.disabled = false; btn.classList.remove("spinning"); }
-    _updateBridgeTable();
-  };
-
-  // Tabs
-  document.querySelectorAll<HTMLElement>(".bridge-tab").forEach(tab => {
-    tab.addEventListener("click", () => {
-      _bridgeTab = (tab.dataset.tab as typeof _bridgeTab) || "all";
-      document.querySelectorAll(".bridge-tab").forEach(t2 => t2.classList.remove("active"));
-      tab.classList.add("active");
-      _updateBridgeTable();
-    });
-  });
-
-  document.getElementById("btn-bridges-refresh")?.addEventListener("click", refresh);
-
-  document.getElementById("bridge-map-toggle")?.addEventListener("click", () => {
-    const body = document.getElementById("bridge-map-body") as HTMLElement;
-    const arrow = document.getElementById("bridge-map-arrow") as HTMLElement;
-    const open = body.style.display === "none";
-    body.style.display = open ? "" : "none";
-    arrow.textContent = open ? "▲" : "▼";
-    if (open) requestAnimationFrame(() => _drawBridgeMap(bridgeList, _selectedBridge));
-  });
-
-  // Resize map when window/container changes size
-  const mapWrap = document.querySelector<HTMLElement>(".bridge-map-wrap");
-  if (mapWrap) {
-    new ResizeObserver(() => {
-      if (document.getElementById("bridge-map-body")?.style.display !== "none") {
-        _drawBridgeMap(bridgeList, _selectedBridge);
-      }
-    }).observe(mapWrap);
-  }
-
-  document.getElementById("bridge-search")?.addEventListener("input", function () {
-    const q = (this as HTMLInputElement).value.toLowerCase();
-    document.querySelectorAll<HTMLElement>(".bridge-card").forEach(el => {
-      const text = el.textContent?.toLowerCase() || "";
-      el.style.display = text.includes(q) ? "" : "none";
-    });
-  });
-
-  document.getElementById("bridge-popup-close")?.addEventListener("click", _hideBridgePopup);
-  document.getElementById("bridge-popup-connect")?.addEventListener("click", () => {
-    if (_selectedBridge) connectToBridge(_selectedBridge);
-  });
-
-  const mapVisible = () => document.getElementById("bridge-map-body")?.style.display !== "none";
-
-  // Zoom controls
-  document.getElementById("map-zoom-in")?.addEventListener("click", () => {
-    _mapScale = Math.min(_mapScale * 1.4, 8);
-    if (mapVisible()) _drawBridgeMap(bridgeList, _selectedBridge);
-  });
-  document.getElementById("map-zoom-out")?.addEventListener("click", () => {
-    _mapScale = Math.max(_mapScale / 1.4, 0.5);
-    if (mapVisible()) _drawBridgeMap(bridgeList, _selectedBridge);
-  });
-  document.getElementById("map-zoom-reset")?.addEventListener("click", () => {
-    _mapScale = 1; _mapOffsetX = 0; _mapOffsetY = 0;
-    if (mapVisible()) _drawBridgeMap(bridgeList, _selectedBridge);
-  });
-
-  // ML best bridge
-  document.getElementById("btn-bridge-ml-best")?.addEventListener("click", async () => {
-    if (!_mlStatus || bridgeList.length === 0) {
-      showToast(t("bridgesMLNotReady") || "ML not ready", "error", 2500);
-      return;
-    }
-    try {
-      const ranked = await invoke<string>("ml_rank_bridges", { bridgesJson: JSON.stringify(bridgeList) });
-      const rankedList = JSON.parse(ranked) as BridgeInfo[];
-      const scoreMap = new Map(rankedList.map(b => [b.id, b]));
-      bridgeList = bridgeList.map(b => {
-        const r = scoreMap.get(b.id);
-        return r ? { ...b, ml_score: r.ml_score, ml_reason: r.ml_reason } : b;
-      });
-      bridgeList.sort((a, b) => {
-        if (a.alive !== b.alive) return a.alive ? -1 : 1;
-        return (b.ml_score ?? 0) - (a.ml_score ?? 0);
-      });
-      _updateBridgeTable();
-      const best = bridgeList.find(b => b.alive && !b.blacklisted);
-      if (best) { _showBridgePopup(best); addLog("✦ ML best bridge: " + (best.city || best.id)); }
-    } catch { showToast("ML ranking failed", "error", 2500); }
-  });
-
-  // Scan + TCP ping all
-  document.getElementById("btn-bridge-scan-ping")?.addEventListener("click", async () => {
-    if (_bridgePingInProgress) return;
-    _bridgePingInProgress = true;
-    showToast(t("bridgesPinging") || "Pinging all bridges...", "info", 2000);
-    const aliveBridges = bridgeList.filter(b => b.alive && (b.type === "white" || b.type === "operator"));
-    let done = 0;
-    await Promise.allSettled(aliveBridges.map(async b => {
-      try {
-        const res = await invoke<Record<string, unknown>>("bridge_ping", { bridgeId: b.id, count: 3, mode: "tcp" });
-        const idx = bridgeList.findIndex(x => x.id === b.id);
-        if (idx >= 0) {
-          bridgeList[idx].loss_pct = res["loss_pct"] as number ?? 0;
-          bridgeList[idx].latency_ms = res["avg_latency"] as number ?? bridgeList[idx].latency_ms;
-        }
-      } catch { /* silent */ }
-      done++;
-      const sa = document.getElementById("bstat-alive");
-      if (sa) sa.title = `Pinged ${done}/${aliveBridges.length}`;
-    }));
-    _bridgePingInProgress = false;
-    _updateBridgeTable();
-    showToast(`Pinged ${done} bridges`, "success", 2000);
-  });
-
-  // SSH key issuance
-  document.getElementById("btn-bridge-issue-key")?.addEventListener("click", async () => {
-    const bridgeIdEl = document.getElementById("bridge-ssh-bridge-id") as HTMLInputElement | null;
-    const userEl = document.getElementById("bridge-ssh-user") as HTMLInputElement | null;
-    const ttlEl = document.getElementById("bridge-ssh-ttl") as HTMLInputElement | null;
-    const oneTimeEl = document.getElementById("bridge-ssh-onetime") as HTMLInputElement | null;
-    const resultEl = document.getElementById("bridge-ssh-result");
-    const bridgeId = bridgeIdEl?.value || _selectedBridge?.id || "";
-    if (!bridgeId || !userEl?.value) { showToast("bridge_id and user required", "error", 2500); return; }
-    try {
-      const data = await invoke<Record<string, unknown>>("bridge_issue_ssh_key", {
-        bridgeId,
-        userId: userEl.value,
-        oneTime: oneTimeEl?.checked ?? true,
-        ttlHours: parseInt(ttlEl?.value || "24", 10),
-      });
-      if (resultEl) {
-        resultEl.style.display = "block";
-        resultEl.textContent = `Key ID: ${data["key_id"]}\nSSH: ${data["ssh_key"]}\nExpires: ${data["expires_at"]}`;
-      }
-      showToast("SSH key issued", "success", 2500);
-    } catch (e) { showToast(String(e), "error", 3000); }
-  });
-
-  // Rollout
-  document.getElementById("btn-bridge-rollout")?.addEventListener("click", async () => {
-    if (_bridgeRolloutInProgress) return;
-    const ver = (document.getElementById("rollout-version") as HTMLInputElement)?.value;
-    const url = (document.getElementById("rollout-url") as HTMLInputElement)?.value;
-    const chk = (document.getElementById("rollout-checksum") as HTMLInputElement)?.value;
-    if (!ver || !url) { showToast("version and url required", "error", 2500); return; }
-    _bridgeRolloutInProgress = true;
-    showToast(t("bridgeRolloutStarted") || "Rollout started...", "info", 2000);
-    try {
-      const data = await invoke<Record<string, unknown>>("bridge_rollout", { version: ver, binaryUrl: url, checksum: chk || "" });
-      const resultEl = document.getElementById("rollout-result");
-      if (resultEl) {
-        resultEl.style.display = "block";
-        resultEl.textContent = JSON.stringify(data, null, 2);
-      }
-      showToast(t("bridgeRolloutDone") || "Rollout complete", "success", 3000);
-    } catch (e) { showToast(String(e), "error", 3000); }
-    _bridgeRolloutInProgress = false;
-  });
-
-  // Toggle rollout panel
-  document.querySelectorAll<HTMLElement>("[data-toggle='rollout']").forEach(el => {
-    el.addEventListener("click", () => {
-      const p = document.getElementById("bridge-rollout-panel");
-      if (p) p.style.display = p.style.display === "none" ? "block" : "none";
-    });
-  });
-
-  const canvas = document.getElementById("bridge-map-canvas") as HTMLCanvasElement | null;
-  const tooltip = document.getElementById("bridge-tooltip");
-
-  if (canvas && tooltip) {
-    // Mouse wheel zoom
-    canvas.addEventListener("wheel", (ev) => {
-      ev.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const mx = ev.clientX - rect.left;
-      const my = ev.clientY - rect.top;
-      const factor = ev.deltaY < 0 ? 1.2 : 1 / 1.2;
-      const newScale = Math.max(0.5, Math.min(8, _mapScale * factor));
-      // Zoom toward mouse position
-      _mapOffsetX = mx - (mx - _mapOffsetX) * (newScale / _mapScale);
-      _mapOffsetY = my - (my - _mapOffsetY) * (newScale / _mapScale);
-      _mapScale = newScale;
-      _drawBridgeMap(bridgeList, _selectedBridge);
-    }, { passive: false });
-
-    // Drag to pan
-    canvas.addEventListener("mousedown", (ev) => {
-      _mapDragging = true;
-      _mapDragStartX = ev.clientX;
-      _mapDragStartY = ev.clientY;
-      _mapDragOriginX = _mapOffsetX;
-      _mapDragOriginY = _mapOffsetY;
-      canvas.style.cursor = "grabbing";
-    });
-    window.addEventListener("mouseup", () => {
-      if (_mapDragging) {
-        _mapDragging = false;
-        canvas.style.cursor = "grab";
-      }
-    }, { signal: mapSig });
-    window.addEventListener("mousemove", (ev) => {
-      if (!_mapDragging) return;
-      _mapOffsetX = _mapDragOriginX + (ev.clientX - _mapDragStartX);
-      _mapOffsetY = _mapDragOriginY + (ev.clientY - _mapDragStartY);
-      _drawBridgeMap(bridgeList, _selectedBridge);
-    }, { signal: mapSig });
-
-    // Touch support for pan/zoom
-    let _touchDist = 0;
-    canvas.addEventListener("touchstart", (ev) => {
-      if (ev.touches.length === 1) {
-        _mapDragging = true;
-        _mapDragStartX = ev.touches[0].clientX;
-        _mapDragStartY = ev.touches[0].clientY;
-        _mapDragOriginX = _mapOffsetX;
-        _mapDragOriginY = _mapOffsetY;
-      } else if (ev.touches.length === 2) {
-        _touchDist = Math.hypot(
-          ev.touches[0].clientX - ev.touches[1].clientX,
-          ev.touches[0].clientY - ev.touches[1].clientY
-        );
-      }
-      ev.preventDefault();
-    }, { passive: false });
-    canvas.addEventListener("touchmove", (ev) => {
-      if (ev.touches.length === 1 && _mapDragging) {
-        _mapOffsetX = _mapDragOriginX + (ev.touches[0].clientX - _mapDragStartX);
-        _mapOffsetY = _mapDragOriginY + (ev.touches[0].clientY - _mapDragStartY);
-        _drawBridgeMap(bridgeList, _selectedBridge);
-      } else if (ev.touches.length === 2) {
-        const dist = Math.hypot(
-          ev.touches[0].clientX - ev.touches[1].clientX,
-          ev.touches[0].clientY - ev.touches[1].clientY
-        );
-        if (_touchDist > 0) {
-          _mapScale = Math.max(0.5, Math.min(8, _mapScale * (dist / _touchDist)));
-          _drawBridgeMap(bridgeList, _selectedBridge);
-        }
-        _touchDist = dist;
-      }
-      ev.preventDefault();
-    }, { passive: false });
-    canvas.addEventListener("touchend", () => { _mapDragging = false; });
-
-    // Hover tooltip
-    canvas.addEventListener("mousemove", (ev) => {
-      if (_mapDragging) return;
-      const rect = canvas.getBoundingClientRect();
-      const mx = ev.clientX - rect.left;
-      const my = ev.clientY - rect.top;
-      const bs: BridgeInfo[] = (canvas as any)._bridges || [];
-      const lonX: (l: number) => number = (canvas as any)._lonX;
-      const latY: (l: number) => number = (canvas as any)._latY;
-      if (!lonX) return;
-      let hit: BridgeInfo | null = null;
-      for (const b of bs) {
-        if (!b.lat && !b.lon) continue;
-        if (Math.hypot(lonX(b.lon) - mx, latY(b.lat) - my) < 10) { hit = b; break; }
-      }
-      if (hit) {
-        tooltip.style.display = "block";
-        tooltip.style.left = (mx + 14) + "px";
-        tooltip.style.top = (my - 10) + "px";
-        const label = hit.name ? `${hit.name} · ${hit.city || hit.country || hit.id}` : (hit.city || hit.region || hit.country || hit.id);
-        const parts = [label];
-        if (hit.blacklisted) parts.push("⛔ BLACK");
-        else if (hit.type === "white") parts.push("⚡ WHITE");
-        if (hit.latency_ms) parts.push(hit.latency_ms + " ms");
-        if (hit.loss_pct != null && hit.loss_pct > 0) parts.push("loss: " + hit.loss_pct.toFixed(0) + "%");
-        if (hit.distance_km != null) parts.push(hit.distance_km + " km");
-        if (hit.load != null) parts.push("load: " + Math.round(hit.load) + "%");
-        if (hit.cur_users != null) parts.push(hit.cur_users + (hit.max_users ? "/" + hit.max_users : "") + " users");
-        tooltip.textContent = parts.join(" · ");
-        canvas.style.cursor = "pointer";
-      } else {
-        tooltip.style.display = "none";
-        canvas.style.cursor = "grab";
-      }
-    });
-    canvas.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
-    canvas.addEventListener("click", (ev) => {
-      if (_mapDragging) return;
-      const rect = canvas.getBoundingClientRect();
-      const mx = ev.clientX - rect.left;
-      const my = ev.clientY - rect.top;
-      const bs: BridgeInfo[] = (canvas as any)._bridges || [];
-      const lonX: (l: number) => number = (canvas as any)._lonX;
-      const latY: (l: number) => number = (canvas as any)._latY;
-      if (!lonX) return;
-      for (const b of bs) {
-        if (!b.lat && !b.lon) continue;
-        if (Math.hypot(lonX(b.lon) - mx, latY(b.lat) - my) < 10) {
-          _showBridgePopup(b);
-          tooltip.style.display = "none";
-          return;
-        }
-      }
-      _hideBridgePopup();
-    });
-  }
-
-  refresh();
-}
-
-function bindBridgeRowEvents(): void {
-  document.querySelectorAll<HTMLElement>(".btn-bridge-connect").forEach(el => {
-    el.addEventListener("click", () => {
-      const b = bridgeList.find(x => x.id === el.dataset.id);
-      if (b) connectToBridge(b);
-    });
-  });
-}
-
-async function connectToBridge(b: BridgeInfo): Promise<void> {
-  const baseURL = getServerBaseURL();
-  if (!baseURL) return;
-  showToast(t("bridgesConnecting"), "info", 2000);
-  try {
-    const res = await fetch(`${baseURL}/api/bridge-connect`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bridge_id: b.id }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const conn = data.connection || data;
-    if (conn.conn_key || conn.address) {
-      settings.conn_key = conn.conn_key || `whispera://${conn.address}?pubkey=${conn.public_key || ""}`;
-      await persistSettings();
-      showToast(t("bridgesConnected"), "success", 2500);
-      currentPage = "home";
-      renderNav();
-      renderPage();
-    } else {
-      showToast(t("bridgeNoConnData"), "error", 3000);
-    }
-  } catch (e) {
-    showToast(String(e), "error", 4000);
-  }
-}
-
-let _mlStatus = false;
-let _mlBinaryExists = false;
-let _mlLogs = "";
-let _mlLogsInterval: ReturnType<typeof setInterval> | null = null;
-let _mlNetworkAnalysis: MLNetworkAnalysis | null = null;
-let _mlTransportRec: MLTransportRecommendation | null = null;
-let _mlAnalyzing = false;
-let _mlTargetServer = "";
-let _mlToken = "";
-let _mlTokenInvalid = false;
-const _mlEndpoint = localStorage.getItem("ml_endpoint") || "http://127.0.0.1:8000";
-
-async function _mlFetch(path: string, init?: RequestInit): Promise<Response> {
-  // /health is always allowed by the server without auth — don't block it
-  if (_mlTokenInvalid && path !== "/health") return new Response(null, { status: 401 });
-  const opts: RequestInit = { ...init, headers: { ...((init?.headers as Record<string, string>) || {}) } };
-  if (_mlToken) (opts.headers as Record<string, string>)["Authorization"] = `Bearer ${_mlToken}`;
-  const res = await fetch(`${_mlEndpoint}${path}`, opts);
-  if (res.status === 401 && !_mlTokenInvalid) {
-    _mlTokenInvalid = true;
-    showToast(t("mlInvalidToken"), "error", 5000);
-  }
-  return res;
-}
-let _mlTraining = false;
-let _mlTrainProgress = 0;
-let _mlTrainEpoch = 0;
-let _mlTrainLoss = 0;
-let _mlTrainStatus = "";
-let _mlDatasets: {name: string; size: number; modified: number}[] = [];
-let _mlFeedbackStats: Record<string, {success: number; fail: number; total: number; total_latency: number; count: number}> = {};
-let _mlModelInfo: {accuracy: number; parameters: number; samples: number; engine: string} | null = null;
-
-async function refreshMLState(): Promise<void> {
-  try { _mlStatus = await invoke<boolean>("get_ml_status"); } catch { _mlStatus = false; }
-  try { _mlBinaryExists = await invoke<boolean>("ml_binary_exists"); } catch { _mlBinaryExists = false; }
-  try { _mlLogs = await invoke<string>("get_ml_logs"); } catch { _mlLogs = ""; }
-}
-
-function _dpiRiskBadge(risk: string): string {
-  const map: Record<string, [string, string]> = {
-    low:      ["badge-on",  t("mlDpiLow")],
-    medium:   ["badge-warn", t("mlDpiMedium")],
-    high:     ["badge-off", t("mlDpiHigh")],
-    critical: ["badge-off", t("mlDpiCritical")],
-  };
-  const [cls, label] = map[risk] ?? ["badge-off", risk];
-  return `<span class="${cls}">${label}</span>`;
-}
-
-function renderMLSection(): string {
-  const statusClass = _mlStatus ? "badge-on" : "badge-off";
-  const statusText  = _mlStatus ? t("mlRunning") : t("mlStopped");
-  const modeText    = _mlStatus ? t("mlFallbackOff") : t("mlFallbackOn");
-  const modeClass   = _mlStatus ? "badge-on" : "badge-off";
-
-  let analysisCard: string;
-  if (_mlNetworkAnalysis) {
-    const a = _mlNetworkAnalysis;
-    const rec = _mlTransportRec;
-    analysisCard = `
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header">
-          <span class="card-title">${t("mlNetworkAnalysis")}</span>
-          <button class="btn-sm" id="btn-ml-analyze" ${_mlAnalyzing ? "disabled" : ""}>${_mlAnalyzing ? t("mlAnalyzing") : t("mlRunAnalysis")}</button>
-        </div>
-        <div class="info-row"><span class="info-label">${t("mlDpiRisk")}</span><span class="info-value" id="ml-dpi-risk">${_dpiRiskBadge(a.dpi_risk)}</span></div>
-        <div class="info-row"><span class="info-label">${t("mlAvgRtt")}</span><span class="info-value">${a.avg_rtt_ms != null ? a.avg_rtt_ms + " ms" : "—"}</span></div>
-        <div class="info-row"><span class="info-label">${t("mlReachable")}</span><span class="info-value">${a.reachable} / ${a.total_probed}</span></div>
-        ${rec ? `
-        <div class="info-row" style="margin-top:6px">
-          <span class="info-label">${t("mlTransportRec")}</span>
-          <span class="info-value"><span class="badge-on">${esc(rec.transport)}</span></span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">${t("mlTransportDesc")}</span>
-          <span class="info-value" style="font-size:12px;opacity:0.75">${esc(rec.description)}</span>
-        </div>` : ""}
-      </div>`;
-  } else {
-    analysisCard = `
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header">
-          <span class="card-title">${t("mlNetworkAnalysis")}</span>
-          <button class="btn-sm" id="btn-ml-analyze" ${_mlAnalyzing || !_mlStatus ? "disabled" : ""}>${_mlAnalyzing ? t("mlAnalyzing") : t("mlRunAnalysis")}</button>
-        </div>
-        <div class="empty-state" style="padding:16px 0"><p id="ml-analysis-hint" style="opacity:0.5">${_mlStatus ? t("mlScanFirst") : t("mlStopped") + " — " + t("mlStart")}</p></div>
-      </div>`;
-  }
-
-  return `
-    <div style="margin-top:24px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <h3 style="margin:0;font-size:15px;opacity:0.85">${t("mlTitle")}</h3>
-        <button class="btn-sm" id="btn-ml-refresh-logs">${ICONS.refresh} ${t("mlRefreshLogs")}</button>
-      </div>
-
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header"><span class="card-title">${t("mlServer")}</span></div>
-        <div class="info-row">
-          <span class="info-label">${t("mlStatus")}</span>
-          <span class="info-value"><span class="${statusClass}" id="ml-status-badge">${statusText}</span></span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">${t("mlFallback")}</span>
-          <span class="info-value"><span class="${modeClass}" id="ml-mode-badge">${modeText}</span></span>
-        </div>
-        <div class="info-row" id="ml-no-binary-row" style="${!_mlBinaryExists && !_mlStatus ? "" : "display:none"}"><span style="color:#f87171;font-size:12px">${t("mlNoBinary")}</span></div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
-          <button class="btn-sm" id="btn-ml-start"   ${_mlStatus || !_mlBinaryExists ? "disabled" : ""}>${t("mlStart")}</button>
-          <button class="btn-sm" id="btn-ml-stop"    ${!_mlStatus ? "disabled" : ""}>${t("mlStop")}</button>
-          <button class="btn-sm" id="btn-ml-restart" ${!_mlBinaryExists ? "disabled" : ""}>${t("mlRestart")}</button>
-        </div>
-      </div>
-
-      ${analysisCard}
-
-
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header">
-          <span class="card-title">${t("mlTraining")}</span>
-          <button class="btn-sm" id="btn-ml-train" ${!_mlStatus ? "disabled" : ""}>${_mlTraining ? t("mlTrainStop") : t("mlTrainStart")}</button>
-        </div>
-        ${_mlTraining ? `
-          <div style="margin-top:8px">
-            <div class="info-row"><span class="info-label">${t("mlTrainEpoch")}</span><span class="info-value" id="ml-train-epoch">${_mlTrainEpoch}</span></div>
-            <div class="info-row"><span class="info-label">${t("mlTrainLoss")}</span><span class="info-value" id="ml-train-loss">${_mlTrainLoss.toFixed(6)}</span></div>
-            <div class="info-row"><span class="info-label">${t("mlTrainProgress")}</span><span class="info-value" id="ml-train-pct">${_mlTrainProgress}%</span></div>
-            <div style="margin-top:8px;height:6px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden">
-              <div id="ml-train-bar" style="height:100%;width:${_mlTrainProgress}%;background:var(--accent);transition:width 0.3s"></div>
-            </div>
-          </div>` : `
-          <div class="empty-state" style="padding:12px 0"><p style="opacity:0.4">${_mlTrainStatus || t("mlTrainClickHint")}</p></div>`}
-      </div>
-
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header"><span class="card-title">${t("mlFederated")}</span></div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
-          <button class="btn-sm" id="btn-ml-fed-export" ${!_mlStatus ? "disabled" : ""}>${t("mlFedExport")}</button>
-          <button class="btn-sm" id="btn-ml-fed-import" ${!_mlStatus ? "disabled" : ""}>${t("mlFedImport")}</button>
-          <button class="btn-sm" id="btn-ml-fed-losses" ${!_mlStatus ? "disabled" : ""}>${t("mlFedLosses")}</button>
-        </div>
-        <div id="ml-fed-output" style="margin-top:8px;font-size:12px;font-family:monospace;max-height:150px;overflow-y:auto"></div>
-      </div>
-
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header">
-          <span class="card-title">${t("mlModelMgmt")}</span>
-          <button class="btn-sm" id="btn-ml-model-reload" ${!_mlStatus ? "disabled" : ""}>${t("mlModelReload")}</button>
-        </div>
-        ${_mlModelInfo ? `
-          <div class="info-row"><span class="info-label">${t("mlModelEngine")}</span><span class="info-value"><span class="badge-on">${esc(_mlModelInfo.engine)}</span></span></div>
-          <div class="info-row"><span class="info-label">${t("mlModelAccuracy")}</span><span class="info-value">${(_mlModelInfo.accuracy * 100).toFixed(1)}%</span></div>
-          <div class="info-row"><span class="info-label">${t("mlModelParams")}</span><span class="info-value">${_mlModelInfo.parameters.toLocaleString()}</span></div>
-          <div class="info-row"><span class="info-label">${t("mlModelSamples")}</span><span class="info-value">${_mlModelInfo.samples.toLocaleString()}</span></div>
-        ` : `<div class="empty-state" style="padding:12px 0"><p style="opacity:0.4">—</p></div>`}
-      </div>
-
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header">
-          <span class="card-title">${t("mlFeedback")}</span>
-          <button class="btn-sm" id="btn-ml-fb-refresh" ${!_mlStatus ? "disabled" : ""}>${ICONS.refresh}</button>
-        </div>
-        ${Object.keys(_mlFeedbackStats).length > 0 ? `
-          <div style="font-size:12px;margin-top:8px">
-            ${Object.entries(_mlFeedbackStats).map(([name, st]) => `
-              <div style="display:flex;gap:8px;padding:3px 0;align-items:center">
-                <span style="flex:2;font-family:monospace">${esc(name)}</span>
-                <span style="flex:1;color:#4ade80">${t("mlFbSuccess")}: ${st.success}</span>
-                <span style="flex:1;color:#f87171">${t("mlFbFail")}: ${st.fail}</span>
-                <span style="flex:1;opacity:0.6">${t("mlFbTotal")}: ${st.total}</span>
-                <span style="flex:1;opacity:0.6">${st.count > 0 ? (st.total_latency / st.count).toFixed(0) + "ms" : "—"}</span>
-              </div>
-            `).join("")}
-          </div>` : `<div class="empty-state" style="padding:12px 0"><p style="opacity:0.4">${t("mlFbNoData")}</p></div>`}
-      </div>
-
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header">
-          <span class="card-title">${t("mlDatasets")}</span>
-          <div style="display:flex;gap:4px">
-            <button class="btn-sm" id="btn-ml-ds-export" ${!_mlStatus ? "disabled" : ""}>${t("mlDsExport")}</button>
-            <button class="btn-sm" id="btn-ml-ds-capture" ${!_mlStatus ? "disabled" : ""}>${t("mlDsCapture")}</button>
-            <button class="btn-sm" id="btn-ml-ds-refresh" ${!_mlStatus ? "disabled" : ""}>${ICONS.refresh}</button>
-          </div>
-        </div>
-        ${_mlDatasets.length > 0 ? `
-          <div style="font-size:12px;margin-top:8px">
-            ${_mlDatasets.map(ds => `
-              <div style="display:flex;gap:8px;padding:3px 0;font-family:monospace;align-items:center">
-                <span style="flex:3">${esc(ds.name)}</span>
-                <span style="flex:1;opacity:0.6">${(ds.size / 1024).toFixed(1)} KB</span>
-                <span style="flex:2;opacity:0.5">${new Date(ds.modified * 1000).toLocaleString()}</span>
-              </div>
-            `).join("")}
-          </div>` : `<div class="empty-state" style="padding:12px 0"><p style="opacity:0.4">${t("mlDsEmpty")}</p></div>`}
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">${t("mlLogs")}</span>
-          <button class="btn-sm" id="btn-ml-clear-logs">${t("mlClearLogs")}</button>
-        </div>
-        <div class="log-box" id="ml-log-box" style="height:220px">${_mlLogs ? esc(_mlLogs) : '<span style="opacity:0.4">—</span>'}</div>
-      </div>
-    </div>`;
-}
-
-function bindMLSectionEvents(): void {
-  // _mlToken is already initialized at app startup via get_ml_api_token() (reads system file).
-  // Do NOT override it from localStorage here — localStorage may contain a stale/wrong token.
-  // _mlTokenInvalid persists across re-renders; it is only reset when the token value changes.
-
-  refreshMLState().then(() => {
-    _updateMLStatusDOM();
-    _updateMLLogsDOM();
-  });
-
-  if (_mlLogsInterval) clearInterval(_mlLogsInterval);
-  _mlLogsInterval = setInterval(async () => {
-    if (currentPage !== "home") {
-      if (_mlLogsInterval) { clearInterval(_mlLogsInterval); _mlLogsInterval = null; }
-      return;
-    }
-    try { _mlStatus = await invoke<boolean>("get_ml_status"); } catch { /**/ }
-    if (!_mlStatus) {
-      try { const r = await _mlFetch(`/health`, { signal: AbortSignal.timeout(1000) }); if (r.ok) _mlStatus = true; } catch { /**/ }
-    }
-    if (_mlStatus) {
-      try {
-        const r = await _mlFetch(`/logs?n=150`, { signal: AbortSignal.timeout(1500) });
-        if (r.ok) { const j = await r.json() as { lines: string[] }; _mlLogs = j.lines.join("\n"); }
-      } catch { try { _mlLogs = await invoke<string>("get_ml_logs"); } catch { /**/ } }
-    }
-    _updateMLStatusDOM();
-    _updateMLLogsDOM();
-  }, 3000);
-
-  document.getElementById("btn-ml-start")?.addEventListener("click", async () => {
-    try {
-      await invoke("start_ml_server");
-      showToast(t("mlServerStarting"), "info", 2500);
-      setTimeout(async () => {
-        try { _mlStatus = await invoke<boolean>("get_ml_status"); } catch { /**/ }
-        _updateMLStatusDOM();
-      }, 1500);
-    } catch (e) { showToast(String(e), "error", 4000); }
-  });
-
-  document.getElementById("btn-ml-stop")?.addEventListener("click", async () => {
-    try {
-      await invoke("stop_ml_server");
-      _mlStatus = false;
-      _updateMLStatusDOM();
-      showToast(t("mlServerStopped"), "info", 2000);
-    } catch (e) { showToast(String(e), "error", 4000); }
-  });
-
-  document.getElementById("btn-ml-restart")?.addEventListener("click", async () => {
-    try {
-      await invoke("stop_ml_server");
-      await new Promise(r => setTimeout(r, 800));
-      await invoke("start_ml_server");
-      showToast(t("mlServerRestarted"), "success", 2500);
-      setTimeout(async () => {
-        try { _mlStatus = await invoke<boolean>("get_ml_status"); } catch { /**/ }
-        _updateMLStatusDOM();
-      }, 1500);
-    } catch (e) { showToast(String(e), "error", 4000); }
-  });
-
-  document.getElementById("btn-ml-refresh-logs")?.addEventListener("click", async () => {
-    try { _mlLogs = await invoke<string>("get_ml_logs"); } catch { /**/ }
-    _updateMLLogsDOM();
-  });
-
-  document.getElementById("btn-ml-clear-logs")?.addEventListener("click", async () => {
-    // clear file log (Tauri) + in-memory log (Go HTTP server)
-    await Promise.all([
-      invoke("clear_ml_logs").catch(() => {}),
-      _mlFetch("/logs/clear", { method: "POST", signal: AbortSignal.timeout(2000) }).catch(() => {}),
-    ]);
-    _mlLogs = "";
-    const box = document.getElementById("ml-log-box");
-    if (box) box.innerHTML = '<span style="opacity:0.4">—</span>';
-  });
-
-  document.getElementById("btn-ml-analyze")?.addEventListener("click", async () => {
-    if (_mlAnalyzing) return;
-    _mlAnalyzing = true;
-    const btn = document.getElementById("btn-ml-analyze") as HTMLButtonElement | null;
-    if (btn) { btn.disabled = true; btn.textContent = t("mlAnalyzing"); }
-    try {
-      const target = _mlTargetServer || getServerHost();
-      const parts = target.split(":");
-      const host = parts[0] || "";
-      const port = parseInt(parts[1] ?? "8443", 10) || 8443;
-      const rawAnalysis = await invoke<string>("ml_analyze_network", { host, port });
-      _mlNetworkAnalysis = JSON.parse(rawAnalysis) as MLNetworkAnalysis;
-      const rawRec = await invoke<string>("ml_recommend_transport", { serverHost: host, serverPort: port });
-      _mlTransportRec = JSON.parse(rawRec) as MLTransportRecommendation;
-      showToast(`${t("analysisDone")} ${_mlNetworkAnalysis.dpi_risk}`,
-        _mlNetworkAnalysis.dpi_risk === "low" ? "success" : "info", 3500);
-    } catch (e) {
-      showToast(t("mlUnavailable"), "error", 3000);
-    }
-    _mlAnalyzing = false;
-    const main = document.getElementById("main-content");
-    if (main && currentPage === "home") { main.innerHTML = renderHome(); bindHomeEvents(); }
-  });
-
-
-  document.getElementById("btn-ml-train")?.addEventListener("click", async () => {
-    if (!_mlStatus) return;
-    if (_mlTraining) {
-      try { await _mlFetch(`/train/stop`, { method: "POST", signal: AbortSignal.timeout(5000) }); } catch { /**/ }
-      _mlTraining = false;
-      _mlTrainStatus = t("mlTrainDone");
-      const m3 = document.getElementById("main-content");
-      if (m3 && currentPage === "home") { m3.innerHTML = renderHome(); bindHomeEvents(); }
-      return;
-    }
-    _mlTraining = true;
-    _mlTrainProgress = 0;
-    _mlTrainEpoch = 0;
-    _mlTrainLoss = 0;
-    _mlTrainStatus = "";
-    const m4 = document.getElementById("main-content");
-    if (m4 && currentPage === "home") { m4.innerHTML = renderHome(); bindHomeEvents(); }
-    try {
-      const r = await _mlFetch(`/train/start`, { method: "POST", signal: AbortSignal.timeout(5000) });
-      if (!r.ok) throw new Error("start failed");
-      const pollId = setInterval(async () => {
-        if (!_mlTraining || currentPage !== "home") { clearInterval(pollId); return; }
-        try {
-          const sr = await _mlFetch(`/train/status`, { signal: AbortSignal.timeout(3000) });
-          if (sr.ok) {
-            const s = await sr.json() as { running: boolean; epoch: number; total_epochs: number; loss: number };
-            _mlTrainEpoch = s.epoch;
-            _mlTrainLoss = s.loss;
-            _mlTrainProgress = s.total_epochs > 0 ? Math.round(s.epoch / s.total_epochs * 100) : 0;
-            const epochEl = document.getElementById("ml-train-epoch");
-            const lossEl = document.getElementById("ml-train-loss");
-            const pctEl = document.getElementById("ml-train-pct");
-            const bar = document.getElementById("ml-train-bar");
-            if (epochEl) epochEl.textContent = String(s.epoch);
-            if (lossEl) lossEl.textContent = s.loss.toFixed(6);
-            if (pctEl) pctEl.textContent = _mlTrainProgress + "%";
-            if (bar) bar.style.width = _mlTrainProgress + "%";
-            if (!s.running) {
-              clearInterval(pollId);
-              _mlTraining = false;
-              _mlTrainStatus = t("mlTrainDone");
-              _mlTrainProgress = 100;
-              showToast(t("mlTrainDone"), "success", 3000);
-              const m5 = document.getElementById("main-content");
-              if (m5 && currentPage === "home") { m5.innerHTML = renderHome(); bindHomeEvents(); }
-            }
-          }
-        } catch { /**/ }
-      }, 2000);
-    } catch {
-      _mlTraining = false;
-      _mlTrainStatus = t("mlTrainFailed");
-      showToast(t("mlTrainFailed"), "error", 3000);
-      const m6 = document.getElementById("main-content");
-      if (m6 && currentPage === "home") { m6.innerHTML = renderHome(); bindHomeEvents(); }
-    }
-  });
-
-  document.getElementById("btn-ml-fed-export")?.addEventListener("click", async () => {
-    const out = document.getElementById("ml-fed-output");
-    try {
-      const r = await _mlFetch(`/federated/export`, { signal: AbortSignal.timeout(10000) });
-      if (r.ok) { const j = await r.json(); if (out) out.textContent = JSON.stringify(j, null, 2); showToast(t("mlFedExported"), "success", 2000); }
-    } catch { showToast("Error", "error", 2000); }
-  });
-
-  document.getElementById("btn-ml-fed-import")?.addEventListener("click", () => {
-    const out = document.getElementById("ml-fed-output");
-    const ov = document.createElement("div");
-    ov.className = "modal-overlay";
-    ov.innerHTML = `<div class="modal">
-      <h3>Import Federated Delta</h3>
-      <div class="modal-field">
-        <label style="font-size:12px;opacity:0.7">Paste JSON delta from another client (output of Export Delta)</label>
-        <textarea id="fed-import-json" rows="8" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:11px" placeholder='{"transports":{"tcp":{"success":10,...}}}'></textarea>
-      </div>
-      <div class="modal-actions">
-        <button class="btn-cancel" id="fed-import-cancel">${t("cancel")}</button>
-        <button class="btn-save" id="fed-import-ok">Import</button>
-      </div>
-    </div>`;
-    document.body.appendChild(ov);
-    document.getElementById("fed-import-cancel")?.addEventListener("click", () => ov.remove());
-    document.getElementById("fed-import-ok")?.addEventListener("click", async () => {
-      const raw = (document.getElementById("fed-import-json") as HTMLTextAreaElement)?.value.trim();
-      if (!raw) { showToast("Paste JSON first", "error", 2000); return; }
-      let body: string;
-      try {
-        const parsed = JSON.parse(raw);
-        // accept both full export format {"transports":{...}} and raw transports object
-        body = JSON.stringify(parsed.transports ? parsed : { transports: parsed });
-      } catch { showToast("Invalid JSON", "error", 2000); return; }
-      ov.remove();
-      try {
-        const r = await _mlFetch(`/federated/import`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-          signal: AbortSignal.timeout(10000),
-        });
-        if (r.ok) {
-          const j = await r.json();
-          if (out) out.textContent = JSON.stringify(j, null, 2);
-          showToast(t("mlFedImported"), "success", 2000);
-        } else {
-          showToast("Import failed: " + r.status, "error", 3000);
-        }
-      } catch (e) { showToast("Error: " + e, "error", 2000); }
-    });
-  });
-
-  document.getElementById("btn-ml-fed-losses")?.addEventListener("click", async () => {
-    const out = document.getElementById("ml-fed-output");
-    try {
-      const r = await _mlFetch(`/federated/losses`, { signal: AbortSignal.timeout(5000) });
-      if (r.ok) { const j = await r.json(); if (out) out.textContent = JSON.stringify(j, null, 2); }
-    } catch { showToast("Error", "error", 2000); }
-  });
-
-  document.getElementById("btn-ml-model-reload")?.addEventListener("click", async () => {
-    try {
-      await _mlFetch(`/models/load`, { method: "POST", signal: AbortSignal.timeout(5000) });
-      showToast(t("mlModelReloaded"), "success", 2000);
-      await _refreshMLModelInfo();
-    } catch { showToast("Error", "error", 2000); }
-  });
-
-  document.getElementById("btn-ml-fb-refresh")?.addEventListener("click", _refreshMLFeedback);
-
-  document.getElementById("btn-ml-ds-export")?.addEventListener("click", async () => {
-    const btn = document.getElementById("btn-ml-ds-export") as HTMLButtonElement;
-    if (btn) { btn.disabled = true; btn.textContent = t("mlDsExporting"); }
-    try { const result = await invoke<string>("ml_export_dataset"); showToast(result, "success", 4000); }
-    catch (e) { showToast(String(e), "error", 3000); }
-    if (btn) { btn.disabled = false; btn.textContent = t("mlDsExport"); }
-  });
-
-  document.getElementById("btn-ml-ds-capture")?.addEventListener("click", async () => {
-    try {
-      const r = await _mlFetch(`/datasets/capture`, { method: "POST", signal: AbortSignal.timeout(10000) });
-      if (r.ok) {
-        showToast(t("mlDatasetCaptured"), "success", 2000);
-        await _refreshMLDatasets();
-        const m = document.getElementById("main-content");
-        if (m && currentPage === "home") { m.innerHTML = renderHome(); bindHomeEvents(); }
-      }
-    } catch { showToast("Error", "error", 2000); }
-  });
-
-  document.getElementById("btn-ml-ds-refresh")?.addEventListener("click", async () => {
-    await _refreshMLDatasets();
-    const m = document.getElementById("main-content");
-    if (m && currentPage === "home") { m.innerHTML = renderHome(); bindHomeEvents(); }
-  });
-
-  if (_mlToken && !_mlTokenInvalid) {
-    _refreshMLModelInfo();
-    _refreshMLFeedback();
-    _refreshMLDatasets();
-  }
-}
-
-function _updateMLStatusDOM(): void {
-  const badge = document.getElementById("ml-status-badge");
-  const modeBadge = document.getElementById("ml-mode-badge");
-  if (badge) {
-    badge.textContent = _mlStatus ? t("mlRunning") : t("mlStopped");
-    badge.className = _mlStatus ? "badge-on" : "badge-off";
-  }
-  if (modeBadge) {
-    modeBadge.textContent = _mlStatus ? t("mlFallbackOff") : t("mlFallbackOn");
-    modeBadge.className = _mlStatus ? "badge-on" : "badge-off";
-  }
-  const btnStart = document.getElementById("btn-ml-start") as HTMLButtonElement | null;
-  const btnStop = document.getElementById("btn-ml-stop") as HTMLButtonElement | null;
-  const btnAnalyze = document.getElementById("btn-ml-analyze") as HTMLButtonElement | null;
-  if (btnStart) btnStart.disabled = _mlStatus || !_mlBinaryExists;
-  if (btnStop) btnStop.disabled = !_mlStatus;
-  if (btnAnalyze && !_mlAnalyzing) btnAnalyze.disabled = !_mlStatus;
-  const noBinaryRow = document.getElementById("ml-no-binary-row") as HTMLElement | null;
-  if (noBinaryRow) noBinaryRow.style.display = (!_mlBinaryExists && !_mlStatus) ? "" : "none";
-  const analysisHint = document.getElementById("ml-analysis-hint");
-  if (analysisHint) analysisHint.textContent = _mlStatus ? t("mlScanFirst") : t("mlStopped") + " — " + t("mlStart");
-}
-
-function _updateMLLogsDOM(): void {
-  const box = document.getElementById("ml-log-box");
-  if (!box) return;
-  if (_mlLogs) {
-    box.textContent = _mlLogs;
-    box.scrollTop = box.scrollHeight;
-  } else {
-    box.innerHTML = '<span style="opacity:0.4">—</span>';
-  }
-}
-
-
-async function _refreshMLModelInfo(): Promise<void> {
-  try {
-    const r = await _mlFetch(`/models/status`, { signal: AbortSignal.timeout(3000) });
-    if (r.ok) {
-      const j = await r.json() as { stats?: { accuracy?: number; parameters?: number; samples?: number; model?: string } };
-      if (j.stats) {
-        _mlModelInfo = {
-          accuracy: j.stats.accuracy ?? 0,
-          parameters: j.stats.parameters ?? 0,
-          samples: j.stats.samples ?? 0,
-          engine: j.stats.model ?? "unknown",
-        };
-      }
-    }
-  } catch { /**/ }
-}
-
-async function _refreshMLFeedback(): Promise<void> {
-  try {
-    const r = await _mlFetch(`/feedback/stats`, { signal: AbortSignal.timeout(3000) });
-    if (r.ok) {
-      _mlFeedbackStats = await r.json();
-    }
-  } catch { /**/ }
-}
-
-async function _refreshMLDatasets(): Promise<void> {
-  try {
-    const r = await _mlFetch(`/datasets`, { signal: AbortSignal.timeout(3000) });
-    if (r.ok) {
-      const j = await r.json() as { datasets: typeof _mlDatasets };
-      _mlDatasets = j.datasets || [];
-    }
-  } catch { /**/ }
-}
-
 function showProfileModal(): void {
   const ov = document.createElement("div");
   ov.className = "modal-overlay";
@@ -5674,20 +3898,19 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("click", () => {
     document.querySelectorAll<HTMLElement>(".conn-transport-cs.open").forEach(cs => cs.classList.remove("open"));
   });
-  _mlTargetServer = localStorage.getItem("ml_target_server") || settings.ml_server || "";
   await Promise.all([
     loadSubscriptions(),
     loadRoutingRules(),
     loadBlocklist(),
     checkStatus(),
-    invoke<string>("get_ml_api_token").then(t => { _mlToken = t; }).catch(() => {}),
-    invoke<boolean>("ml_binary_exists").then(v => { _mlBinaryExists = v; }).catch(() => {}),
   ]);
-  if (!_mlToken) _mlToken = localStorage.getItem("ml_token") || settings.ml_token || "";
   renderShell();
-  invoke<boolean>("get_ml_status").then(v => { _mlStatus = v; updateHome(); }).catch(() => {});
   checkSites(); fetchIpInfo(); fetchSysInfo();
   startSubAutoCheck();
+
+  if (settings.auto_connect && !isConnected && settings.conn_key && !isConnecting) {
+    doConnect();
+  }
   setInterval(() => { if (isConnected && connectTime) tickUptime(); }, 1000);
 
   // silent periodic status check — no re-render unless status changed
@@ -5696,15 +3919,4 @@ window.addEventListener("DOMContentLoaded", async () => {
     await checkStatus();
     if (prev !== isConnected) updateHome();
   }, 10000);
-
-  // Auto-export ML dataset every hour (if ML server is running).
-  setInterval(async () => {
-    try {
-      const mlUp = await invoke<boolean>("get_ml_status");
-      if (mlUp) {
-        const result = await invoke<string>("ml_export_dataset");
-        console.log("[ML Auto-Export]", result);
-      }
-    } catch { /**/ }
-  }, 60 * 60 * 1000);
 });

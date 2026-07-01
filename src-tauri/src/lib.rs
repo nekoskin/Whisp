@@ -11,11 +11,9 @@ use tauri_plugin_shell::ShellExt;
 
 mod go_client;
 mod mihomo;
-mod ml_server;
 
 use go_client::{ExtraKeySpec, GoClientConfig, GoClientManager};
 use mihomo::MihomoManager;
-use ml_server::MlServerManager;
 
 include!(concat!(env!("OUT_DIR"), "/sidecar_hashes.rs"));
 
@@ -47,9 +45,6 @@ fn verify_sidecar(path: &std::path::Path) -> Result<(), String> {
     eprintln!("[sidecar] {} hash OK", name);
     Ok(())
 }
-
-static ML_ENDPOINT: std::sync::LazyLock<Mutex<String>> =
-    std::sync::LazyLock::new(|| Mutex::new(String::new()));
 
 static EXTRA_KEY_COUNT: std::sync::LazyLock<Mutex<usize>> =
     std::sync::LazyLock::new(|| Mutex::new(0));
@@ -145,12 +140,6 @@ struct AppSettings {
     #[serde(default)]
     blocklist: Vec<RoutingRule>,
     #[serde(default)]
-    ml_transport: String,
-    #[serde(default)]
-    ml_server: String,
-    #[serde(default)]
-    ml_token: String,
-    #[serde(default)]
     extra_keys: Vec<String>,
     #[serde(default)]
     custom_dns: Vec<String>,
@@ -206,9 +195,6 @@ impl Default for AppSettings {
             secret: String::new(),
             routing_rules: Vec::new(),
             blocklist: Vec::new(),
-            ml_transport: String::new(),
-            ml_server: String::new(),
-            ml_token: String::new(),
             extra_keys: Vec::new(),
             custom_dns: Vec::new(),
             p2p_relay_addr: String::new(),
@@ -231,7 +217,6 @@ impl Default for AppSettings {
 struct AppState {
     mihomo: Mutex<MihomoManager>,
     go_client: Mutex<GoClientManager>,
-    ml_server: Mutex<MlServerManager>,
     watchdog_specs: Mutex<Vec<ExtraKeySpec>>,
     // socks5h://whisp:<sha256hex>@127.0.0.1:1080 — заполняется при connect на Android
     android_proxy: Mutex<Option<String>>,
@@ -260,14 +245,7 @@ fn get_app_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
     let path = settings_path(&app);
     if path.exists() {
         let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let mut settings: AppSettings = serde_json::from_str(&data).map_err(|e| e.to_string())?;
-        if !settings.ml_token.is_empty() {
-            let _ = keyring_write_token(&settings.ml_token);
-            settings.ml_token = String::new();
-            if let Ok(migrated) = serde_json::to_string_pretty(&settings) {
-                let _ = fs::write(&path, migrated);
-            }
-        }
+        let settings: AppSettings = serde_json::from_str(&data).map_err(|e| e.to_string())?;
         Ok(settings)
     } else {
         Ok(AppSettings::default())
@@ -282,9 +260,6 @@ fn save_app_setting(app: tauri::AppHandle, mut settings: AppSettings) -> Result<
             if let Ok(existing) = serde_json::from_str::<AppSettings>(&raw) {
                 settings.routing_rules = existing.routing_rules;
                 settings.blocklist = existing.blocklist;
-                settings.ml_transport = existing.ml_transport;
-                settings.ml_server = existing.ml_server;
-                settings.ml_token = String::new();
                 settings.extra_keys = existing.extra_keys;
                 if settings.custom_dns.is_empty() { settings.custom_dns = existing.custom_dns; }
                 if settings.p2p_relay_addr.is_empty() { settings.p2p_relay_addr = existing.p2p_relay_addr; }
@@ -337,6 +312,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         let vpn_dns = settings.vpn_dns.clone();
         let ipv6 = settings.ipv6;
         let mitm = settings.mitm_enabled;
+        let hwid = settings.hwid;
 
         // Сохраняем SOCKS5 URL для check_site/get_ip_info через VPN
         if !conn_key.is_empty() {
@@ -360,7 +336,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
             // запустит VPN автоматически при RESULT_OK
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 whisp_vpn_android::service_intent::save_pending_start(
-                    &rules_json, &conn_key, &vpn_dns, ipv6, mitm,
+                    &rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid,
                 )
             }));
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
@@ -374,7 +350,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         // tokio async executor is not held during VPN setup (fixes UI freeze).
         let res = tokio::task::spawn_blocking(move || {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, mitm)
+                whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid)
             }))
         }).await.map_err(|e| format!("spawn_blocking: {}", e))?;
         match res {
@@ -390,7 +366,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
     }
 
     #[allow(unreachable_code)]
-    let mut settings = get_app_settings(app.clone())?;
+    let settings = get_app_settings(app.clone())?;
 
     if settings.conn_key.is_empty() {
         return Err("Connection key is required (whispera://...)".to_string());
@@ -402,82 +378,18 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         format!("{}:1080", settings.socks_addr)
     };
 
-    let key_enable_ml = {
-        use base64::Engine as _;
-        let raw = settings.conn_key.trim_start_matches("whispera://");
-        base64::engine::general_purpose::STANDARD.decode(raw)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .and_then(|j| j["enable_ml"].as_bool())
-            .unwrap_or(false)
-    };
-
-    // Use the previously cached ML transport immediately — no blocking.
-    // A background task will fetch a fresh recommendation and persist it for
-    // the next connect. This eliminates the 3-second UI freeze on connect.
-    let transport_to_use = settings.ml_transport.clone();
-
-    {
-        use base64::Engine as _;
-        let raw = settings.conn_key.trim_start_matches("whispera://");
-        let (host, port) = base64::engine::general_purpose::STANDARD.decode(raw)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            .map(|j| {
-                let srv = j["server"].as_str().unwrap_or("").to_string();
-                let h = srv.split(':').next().unwrap_or("").to_string();
-                let p: u16 = srv.split(':').nth(1).and_then(|s| s.parse().ok()).unwrap_or(8443);
-                (h, p)
-            })
-            .unwrap_or_default();
-
-        if !host.is_empty() {
-            let app_bg = app.clone();
-            tokio::spawn(async move {
-                let ml_c = ml_client();
-                let Ok(resp) = ml_request(&ml_c, reqwest::Method::POST, &ml_url("/recommend/transport"))
-                    .timeout(Duration::from_millis(800))
-                    .json(&serde_json::json!({ "server_host": host, "server_port": port }))
-                    .send()
-                    .await
-                else { return };
-                let Some(new_transport) = resp.json::<serde_json::Value>().await
-                    .ok()
-                    .and_then(|j| j["transport"].as_str().map(|s| s.to_string()))
-                    .filter(|s| !s.is_empty())
-                else { return };
-                if let Ok(mut s) = get_app_settings(app_bg.clone()) {
-                    if s.ml_transport != new_transport {
-                        s.ml_transport = new_transport;
-                        let path = settings_path(&app_bg);
-                        if let Ok(data) = serde_json::to_string_pretty(&s) {
-                            fs::write(&path, data).ok();
-                        }
-                    }
-                }
-            });
-        }
-    }
-
-    let (ml_token_val, ml_server_val) = if key_enable_ml {
-        (read_ml_api_token(), ml_url(""))
-    } else {
-        (String::new(), String::new())
-    };
-
     let mut gc = state.go_client.lock().map_err(|e| e.to_string())?;
-    eprintln!("[connect] starting go-client, socks={}, transport={}, key_len={}, ml={}", socks_addr, transport_to_use, settings.conn_key.len(), key_enable_ml);
+    eprintln!("[connect] starting go-client, socks={}, key_len={}", socks_addr, settings.conn_key.len());
     gc.start(&GoClientConfig {
         conn_key: &settings.conn_key,
         server_addr: "",
-        ml_token: &ml_token_val,
         socks_addr: &socks_addr,
         kill_switch: settings.kill_switch,
-        transport: &transport_to_use,
-        ml_server_url: &ml_server_val,
+        transport: "",
         vpn_dns: &settings.vpn_dns,
         mitm_enabled: settings.mitm_enabled,
         spoof_ips: &settings.spoof_ips,
+        hwid: settings.hwid,
     }).map_err(|e| { eprintln!("[connect] go-client start FAILED: {}", e); e })?;
     eprintln!("[connect] go-client started OK");
 
@@ -584,139 +496,6 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         "Connected via key (socks5: {}) | mihomo port {}",
         settings.socks_addr, settings.mihomo_port
     ))
-}
-
-#[tauri::command]
-async fn connect_ml(
-    app: tauri::AppHandle,
-    server: String,
-    token: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
-    // ML-подключение тоже использует mihomo+TUN — недоступно на Android до
-    // wiring VpnService. Чисто ML-сервер запускается через start_ml_server.
-    #[cfg(target_os = "android")]
-    {
-        let _ = (app, server, token, state);
-        return Err("ML-подключение требует системного VPN — пока недоступно на Android".to_string());
-    }
-
-    #[allow(unreachable_code)]
-    let settings = get_app_settings(app.clone())?;
-
-    if server.is_empty() && settings.conn_key.is_empty() {
-        return Err("Connection key or server address required".to_string());
-    }
-    let socks_addr = if settings.socks_addr.contains(':') {
-        settings.socks_addr.clone()
-    } else {
-        format!("{}:1080", settings.socks_addr)
-    };
-
-    let need_ml_wait = {
-        let mut ml = state.ml_server.lock().map_err(|e| e.to_string())?;
-        if !ml.is_running() {
-            ml.set_token(&token);
-            ml.start().ok();
-            true
-        } else {
-            false
-        }
-    };
-    if need_ml_wait {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-
-    if let Ok(mut ep) = ML_ENDPOINT.lock() {
-        if !settings.ml_server.is_empty() {
-            *ep = settings.ml_server.clone();
-        } else {
-            *ep = "http://127.0.0.1:8000".to_string();
-        }
-    }
-    let ml_endpoint = ml_url("");
-
-    let host = server.split(':').next().unwrap_or(&server).to_string();
-    let port: u16 = server.split(':').nth(1).and_then(|p| p.parse().ok()).unwrap_or(8443);
-    let ml_c2 = ml_client();
-    let ml_transport = match ml_request(&ml_c2, reqwest::Method::POST, &ml_url("/recommend/transport"))
-        .timeout(Duration::from_secs(3))
-        .json(&serde_json::json!({ "server_host": host, "server_port": port }))
-        .send()
-        .await
-    {
-        Ok(resp) => resp.json::<serde_json::Value>().await
-            .ok()
-            .and_then(|j| j["transport"].as_str().map(|s| s.to_string()))
-            .unwrap_or_default(),
-        Err(_) => String::new(),
-    };
-
-    let _ = keyring_write_token(&token);
-    let path = settings_path(&app);
-    if let Ok(raw) = fs::read_to_string(&path) {
-        if let Ok(mut s) = serde_json::from_str::<AppSettings>(&raw) {
-            s.ml_server = server.clone();
-            s.ml_token = String::new();
-            s.ml_transport = ml_transport.clone();
-            if let Ok(data) = serde_json::to_string_pretty(&s) { fs::write(&path, data).ok(); }
-        }
-    }
-
-    let transport_ref: &str = &ml_transport;
-
-    let mut gc = state.go_client.lock().map_err(|e| e.to_string())?;
-    gc.start(&GoClientConfig {
-        conn_key: &settings.conn_key,
-        server_addr: &server,
-        ml_token: &token,
-        socks_addr: &socks_addr,
-        kill_switch: settings.kill_switch,
-        transport: transport_ref,
-        ml_server_url: &ml_endpoint,
-        vpn_dns: &settings.vpn_dns,
-        mitm_enabled: settings.mitm_enabled,
-        spoof_ips: &settings.spoof_ips,
-    })?;
-
-    let config_path = mihomo_config_path(&app);
-    let mut routing_rules: Vec<mihomo::MihomoRoutingRule> = Vec::new();
-    for r in &settings.blocklist {
-        routing_rules.push(mihomo::MihomoRoutingRule {
-            kind: r.kind.clone(),
-            value: r.value.clone(),
-            action: "REJECT".to_string(),
-        });
-    }
-    for r in &settings.routing_rules {
-        routing_rules.push(mihomo::MihomoRoutingRule {
-            kind: r.kind.clone(),
-            value: r.value.clone(),
-            action: r.action.clone(),
-        });
-    }
-    let mihomo_config = mihomo::generate_config(&mihomo::MihomoConfig {
-        socks_addr: &socks_addr,
-        mixed_port: settings.mihomo_port,
-        tun_stack: &settings.tun_stack,
-        dns_redirect: settings.dns_redirect,
-        ipv6: settings.ipv6,
-        routing_rules: &routing_rules,
-        extra_socks_addrs: &[],
-        custom_dns: &settings.custom_dns,
-        tls_fingerprint: &settings.tls_fingerprint,
-        bypass_ru: settings.bypass_ru,
-        socks_user: &settings.socks_user,
-        socks_pass: &settings.socks_pass,
-        allow_lan: settings.allow_lan,
-        log_level: &settings.log_level,
-        routing_mode: &settings.routing_mode,
-    });
-    fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
-    let mut mgr = state.mihomo.lock().map_err(|e| e.to_string())?;
-    mgr.start(&config_path)?;
-
-    Ok(format!("ML connected to {} via {}", server, if ml_transport.is_empty() { "tcp" } else { &ml_transport }))
 }
 
 #[tauri::command]
@@ -921,162 +700,6 @@ async fn p2p_connect(target: String, relay_addr: String, secret: String) -> Resu
         .json(&serde_json::json!({"target": target, "relay_addr": relay_addr, "secret": secret}))
         .send().await.map_err(|_| "control server unavailable".to_string())?;
     Ok(resp.status().is_success())
-}
-
-#[tauri::command]
-async fn bridge_ping(app: tauri::AppHandle, bridge_id: String, count: Option<u32>, mode: Option<String>) -> Result<serde_json::Value, String> {
-    let settings = get_app_settings(app)?;
-    let base_url = {
-        use base64::Engine as _;
-        let raw = settings.conn_key.trim_start_matches("whispera://");
-        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(raw) {
-            if let Ok(j) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let srv = j["server"].as_str().unwrap_or("");
-                if !srv.is_empty() {
-                    let host = srv.split(':').next().unwrap_or("").to_string();
-                    let port: u16 = srv.split(':').nth(1).and_then(|s| s.parse().ok()).unwrap_or(8443);
-                    format!("https://{}:{}", host, port)
-                } else {
-                    return Err("no server configured".to_string());
-                }
-            } else {
-                return Err("invalid conn_key".to_string());
-            }
-        } else {
-            return Err("invalid conn_key".to_string());
-        }
-    };
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .min_tls_version(reqwest::tls::Version::TLS_1_2)
-        .build()
-        .map_err(|e| e.to_string())?;
-    let body = serde_json::json!({
-        "id": bridge_id,
-        "count": count.unwrap_or(5),
-        "mode": mode.unwrap_or_else(|| "tcp".to_string()),
-    });
-    let resp = client.post(format!("{}/api/bridge-ping", base_url))
-        .json(&body)
-        .send().await.map_err(|e| e.to_string())?;
-    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(data)
-}
-
-#[tauri::command]
-async fn bridge_set_label(app: tauri::AppHandle, bridge_id: String, blacklisted: bool) -> Result<bool, String> {
-    let settings = get_app_settings(app)?;
-    let base_url = {
-        use base64::Engine as _;
-        let raw = settings.conn_key.trim_start_matches("whispera://");
-        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(raw) {
-            if let Ok(j) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let srv = j["server"].as_str().unwrap_or("");
-                if !srv.is_empty() {
-                    let host = srv.split(':').next().unwrap_or("").to_string();
-                    let port: u16 = srv.split(':').nth(1).and_then(|s| s.parse().ok()).unwrap_or(8443);
-                    format!("https://{}:{}", host, port)
-                } else {
-                    return Err("no server configured".to_string());
-                }
-            } else {
-                return Err("invalid conn_key".to_string());
-            }
-        } else {
-            return Err("invalid conn_key".to_string());
-        }
-    };
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .min_tls_version(reqwest::tls::Version::TLS_1_2)
-        .build()
-        .map_err(|e| e.to_string())?;
-    let body = serde_json::json!({"id": bridge_id, "blacklisted": blacklisted});
-    let resp = client.post(format!("{}/api/bridge-label", base_url))
-        .json(&body)
-        .send().await.map_err(|e| e.to_string())?;
-    Ok(resp.status().is_success())
-}
-
-#[tauri::command]
-async fn bridge_issue_ssh_key(app: tauri::AppHandle, bridge_id: String, user_id: String, one_time: bool, ttl_hours: u32) -> Result<serde_json::Value, String> {
-    let settings = get_app_settings(app)?;
-    let base_url = {
-        use base64::Engine as _;
-        let raw = settings.conn_key.trim_start_matches("whispera://");
-        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(raw) {
-            if let Ok(j) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let srv = j["server"].as_str().unwrap_or("");
-                if !srv.is_empty() {
-                    let host = srv.split(':').next().unwrap_or("").to_string();
-                    let port: u16 = srv.split(':').nth(1).and_then(|s| s.parse().ok()).unwrap_or(8443);
-                    format!("https://{}:{}", host, port)
-                } else {
-                    return Err("no server configured".to_string());
-                }
-            } else {
-                return Err("invalid conn_key".to_string());
-            }
-        } else {
-            return Err("invalid conn_key".to_string());
-        }
-    };
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .min_tls_version(reqwest::tls::Version::TLS_1_2)
-        .build()
-        .map_err(|e| e.to_string())?;
-    let body = serde_json::json!({
-        "bridge_id": bridge_id,
-        "user_id": user_id,
-        "one_time": one_time,
-        "ttl_hours": ttl_hours,
-    });
-    let resp = client.post(format!("{}/api/bridge-access-key", base_url))
-        .json(&body)
-        .send().await.map_err(|e| e.to_string())?;
-    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(data)
-}
-
-#[tauri::command]
-async fn bridge_rollout(app: tauri::AppHandle, version: String, binary_url: String, checksum: String) -> Result<serde_json::Value, String> {
-    let settings = get_app_settings(app)?;
-    let base_url = {
-        use base64::Engine as _;
-        let raw = settings.conn_key.trim_start_matches("whispera://");
-        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(raw) {
-            if let Ok(j) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let srv = j["server"].as_str().unwrap_or("");
-                if !srv.is_empty() {
-                    let host = srv.split(':').next().unwrap_or("").to_string();
-                    let port: u16 = srv.split(':').nth(1).and_then(|s| s.parse().ok()).unwrap_or(8443);
-                    format!("https://{}:{}", host, port)
-                } else {
-                    return Err("no server configured".to_string());
-                }
-            } else {
-                return Err("invalid conn_key".to_string());
-            }
-        } else {
-            return Err("invalid conn_key".to_string());
-        }
-    };
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
-        .min_tls_version(reqwest::tls::Version::TLS_1_2)
-        .build()
-        .map_err(|e| e.to_string())?;
-    let body = serde_json::json!({
-        "version": version,
-        "binary_url": binary_url,
-        "checksum": checksum,
-    });
-    let resp = client.post(format!("{}/api/bridge-rollout", base_url))
-        .json(&body)
-        .send().await.map_err(|e| e.to_string())?;
-    let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(data)
 }
 
 #[tauri::command]
@@ -1558,11 +1181,6 @@ async fn install_mitm_ca(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_ml_transport(app: tauri::AppHandle) -> Result<String, String> {
-    Ok(get_app_settings(app)?.ml_transport)
-}
-
-#[tauri::command]
 fn get_routing_rules(app: tauri::AppHandle) -> Result<Vec<RoutingRule>, String> {
     let settings = get_app_settings(app)?;
     Ok(settings.routing_rules)
@@ -1802,14 +1420,13 @@ fn install_services(
         gc_mgr.install_service(&go_client::GoClientConfig {
             conn_key: &settings.conn_key,
             server_addr: "",
-            ml_token: "",
             socks_addr: &socks_addr,
             kill_switch: settings.kill_switch,
-            transport: &settings.ml_transport,
-            ml_server_url: "",
+            transport: "",
             vpn_dns: &settings.vpn_dns,
             mitm_enabled: settings.mitm_enabled,
             spoof_ips: &settings.spoof_ips,
+            hwid: settings.hwid,
         })?;
     }
 
@@ -2109,282 +1726,6 @@ async fn socks5_ping(proxy_url: &str, target_host: &str, target_port: u16) -> Re
         return Err(format!("socks5 connect error code {}", hdr[1]));
     }
     Ok(())
-}
-
-#[cfg(not(target_os = "android"))]
-const KEYRING_SERVICE: &str = "Whisp";
-#[cfg(not(target_os = "android"))]
-const KEYRING_USER: &str = "ml_api_token";
-
-#[cfg(not(target_os = "android"))]
-fn keyring_entry() -> Option<keyring::Entry> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()
-}
-
-#[cfg(not(target_os = "android"))]
-fn keyring_read_token() -> Option<String> {
-    keyring_entry()?
-        .get_password()
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-#[cfg(not(target_os = "android"))]
-fn keyring_write_token(token: &str) -> Result<(), String> {
-    let entry = keyring_entry().ok_or_else(|| "keyring unavailable".to_string())?;
-    if token.is_empty() {
-        let _ = entry.delete_credential();
-        Ok(())
-    } else {
-        entry.set_password(token).map_err(|e| e.to_string())
-    }
-}
-
-#[cfg(target_os = "android")]
-fn keyring_read_token() -> Option<String> { None }
-
-#[cfg(target_os = "android")]
-fn keyring_write_token(_token: &str) -> Result<(), String> {
-    Err("keyring unavailable on android".to_string())
-}
-
-fn legacy_api_token_path() -> String {
-    if cfg!(target_os = "windows") {
-        std::env::var("APPDATA")
-            .map(|a| format!(r"{}\Whispera\api_token", a))
-            .unwrap_or_default()
-    } else if cfg!(target_os = "macos") {
-        std::env::var("HOME")
-            .map(|h| format!("{}/Library/Application Support/Whispera/api_token", h))
-            .unwrap_or_default()
-    } else {
-        std::env::var("XDG_CONFIG_HOME")
-            .map(|x| format!("{}/whispera/api_token", x))
-            .unwrap_or_else(|_| {
-                std::env::var("HOME")
-                    .map(|h| format!("{}/.config/whispera/api_token", h))
-                    .unwrap_or_default()
-            })
-    }
-}
-
-fn read_ml_api_token() -> String {
-    if let Some(tok) = keyring_read_token() {
-        return tok;
-    }
-    let path = legacy_api_token_path();
-    if path.is_empty() { return String::new(); }
-    let tok = std::fs::read_to_string(&path)
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
-    if !tok.is_empty() && keyring_write_token(&tok).is_ok() {
-        let _ = std::fs::remove_file(&path);
-    }
-    tok
-}
-
-fn ml_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .min_tls_version(reqwest::tls::Version::TLS_1_2)
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
-}
-
-fn ml_url(path: &str) -> String {
-    let base = ML_ENDPOINT.lock().map(|s| s.clone()).unwrap_or_default();
-    if base.is_empty() {
-        format!("http://127.0.0.1:8000{}", path)
-    } else {
-        let trimmed = base.trim_end_matches('/');
-        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-            format!("{}{}", trimmed, path)
-        } else {
-            format!("http://{}{}", trimmed, path)
-        }
-    }
-}
-
-fn ml_request(
-    client: &reqwest::Client,
-    method: reqwest::Method,
-    url: &str,
-) -> reqwest::RequestBuilder {
-    let token = read_ml_api_token();
-    let req = client.request(method, url);
-    if token.is_empty() {
-        req
-    } else {
-        req.header("Authorization", format!("Bearer {}", token))
-    }
-}
-
-#[tauri::command]
-fn get_ml_api_token() -> String {
-    read_ml_api_token()
-}
-
-#[tauri::command]
-fn set_ml_api_token(token: String) -> Result<(), String> {
-    keyring_write_token(&token)?;
-    let legacy = legacy_api_token_path();
-    if !legacy.is_empty() {
-        let _ = std::fs::remove_file(&legacy);
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn get_ml_status(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    {
-        let mut ml = state.ml_server.lock().map_err(|e| e.to_string())?;
-        if ml.is_running() {
-            return Ok(true);
-        }
-    }
-    let ok = ml_client()
-        .get(ml_url("/health"))
-        .timeout(Duration::from_secs(2))
-        .send()
-        .await
-        .map(|r| r.status().is_success())
-        .unwrap_or(false);
-    Ok(ok)
-}
-
-#[tauri::command]
-fn start_ml_server(state: tauri::State<AppState>) -> Result<String, String> {
-    let mut ml = state.ml_server.lock().map_err(|e| e.to_string())?;
-    ml.start()?;
-    Ok("ML server started".to_string())
-}
-
-#[tauri::command]
-fn stop_ml_server(state: tauri::State<AppState>) -> Result<String, String> {
-    let mut ml = state.ml_server.lock().map_err(|e| e.to_string())?;
-    ml.stop()?;
-    Ok("ML server stopped".to_string())
-}
-
-#[tauri::command]
-fn get_ml_logs(state: tauri::State<AppState>) -> Result<String, String> {
-    let ml = state.ml_server.lock().map_err(|e| e.to_string())?;
-    Ok(ml.get_log_tail(150))
-}
-
-#[tauri::command]
-fn clear_ml_logs(state: tauri::State<AppState>) -> Result<(), String> {
-    let ml = state.ml_server.lock().map_err(|e| e.to_string())?;
-    ml.clear_logs()
-}
-
-#[tauri::command]
-fn ml_binary_exists(state: tauri::State<AppState>) -> Result<bool, String> {
-    let ml = state.ml_server.lock().map_err(|e| e.to_string())?;
-    Ok(ml.binary_exists())
-}
-
-#[tauri::command]
-async fn ml_rank_bridges(bridges_json: String) -> Result<String, String> {
-    let client = ml_client();
-
-    let resp = ml_request(&client, reqwest::Method::POST, &ml_url("/rank/bridges"))
-        .timeout(Duration::from_secs(5))
-        .header("Content-Type", "application/json")
-        .body(bridges_json)
-        .send()
-        .await
-        .map_err(|e| format!("ML server unavailable: {}", e))?;
-
-    resp.text().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn ml_analyze_network(host: String, port: u16) -> Result<String, String> {
-    let client = ml_client();
-
-    let body = serde_json::json!({ "host": host, "port": port });
-
-    let resp = ml_request(&client, reqwest::Method::POST, &ml_url("/network/analyze"))
-        .timeout(Duration::from_secs(15))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("ML server unavailable: {}", e))?;
-
-    resp.text().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn ml_recommend_transport(server_host: String, server_port: u16) -> Result<String, String> {
-    let client = ml_client();
-
-    let body = serde_json::json!({ "server_host": server_host, "server_port": server_port });
-
-    let resp = ml_request(&client, reqwest::Method::POST, &ml_url("/recommend/transport"))
-        .timeout(Duration::from_secs(15))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("ML server unavailable: {}", e))?;
-
-    resp.text().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn ml_export_dataset(app: tauri::AppHandle) -> Result<String, String> {
-    let client = ml_client();
-    let resp = ml_request(&client, reqwest::Method::GET, &ml_url("/federated/dataset"))
-        .timeout(Duration::from_secs(60))
-        .send()
-        .await
-        .map_err(|e| format!("ML server unavailable: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("ML server returned {}", resp.status()));
-    }
-
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-    if bytes.is_empty() {
-        return Ok("Dataset is empty".to_string());
-    }
-
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| PathBuf::from("."));
-    let ds_dir = data_dir.join("datasets");
-    std::fs::create_dir_all(&ds_dir).ok();
-
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let filename = format!("whispera_ml_dataset_{}.jsonl", ts);
-    let path = ds_dir.join(&filename);
-    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
-
-    let latest = ds_dir.join("whispera_ml_dataset_latest.jsonl");
-    std::fs::copy(&path, &latest).ok();
-
-    let lines = bytes.iter().filter(|&&b| b == b'\n').count();
-    Ok(format!(
-        "Exported {} samples ({:.1} MB) to {}",
-        lines,
-        bytes.len() as f64 / (1024.0 * 1024.0),
-        path.display()
-    ))
-}
-
-#[tauri::command]
-async fn ml_dataset_stats() -> Result<String, String> {
-    let client = ml_client();
-    let resp = ml_request(&client, reqwest::Method::GET, &ml_url("/federated/dataset/stats"))
-        .timeout(Duration::from_secs(5))
-        .send()
-        .await
-        .map_err(|e| format!("ML server unavailable: {}", e))?;
-    resp.text().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -2721,21 +2062,6 @@ pub fn run() {
     #[cfg(target_os = "android")]
     let go_client_path = resolve_android_sidecar("whispera-go-client");
 
-    #[cfg(target_os = "android")]
-    let ml_server_path = resolve_android_sidecar("whispera-ml-server");
-    #[cfg(all(not(target_os = "android"), dev))]
-    let ml_server_path = exe_dir.join(format!("whispera-ml-server{}", EXE_EXT));
-    #[cfg(all(not(target_os = "android"), not(dev)))]
-    let ml_server_path = {
-        let candidate = exe_dir.join(format!("whispera-ml-server{}", EXE_EXT));
-        if candidate.exists() {
-            candidate
-        } else {
-            exe_dir.join("_up_").join(format!("whispera-ml-server{}", EXE_EXT))
-        }
-    };
-    let ml_log_path = exe_dir.join("ml-server.log");
-
     #[cfg(not(target_os = "android"))]
     for p in [&mihomo_path, &go_client_path] {
         if let Err(e) = verify_sidecar(p) {
@@ -2751,27 +2077,10 @@ pub fn run() {
         .manage(AppState {
             mihomo: Mutex::new(MihomoManager::new(mihomo_path)),
             go_client: Mutex::new(GoClientManager::new(go_client_path)),
-            ml_server: Mutex::new(MlServerManager::new(ml_server_path, ml_log_path)),
             watchdog_specs: Mutex::new(Vec::new()),
             android_proxy: Mutex::new(None),
         })
         .setup(|app| {
-            #[cfg(not(target_os = "android"))]
-            {
-                let ml_app = app.handle().clone();
-                tauri::async_runtime::spawn_blocking(move || {
-                    let api_token = read_ml_api_token();
-                    let state: tauri::State<AppState> = ml_app.state();
-                    let lock_res = state.ml_server.lock();
-                    if let Ok(mut ml) = lock_res {
-                        if !api_token.is_empty() {
-                            ml.set_token(&api_token);
-                        }
-                        ml.start().ok();
-                    }
-                });
-            }
-
             // Android: восстанавливаем android_proxy если VPN ещё работает (START_STICKY перезапуск).
             #[cfg(target_os = "android")]
             {
@@ -2841,7 +2150,6 @@ pub fn run() {
                     // try_lock чтобы не дедлочиться если mutex занят watchdog'ом
                     let _ = state.mihomo.try_lock().map(|mut m| m.stop().ok());
                     let _ = state.go_client.try_lock().map(|mut gc| gc.stop().ok());
-                    let _ = state.ml_server.try_lock().map(|mut ml| ml.stop().ok());
                     std::process::exit(0);
                 });
             }
@@ -2868,21 +2176,6 @@ pub fn run() {
             get_vpn_log,
             get_blocklist,
             save_blocklist,
-            get_ml_transport,
-            connect_ml,
-            get_ml_status,
-            get_ml_api_token,
-            set_ml_api_token,
-            start_ml_server,
-            stop_ml_server,
-            get_ml_logs,
-            clear_ml_logs,
-            ml_binary_exists,
-            ml_rank_bridges,
-            ml_analyze_network,
-            ml_recommend_transport,
-            ml_export_dataset,
-            ml_dataset_stats,
             get_subscriptions,
             add_subscription,
             refresh_subscription,
@@ -2911,10 +2204,6 @@ pub fn run() {
             p2p_register,
             p2p_connect,
             p2p_disconnect,
-            bridge_ping,
-            bridge_set_label,
-            bridge_issue_ssh_key,
-            bridge_rollout,
             check_for_updates,
             install_update,
         ])
