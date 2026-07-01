@@ -2508,7 +2508,7 @@ function renderSettings(): string {
     </div>
     <div class="settings-section">
       <div class="settings-section-title">${t("shareProxy")}</div>
-      <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/><span class="edit-icon">✎</span></div></div>
+      <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/></div></div>
       <div class="setting-row" style="align-items:flex-start">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
           <span class="setting-label">${t("allowLan")}</span>
@@ -2560,7 +2560,7 @@ function renderSettings(): string {
   return `<div class="page-header"><h2 class="page-title">${t("settings")}</h2></div>
     <div class="settings-section">
       <div class="settings-section-title">${t("mihomo")}</div>
-      <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/><span class="edit-icon">✎</span></div></div>
+      <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/></div></div>
       <div class="setting-row"><span class="setting-label">${t("bindAddr")}</span><div class="setting-value"><input type="text" id="set-bind" value="${settings.socks_addr}"/><span class="edit-icon">✎</span></div></div>
       <div class="setting-row" style="align-items:flex-start">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
@@ -3108,6 +3108,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     main.innerHTML = renderHome();
     bindHomeEvents();
     bindConnectionsEvents();
+    bindProfileEvents();
     main.scrollTop = scrollY;
   }, 15000);
 });
