@@ -159,4 +159,18 @@ PY
   fi
 fi
 
+# Copy Whisp launcher icon (same source as the desktop icon) into every mipmap density.
+ICON_SRC_ROOT="$ROOT/android-patch/res"
+for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+  for name in ic_launcher.png ic_launcher_round.png; do
+    src="$ICON_SRC_ROOT/mipmap-$density/$name"
+    dst="$GEN/app/src/main/res/mipmap-$density/$name"
+    if [ -f "$src" ]; then
+      mkdir -p "$(dirname "$dst")"
+      cp "$src" "$dst"
+    fi
+  done
+done
+echo "[android-patch] launcher icon copied"
+
 echo "[android-patch] done"
