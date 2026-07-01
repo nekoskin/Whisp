@@ -298,7 +298,14 @@ class WhispVpnService : VpnService() {
             .build()
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
+                setUnderlyingNetworks(arrayOf(network))
                 if (didConnect && isRunning) wakeGoClient()
+            }
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                setUnderlyingNetworks(arrayOf(network))
+            }
+            override fun onLost(network: Network) {
+                setUnderlyingNetworks(null)
             }
         }
         networkCallback = cb
@@ -351,6 +358,13 @@ class WhispVpnService : VpnService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+    }
+
+    override fun onRevoke() {
+        Log.w(TAG, "onRevoke: VPN permission revoked")
+        isRunning = false
+        try { stopVpn() } catch (_: Throwable) {}
+        super.onRevoke()
     }
 
     override fun onDestroy() {
