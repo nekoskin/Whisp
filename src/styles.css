@@ -331,6 +331,8 @@ body {
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
+  text-align: center;
+  width: 100%;
   transition: font-weight var(--tr);
 }
 
@@ -573,8 +575,8 @@ body {
 }
 .btn-icon-add {
   background: transparent;
-  border: 1px solid var(--md-outline-var);
-  color: var(--md-on-surface-var);
+  border: 1.5px solid var(--md-primary);
+  color: var(--md-primary);
   border-radius: var(--s-full);
   width: 26px;
   height: 26px;
@@ -1127,7 +1129,8 @@ button.spinning svg {
 
 /* M3 Outlined Text Field */
 .setting-value input[type="text"],
-.setting-value input[type="number"] {
+.setting-value input[type="number"],
+.setting-value input[type="password"] {
   background: transparent;
   border: 1px solid var(--md-outline);
   border-radius: var(--s-xs);

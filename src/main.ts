@@ -2477,7 +2477,7 @@ function renderSettings(): string {
       <div class="settings-section-title">sing-box</div>
       <div class="setting-row"><span class="setting-label">${t("vpnDns")}</span><div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px">
         <div class="pill-group" style="flex-wrap:wrap;gap:4px">${vpnDnsPills}</div>
-        <input type="text" id="set-vpn-dns" value="${esc(vpnDnsVal)}" placeholder="1.1.1.1" style="width:100%;box-sizing:border-box"/>
+        <input type="text" id="set-vpn-dns" value="${esc(vpnDnsVal)}" placeholder="1.1.1.1" style="width:100%;box-sizing:border-box;text-align:left"/>
         <span style="font-size:11px;opacity:.5">${t("vpnDnsHint")}</span>
       </div></div>
       <div class="setting-row"><span class="setting-label">${t("dnsMode")}</span><div class="setting-value"><div class="pill-group">
@@ -2519,9 +2519,9 @@ function renderSettings(): string {
       <div class="setting-row" style="align-items:flex-start">
         <span class="setting-label">${t("socksAuth")}</span>
         <div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px">
-          <input type="text" id="set-socks-user" value="${esc(settings.socks_user || '')}" placeholder="${t("socksUser")}" autocomplete="off" style="width:100%;box-sizing:border-box"/>
+          <input type="text" id="set-socks-user" value="${esc(settings.socks_user || '')}" placeholder="${t("socksUser")}" autocomplete="off" style="width:100%;box-sizing:border-box;text-align:left"/>
           <div style="display:flex;gap:4px;align-items:center">
-            <input type="password" id="set-socks-pass" value="${esc(settings.socks_pass || '')}" placeholder="${t("socksPass")}" autocomplete="new-password" style="flex:1;box-sizing:border-box"/>
+            <input type="password" id="set-socks-pass" value="${esc(settings.socks_pass || '')}" placeholder="${t("socksPass")}" autocomplete="new-password" style="flex:1;box-sizing:border-box;text-align:left"/>
             <button class="btn-sm" id="btn-toggle-socks-pass" style="flex-shrink:0">👁</button>
           </div>
           ${(settings.socks_user || settings.socks_pass) ? `<div style="font-size:11px;opacity:.5;word-break:break-all;display:flex;align-items:center;gap:4px"><span id="socks-proxy-url">socks5://${esc(settings.socks_user||'')}:${esc(settings.socks_pass||'')}@127.0.0.1:${settings.mihomo_port}</span><button class="btn-sm" id="btn-copy-socks-url" style="flex-shrink:0">${t("copy")}</button></div>` : ''}
@@ -2591,12 +2591,12 @@ function renderSettings(): string {
       </div></div></div>
       <div class="setting-row"><span class="setting-label">${t("dnsRedirect")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-dns" ${settings.dns_redirect ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><span class="setting-label">${t("dnsServers")}</span><div class="setting-value" style="flex-direction:column;align-items:stretch;gap:4px">
-        <input type="text" id="set-custom-dns" value="${esc((settings.custom_dns || []).join(", "))}" placeholder="77.88.8.8, 8.8.8.8" style="width:100%;box-sizing:border-box"/>
+        <input type="text" id="set-custom-dns" value="${esc((settings.custom_dns || []).join(", "))}" placeholder="77.88.8.8, 8.8.8.8" style="width:100%;box-sizing:border-box;text-align:left"/>
         <span style="font-size:11px;opacity:.5">${t("dnsCommaSep")}</span>
       </div></div>
       <div class="setting-row"><span class="setting-label">${t("vpnDns")}</span><div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px">
         <div class="pill-group" style="flex-wrap:wrap;gap:4px">${vpnDnsPills}</div>
-        <input type="text" id="set-vpn-dns" value="${esc(vpnDnsVal)}" placeholder="1.1.1.1:53" style="width:100%;box-sizing:border-box"/>
+        <input type="text" id="set-vpn-dns" value="${esc(vpnDnsVal)}" placeholder="1.1.1.1:53" style="width:100%;box-sizing:border-box;text-align:left"/>
         <span style="font-size:11px;opacity:.5">${t("vpnDnsHint")}</span>
       </div></div>
       <div class="setting-row"><span class="setting-label">${t("ipv6Label")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ipv6" ${settings.ipv6 ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
@@ -2611,9 +2611,9 @@ function renderSettings(): string {
       <div class="setting-row" style="align-items:flex-start">
         <span class="setting-label">${t("socksAuth")}</span>
         <div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px">
-          <input type="text" id="set-socks-user" value="${esc(settings.socks_user || '')}" placeholder="${t("socksUser")}" autocomplete="off" style="width:100%;box-sizing:border-box"/>
+          <input type="text" id="set-socks-user" value="${esc(settings.socks_user || '')}" placeholder="${t("socksUser")}" autocomplete="off" style="width:100%;box-sizing:border-box;text-align:left"/>
           <div style="display:flex;gap:4px;align-items:center">
-            <input type="password" id="set-socks-pass" value="${esc(settings.socks_pass || '')}" placeholder="${t("socksPass")}" autocomplete="new-password" style="flex:1;box-sizing:border-box"/>
+            <input type="password" id="set-socks-pass" value="${esc(settings.socks_pass || '')}" placeholder="${t("socksPass")}" autocomplete="new-password" style="flex:1;box-sizing:border-box;text-align:left"/>
             <button class="btn-sm" id="btn-toggle-socks-pass" style="flex-shrink:0">👁</button>
           </div>
           ${(settings.socks_user || settings.socks_pass) ? `<div style="font-size:11px;opacity:.5;word-break:break-all;display:flex;align-items:center;gap:4px"><span id="socks-proxy-url">socks5://${esc(settings.socks_user||'')}:${esc(settings.socks_pass||'')}@127.0.0.1:${settings.mihomo_port}</span><button class="btn-sm" id="btn-copy-socks-url" style="flex-shrink:0">${t("copy")}</button></div>` : ''}
@@ -2631,7 +2631,7 @@ function renderSettings(): string {
         <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-mitm" ${settings.mitm_enabled ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
       </div>
       <div class="setting-row"><span class="setting-label">${t("ipSpoofing")}</span><div class="setting-value" style="flex-direction:column;align-items:stretch;gap:4px">
-        <input type="text" id="set-spoof-ips" value="${esc(settings.spoof_ips || '')}" placeholder="192.168.1.10, 192.168.1.11" style="width:100%;box-sizing:border-box"/>
+        <input type="text" id="set-spoof-ips" value="${esc(settings.spoof_ips || '')}" placeholder="192.168.1.10, 192.168.1.11" style="width:100%;box-sizing:border-box;text-align:left"/>
         <span style="font-size:11px;opacity:.5">${t("spoofIpsHint")}</span>
       </div></div>
       ${settings.mitm_enabled ? `<div class="setting-row"><span class="setting-label">${t("caCert")}</span><div class="setting-value"><button class="btn-sm" id="btn-install-mitm-ca">${t("installMitmCa")}</button></div></div>` : ''}
@@ -2910,7 +2910,9 @@ function showProfileModal(): void {
     const key = (document.getElementById("modal-key") as HTMLTextAreaElement).value.trim();
     if (!name || !key) return;
     profiles.push({ id: Date.now().toString(), name, key });
-    saveProfiles(); ov.remove(); renderPage();
+    saveProfiles();
+    if (!settings.conn_key) { settings.conn_key = key; persistSettings(); }
+    ov.remove(); renderPage();
   });
 }
 
