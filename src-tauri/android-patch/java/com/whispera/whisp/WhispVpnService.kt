@@ -298,16 +298,20 @@ class WhispVpnService : VpnService() {
             .build()
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
+                Log.i(TAG, "netcb onAvailable: $network")
                 setUnderlyingNetworks(arrayOf(network))
                 if (didConnect && isRunning) wakeGoClient()
             }
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                Log.i(TAG, "netcb onCapabilitiesChanged: $network")
                 setUnderlyingNetworks(arrayOf(network))
             }
             override fun onLost(network: Network) {
+                Log.i(TAG, "netcb onLost: $network")
                 setUnderlyingNetworks(null)
             }
         }
+        Log.i(TAG, "registerNetworkCallback: registering")
         networkCallback = cb
         try {
             cm.registerNetworkCallback(req, cb)
