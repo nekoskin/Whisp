@@ -1376,44 +1376,6 @@ function fmtBytes(b: number): string {
   return (b / 1024 / 1024 / 1024).toFixed(2) + " GB";
 }
 
-const TRANSPORTS = ["tcp","udp","websocket","quic","h2c","obfs4","shadowsocks","shadowtls","tuic",
-  "meek","snowflake","domainfront","splithttp","httpupgrade","tgbot","vkwebrtc","vkbot","okwebrtc",
-  "yacloud","yadisk","yatelemost","mirage","mtproto"];
-
-function wireTransportCS(): void {
-  document.querySelectorAll<HTMLElement>(".conn-transport-cs").forEach(cs => {
-    const trigger = cs.querySelector<HTMLElement>(".custom-select-trigger");
-    trigger?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      document.querySelectorAll<HTMLElement>(".conn-transport-cs.open").forEach(o => {
-        if (o !== cs) o.classList.remove("open");
-      });
-      cs.classList.toggle("open");
-    });
-    cs.querySelectorAll<HTMLElement>(".custom-select-option").forEach(opt => {
-      opt.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const id = cs.dataset.id!;
-        const transport = opt.dataset.value!;
-        cs.dataset.value = transport;
-        cs.classList.remove("open");
-        const label = cs.querySelector(".custom-select-label");
-        if (label) label.textContent = transport;
-        cs.querySelectorAll(".custom-select-option").forEach(o => o.classList.remove("selected"));
-        opt.classList.add("selected");
-        try {
-          await invoke("switch_transport", { id, transport });
-          showToast(`${t("transportSet")} ${transport}`, "success", 2000);
-          setTimeout(async () => { await fetchConnections(); renderPage(); }, 1500);
-        } catch (err: unknown) {
-          showToast(String(err), "error", 5000);
-          await fetchConnections(); renderPage();
-        }
-      });
-    });
-  });
-}
-
 function marionetteProfileOpts(current?: string): string {
   const profiles = [
     { value: "",              label: t("profileNone") },
@@ -1453,9 +1415,6 @@ function renderConnectionCard(c: ConnectionEntry): string {
     : c.status === "failed" ? t("connStatusFailed")
     : t("connStatusOff");
   const expanded = connectionsExpanded.has(c.id);
-  const transportOpts = TRANSPORTS.map(tr =>
-    `<div class="custom-select-option${c.transport === tr ? " selected" : ""}" data-value="${tr}">${tr}</div>`
-  ).join("");
 
   const speedBadge = c.rate_limit_kb > 0
     ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(250,204,21,0.12);color:#fde047">⚡${c.rate_limit_kb}KB/s</span>`
@@ -1472,13 +1431,6 @@ function renderConnectionCard(c: ConnectionEntry): string {
     <div class="card-header" style="cursor:pointer" data-expand="${esc(c.id)}">
       <span class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span class="${stCls}" style="font-size:11px;padding:2px 7px">${stTxt}</span>
-        <div class="custom-select conn-transport-cs" data-id="${esc(c.id)}" data-value="${esc(c.transport)}"
-          onclick="event.stopPropagation()" style="max-width:130px;flex-shrink:0">
-          <div class="custom-select-trigger">
-            <span class="custom-select-label">${esc(c.transport)}</span><span class="arrow">▾</span>
-          </div>
-          <div class="custom-select-options">${transportOpts}</div>
-        </div>
         <span style="opacity:.55;font-size:12px">${esc(c.server)}</span>
         ${speedBadge}${sniBadge}${bridgeBadge}
       </span>
@@ -1684,8 +1636,6 @@ function bindConnectionsEvents(): void {
       showToast(cb.checked ? t("muxEnabled") : t("muxDisabled"), "success", 1500);
     });
   });
-
-  wireTransportCS();
 
   document.querySelectorAll<HTMLButtonElement>(".conn-close-quick").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -3071,9 +3021,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   loadLang(); loadProfiles();
   await loadSettings();
   initNotifications().catch(() => {});
-  document.addEventListener("click", () => {
-    document.querySelectorAll<HTMLElement>(".conn-transport-cs.open").forEach(cs => cs.classList.remove("open"));
-  });
   await Promise.all([
     loadSubscriptions(),
     loadRoutingRules(),
