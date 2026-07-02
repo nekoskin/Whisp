@@ -52,6 +52,9 @@ interface AppSettings {
   log_level?: string;
   routing_mode?: string;
   dns_mode?: string;
+  dns_strategy?: string;
+  mtu?: number;
+  tls_fragment?: boolean;
 }
 
 interface Profile { id: string; name: string; key: string; }
@@ -208,6 +211,14 @@ const i18n: Record<Lang, Record<string, string>> = {
     vpnDns: "Прокси DNS (клиент)",
     vpnDnsHint: "DNS для прокси-клиента. 'Провайдер' = системный резолвер",
     dnsMode: "Режим DNS",
+    dnsStrategy: "DNS-резолвер",
+    dnsFakeip: "Поддельный",
+    dnsLocal: "Локальный",
+    dnsStrategyHint: "Поддельный (fake-IP) — домены резолвятся внутри тоннеля, IP не видны провайдеру. Локальный — системный резолвер устройства.",
+    mtuLabel: "MTU",
+    mtuHint: "Размер MTU для TUN-интерфейса (576–9000, по умолчанию 1500)",
+    tlsFragment: "Фрагментация TLS",
+    tlsFragmentHint: "Разбивает TLS ClientHello на несколько TCP-сегментов, чтобы DPI не видел SNI целиком",
     isp: "Провайдер",
     bypassRu: "Обходить .ru / .su напрямую",
     bypassRuHint: "GEOIP Россия + домены .ru/.su идут напрямую, минуя VPN",
@@ -379,6 +390,14 @@ const i18n: Record<Lang, Record<string, string>> = {
     vpnDns: "Proxy DNS (client)",
     vpnDnsHint: "DNS for the proxy client. 'ISP' = system resolver",
     dnsMode: "DNS mode",
+    dnsStrategy: "DNS resolver",
+    dnsFakeip: "Fake-IP",
+    dnsLocal: "Local",
+    dnsStrategyHint: "Fake-IP — domains resolved inside the tunnel, IPs hidden from the ISP. Local — device's system resolver.",
+    mtuLabel: "MTU",
+    mtuHint: "MTU size for the TUN interface (576–9000, default 1500)",
+    tlsFragment: "TLS fragmentation",
+    tlsFragmentHint: "Splits the TLS ClientHello across several TCP segments so DPI can't read the whole SNI",
     isp: "ISP",
     bypassRu: "Bypass .ru / .su direct",
     bypassRuHint: "GEOIP Russia + .ru/.su domains go direct, bypassing VPN",
@@ -550,6 +569,14 @@ const i18n: Record<Lang, Record<string, string>> = {
     vpnDns: "代理 DNS（客户端）",
     vpnDnsHint: "代理客户端DNS。'运营商'=系统解析器",
     dnsMode: "DNS 模式",
+    dnsStrategy: "DNS 解析器",
+    dnsFakeip: "虚假 IP",
+    dnsLocal: "本地",
+    dnsStrategyHint: "虚假IP — 域名在隧道内解析，运营商看不到真实IP。本地 — 使用设备系统解析器。",
+    mtuLabel: "MTU",
+    mtuHint: "TUN 接口的 MTU 大小（576–9000，默认 1500）",
+    tlsFragment: "TLS 分片",
+    tlsFragmentHint: "将 TLS ClientHello 拆分为多个 TCP 分段，使 DPI 无法读取完整 SNI",
     isp: "运营商",
     bypassRu: "直连 .ru / .su 域名",
     bypassRuHint: "俄罗斯IP + .ru/.su域名直连，不走VPN",
@@ -721,6 +748,14 @@ const i18n: Record<Lang, Record<string, string>> = {
     vpnDns: "Proxy DNS (کلاینت)",
     vpnDnsHint: "DNS برای کلاینت پراکسی. 'ISP' = رزولور سیستم",
     dnsMode: "حالت DNS",
+    dnsStrategy: "رزولور DNS",
+    dnsFakeip: "جعلی (Fake-IP)",
+    dnsLocal: "محلی",
+    dnsStrategyHint: "جعلی (fake-IP) — دامنه‌ها داخل تونل حل می‌شوند و IP از ISP پنهان است. محلی — رزولور سیستم دستگاه.",
+    mtuLabel: "MTU",
+    mtuHint: "اندازه MTU برای رابط TUN (۵۷۶–۹۰۰۰، پیش‌فرض ۱۵۰۰)",
+    tlsFragment: "قطعه‌قطعه‌سازی TLS",
+    tlsFragmentHint: "ClientHello در TLS را به چند بخش TCP تقسیم می‌کند تا DPI نتواند کل SNI را بخواند",
     isp: "ISP",
     bypassRu: "دور زدن .ru / .su مستقیم",
     bypassRuHint: "دامنه‌های روسی و GEOIP Russia مستقیم، بدون VPN",
@@ -810,6 +845,7 @@ let settings: AppSettings = {
   conn_key: "", auto_connect: false, theme: "dark", mihomo_port: 9887,
   socks_addr: "127.0.0.1", kill_switch: false, dns_redirect: false,
   ipv6: true, tun_stack: "Mixed", hwid: true, auth_tip: true, secret: "",
+  dns_strategy: "fakeip", mtu: 1500, tls_fragment: false,
 };
 
 let profiles: Profile[] = [];
@@ -2435,6 +2471,30 @@ function renderSettings(): string {
         <button class="pill-btn ${settings.dns_mode === "tcp" ? "active" : ""}" data-dnsmode="tcp">TCP</button>
         <button class="pill-btn ${settings.dns_mode === "doh" ? "active" : ""}" data-dnsmode="doh">DoH</button>
       </div></div></div>
+      <div class="setting-row" style="align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
+          <span class="setting-label">${t("dnsStrategy")}</span>
+          <span style="font-size:11px;opacity:.5;font-weight:400">${t("dnsStrategyHint")}</span>
+        </div>
+        <div class="setting-value"><div class="pill-group">
+          <button class="pill-btn ${!settings.dns_strategy || settings.dns_strategy === "fakeip" ? "active" : ""}" data-dnsstrategy="fakeip">${t("dnsFakeip")}</button>
+          <button class="pill-btn ${settings.dns_strategy === "local" ? "active" : ""}" data-dnsstrategy="local">${t("dnsLocal")}</button>
+        </div></div>
+      </div>
+      <div class="setting-row" style="align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
+          <span class="setting-label">${t("mtuLabel")}</span>
+          <span style="font-size:11px;opacity:.5;font-weight:400">${t("mtuHint")}</span>
+        </div>
+        <div class="setting-value"><input type="number" id="set-mtu" min="576" max="9000" value="${settings.mtu ?? 1500}" style="width:80px;box-sizing:border-box;text-align:right"/></div>
+      </div>
+      <div class="setting-row" style="align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
+          <span class="setting-label">${t("tlsFragment")}</span>
+          <span style="font-size:11px;opacity:.5;font-weight:400">${t("tlsFragmentHint")}</span>
+        </div>
+        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-tls-fragment" ${settings.tls_fragment ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
+      </div>
       <div class="setting-row"><span class="setting-label">${t("ipv6Label")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ipv6" ${settings.ipv6 ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row" style="align-items:flex-start">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
@@ -2720,6 +2780,24 @@ function bindSettingsEvents(): void {
     if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
     renderPage();
   }));
+  document.querySelectorAll<HTMLElement>(".pill-btn[data-dnsstrategy]").forEach(el => el.addEventListener("click", () => {
+    settings.dns_strategy = el.dataset.dnsstrategy || "fakeip";
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
+    renderPage();
+  }));
+  (document.getElementById("set-mtu") as HTMLInputElement)?.addEventListener("change", function () {
+    const v = parseInt(this.value, 10);
+    settings.mtu = Number.isFinite(v) ? Math.min(9000, Math.max(576, v)) : 1500;
+    this.value = String(settings.mtu);
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
+  });
+  (document.getElementById("set-tls-fragment") as HTMLInputElement)?.addEventListener("change", function () {
+    settings.tls_fragment = this.checked;
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
+  });
   document.querySelectorAll<HTMLElement>(".pill-btn[data-vpndns]").forEach(el => el.addEventListener("click", () => {
     const val = el.dataset.vpndns || "1.1.1.1:53";
     settings.vpn_dns = val === "1.1.1.1:53" && !el.classList.contains("active") ? val : val;

@@ -31,6 +31,9 @@ object WhispVpnPrep {
     @Volatile private var pendingSocksUser: String = ""
     @Volatile private var pendingSocksPass: String = ""
     @Volatile private var pendingDnsMode: String = "udp"
+    @Volatile private var pendingDnsStrategy: String = "fakeip"
+    @Volatile private var pendingMtu: Int = 1500
+    @Volatile private var pendingTlsFragment: Boolean = false
 
     @JvmStatic fun setActivity(a: Activity?) { currentActivity = a }
 
@@ -53,7 +56,7 @@ object WhispVpnPrep {
         }
     }
 
-    @JvmStatic fun savePending(rulesJson: String, connKey: String, vpnDns: String, ipv6: Boolean, mitm: Boolean, hwid: Boolean, tlsFingerprint: String, mixedPort: Int, allowLan: Boolean, socksUser: String, socksPass: String, dnsMode: String) {
+    @JvmStatic fun savePending(rulesJson: String, connKey: String, vpnDns: String, ipv6: Boolean, mitm: Boolean, hwid: Boolean, tlsFingerprint: String, mixedPort: Int, allowLan: Boolean, socksUser: String, socksPass: String, dnsMode: String, dnsStrategy: String, mtu: Int, tlsFragment: Boolean) {
         pendingRulesJson = rulesJson
         pendingConnKey   = connKey
         pendingVpnDns    = vpnDns.ifEmpty { "1.1.1.1" }
@@ -66,8 +69,11 @@ object WhispVpnPrep {
         pendingSocksUser = socksUser
         pendingSocksPass = socksPass
         pendingDnsMode   = dnsMode.ifEmpty { "udp" }
+        pendingDnsStrategy = dnsStrategy.ifEmpty { "fakeip" }
+        pendingMtu       = if (mtu in 576..9000) mtu else 1500
+        pendingTlsFragment = tlsFragment
         hasPending       = true
-        Log.d("WhispVpnPrep", "savePending: key=${connKey.take(6)}… dns=$vpnDns ipv6=$ipv6 mitm=$mitm hwid=$hwid fp=$tlsFingerprint mixedPort=$mixedPort allowLan=$allowLan dnsMode=$pendingDnsMode")
+        Log.d("WhispVpnPrep", "savePending: key=${connKey.take(6)}… dns=$vpnDns ipv6=$ipv6 mitm=$mitm hwid=$hwid fp=$tlsFingerprint mixedPort=$mixedPort allowLan=$allowLan dnsMode=$pendingDnsMode dnsStrategy=$pendingDnsStrategy mtu=$pendingMtu tlsFragment=$pendingTlsFragment")
     }
 
     @JvmStatic fun startPending(ctx: Context) {
@@ -88,6 +94,9 @@ object WhispVpnPrep {
             putExtra(WhispVpnService.EXTRA_SOCKS_USER, pendingSocksUser)
             putExtra(WhispVpnService.EXTRA_SOCKS_PASS, pendingSocksPass)
             putExtra(WhispVpnService.EXTRA_DNS_MODE,   pendingDnsMode)
+            putExtra(WhispVpnService.EXTRA_DNS_STRATEGY, pendingDnsStrategy)
+            putExtra(WhispVpnService.EXTRA_MTU,        pendingMtu.toString())
+            putExtra(WhispVpnService.EXTRA_TLS_FRAGMENT, if (pendingTlsFragment) "1" else "0")
         }
         ctx.startForegroundService(intent)
     }

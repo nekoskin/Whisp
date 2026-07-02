@@ -177,7 +177,7 @@ func (p *platform) LocalDNSTransport() libbox.LocalDNSTransport              { r
 func (p *platform) ClearDNSCache()                                           {}
 func (p *platform) SendNotification(notification *libbox.Notification) error { return nil }
 
-func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson string, ipv6 bool, dnsMode string, dnsServer string, mixedPort int32, mixedUser string, mixedPass string, allowLan bool) (retErr error) {
+func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson string, ipv6 bool, dnsMode string, dnsServer string, dnsStrategy string, mtu int32, tlsFragment bool, mixedPort int32, mixedUser string, mixedPass string, allowLan bool) (retErr error) {
 	alog(fmt.Sprintf("Start() ENTER fd=%d workDir=%s socksAddr=%s", fd, workDir, socksAddr))
 
 	defer func() {
@@ -242,15 +242,19 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		}
 	}
 
-	routeRules := `[{"action":"sniff"}]`
+	ruleParts := []string{`{"action":"sniff"}`}
 	if routesJSON != "" {
 		inner := strings.TrimSpace(routesJSON)
 		inner = strings.TrimPrefix(inner, "[")
 		inner = strings.TrimSuffix(inner, "]")
 		if strings.TrimSpace(inner) != "" {
-			routeRules = `[{"action":"sniff"},` + inner + `]`
+			ruleParts = append(ruleParts, inner)
 		}
 	}
+	if tlsFragment {
+		ruleParts = append(ruleParts, fmt.Sprintf(`{"protocol":["tls"],"action":"route","outbound":%q,"tls_fragment":true}`, finalOut))
+	}
+	routeRules := "[" + strings.Join(ruleParts, ",") + "]"
 
 	mixedInbound := ""
 	if mixedPort > 0 {
@@ -275,7 +279,22 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 	if dnsServer == "" {
 		dnsServer = "1.1.1.1"
 	}
-	useLocal := dnsServer == "system" || socksAddr == ""
+
+	// dnsStrategy: "fakeip" — поддельный DNS (домены резолвятся внутри тоннеля, IP не
+	// утекают провайдеру), "local" — системный резолвер устройства (реальные IP, быстрее).
+	// Пустая строка — старое поведение (обратная совместимость). Без тоннеля fakeip
+	// невозможен, поэтому принудительно local.
+	strategy := dnsStrategy
+	if strategy == "" {
+		if dnsServer == "system" {
+			strategy = "local"
+		} else {
+			strategy = "fakeip"
+		}
+	}
+	if socksAddr == "" {
+		strategy = "local"
+	}
 
 	dnsAddr := dnsServer
 	dnsTag := "dns_udp"
@@ -286,20 +305,26 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		dnsAddr, dnsTag = "https://"+dnsServer+"/dns-query", "dns_doh"
 	}
 
-	var dnsServers, dnsFinal string
-	if !useLocal {
+	var dnsServers, dnsRules, dnsFinal string
+	if strategy == "fakeip" {
 		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"address":%q,"tag":%q,"detour":"proxy"}`, fakeRange, dnsAddr, dnsTag)
+		dnsRules = `[{"query_type":["A","AAAA"],"server":"fakeip"}]`
 		dnsFinal = dnsTag
 	} else {
-		dnsServers = fmt.Sprintf(`{"type":"fakeip","tag":"fakeip",%s},{"address":"local","tag":"dns_local"}`, fakeRange)
+		dnsServers = `{"address":"local","tag":"dns_local"}`
+		dnsRules = `[]`
 		dnsFinal = "dns_local"
 	}
 	dnsObject := fmt.Sprintf(`{
     "servers": [%s],
-    "rules": [{"query_type":["A","AAAA"],"server":"fakeip"}],
+    "rules": %s,
     "final": %q,
     "independent_cache": true
-  }`, dnsServers, dnsFinal)
+  }`, dnsServers, dnsRules, dnsFinal)
+
+	if mtu <= 0 {
+		mtu = 1500
+	}
 
 	config := fmt.Sprintf(`{
   "log": {"level": "info"},
@@ -308,7 +333,7 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
     "type": "tun",
     "tag": "tun-in",
     "address": [%s],
-    "mtu": 1500,
+    "mtu": %d,
     "auto_route": false,
     "stack": "mixed"
   }%s],
@@ -318,7 +343,7 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
     "final": "%s",
     "auto_detect_interface": false
   }
-}`, dnsObject, tunAddrs, mixedInbound, outbounds, routeRules, finalOut)
+}`, dnsObject, tunAddrs, mtu, mixedInbound, outbounds, routeRules, finalOut)
 
 	alog(fmt.Sprintf("calling NewService fd=%d", fd))
 	s, err := libbox.NewService(config, &platform{tunFd: fd})

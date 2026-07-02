@@ -33,6 +33,9 @@ class WhispVpnService : VpnService() {
         const val EXTRA_HWID       = "com.whispera.whisp.EXTRA_HWID"
         const val EXTRA_TLS_FINGERPRINT = "com.whispera.whisp.EXTRA_TLS_FINGERPRINT"
         const val EXTRA_DNS_MODE   = "com.whispera.whisp.EXTRA_DNS_MODE"
+        const val EXTRA_DNS_STRATEGY = "com.whispera.whisp.EXTRA_DNS_STRATEGY"
+        const val EXTRA_MTU        = "com.whispera.whisp.EXTRA_MTU"
+        const val EXTRA_TLS_FRAGMENT = "com.whispera.whisp.EXTRA_TLS_FRAGMENT"
         const val EXTRA_MIXED_PORT = "com.whispera.whisp.EXTRA_MIXED_PORT"
         const val EXTRA_ALLOW_LAN  = "com.whispera.whisp.EXTRA_ALLOW_LAN"
         const val EXTRA_SOCKS_USER = "com.whispera.whisp.EXTRA_SOCKS_USER"
@@ -73,6 +76,9 @@ class WhispVpnService : VpnService() {
     private var pendingHwid: Boolean = true
     private var pendingTlsFingerprint: String = ""
     private var pendingDnsMode: String = "udp"
+    private var pendingDnsStrategy: String = "fakeip"
+    private var pendingMtu: Int = 1500
+    private var pendingTlsFragment: Boolean = false
     private var pendingMixedPort: Int = 0
     private var pendingAllowLan: Boolean = false
     private var pendingSocksUser: String = ""
@@ -96,6 +102,9 @@ class WhispVpnService : VpnService() {
             .putBoolean("hwid",       pendingHwid)
             .putString("tls_fingerprint", pendingTlsFingerprint)
             .putString("dns_mode",    pendingDnsMode)
+            .putString("dns_strategy", pendingDnsStrategy)
+            .putInt("mtu",            pendingMtu)
+            .putBoolean("tls_fragment", pendingTlsFragment)
             .putInt("mixed_port",     pendingMixedPort)
             .putBoolean("allow_lan",  pendingAllowLan)
             .putString("socks_user",  pendingSocksUser)
@@ -115,6 +124,9 @@ class WhispVpnService : VpnService() {
         pendingHwid      = p.getBoolean("hwid", true)
         pendingTlsFingerprint = p.getString("tls_fingerprint", "") ?: ""
         pendingDnsMode   = p.getString("dns_mode", "udp") ?: "udp"
+        pendingDnsStrategy = p.getString("dns_strategy", "fakeip") ?: "fakeip"
+        pendingMtu       = p.getInt("mtu", 1500)
+        pendingTlsFragment = p.getBoolean("tls_fragment", false)
         pendingMixedPort = p.getInt("mixed_port", 0)
         pendingAllowLan  = p.getBoolean("allow_lan", false)
         pendingSocksUser = p.getString("socks_user", "") ?: ""
@@ -148,6 +160,9 @@ class WhispVpnService : VpnService() {
                         pendingHwid      = (intent.getStringExtra(EXTRA_HWID) ?: "1") != "0"
                         pendingTlsFingerprint = intent.getStringExtra(EXTRA_TLS_FINGERPRINT) ?: ""
                         pendingDnsMode   = intent.getStringExtra(EXTRA_DNS_MODE)?.takeIf { it in listOf("udp","tcp","doh") } ?: "udp"
+                        pendingDnsStrategy = intent.getStringExtra(EXTRA_DNS_STRATEGY)?.takeIf { it in listOf("fakeip","local") } ?: "fakeip"
+                        pendingMtu       = intent.getStringExtra(EXTRA_MTU)?.toIntOrNull()?.coerceIn(576, 9000) ?: 1500
+                        pendingTlsFragment = (intent.getStringExtra(EXTRA_TLS_FRAGMENT) ?: "0") == "1"
                         pendingMixedPort = intent.getStringExtra(EXTRA_MIXED_PORT)?.toIntOrNull() ?: 0
                         pendingAllowLan  = (intent.getStringExtra(EXTRA_ALLOW_LAN) ?: "0") == "1"
                         pendingSocksUser = intent.getStringExtra(EXTRA_SOCKS_USER) ?: ""
@@ -185,7 +200,7 @@ class WhispVpnService : VpnService() {
         val pfd = try {
             Builder()
                 .setSession("Whisp VPN")
-                .setMtu(1500)
+                .setMtu(pendingMtu)
                 .addAddress("172.19.0.1", 30)
                 .also { if (pendingIpv6) it.addAddress("fdfe:dcba:9876::1", 126) }
                 .addRoute("0.0.0.0", 0)
@@ -225,7 +240,7 @@ class WhispVpnService : VpnService() {
                 if (Thread.currentThread().isInterrupted) return@Thread
 
                 Log.i(TAG, "singbox Start() fd=${pfd.fd}")
-                Singbox.start(pfd.fd, filesAbsDir, socksAddr, pendingConnKey, pendingRulesJson, pendingIpv6, pendingDnsMode, pendingVpnDns, pendingMixedPort, pendingSocksUser, pendingSocksPass, pendingAllowLan)
+                Singbox.start(pfd.fd, filesAbsDir, socksAddr, pendingConnKey, pendingRulesJson, pendingIpv6, pendingDnsMode, pendingVpnDns, pendingDnsStrategy, pendingMtu, pendingTlsFragment, pendingMixedPort, pendingSocksUser, pendingSocksPass, pendingAllowLan)
                 Log.i(TAG, "singbox running")
                 didConnect = true
                 toast("VPN started")
