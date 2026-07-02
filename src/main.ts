@@ -87,7 +87,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     ipInfo: "IP ИНФОРМАЦИЯ", ipAddress: "IP Адрес", location: "Местоположение", provider: "Провайдер",
     system: "СИСТЕМА", os: "ОС", uptime: "Время работы", version: "Версия", admin: "Админ",
     activeConns: "Активные соединения", connectToSee: "Подключитесь чтобы увидеть соединения",
-    noProfiles: "Нет сохранённых профилей", addProfile: "Добавить профиль",
+    noProfiles: "Нет сохранённых профилей", addProfile: "Добавить ключ",
+    keysSection: "Ключи", noKeys: "Нет сохранённых ключей и подписок",
     systemLog: "Системный журнал", logReady: "Система готова. Ожидание логов...",
     mixedPort: "Смешанный порт :", bindAddr: "Привязать адрес :", tunStack: "Tun Stack :", shareProxy: "Общий доступ к прокси",
     theme: "Тема :", dark: "Тёмная", auto: "Белая", dnsRedirect: "DNS перенаправление :",
@@ -266,7 +267,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     ipInfo: "IP INFORMATION", ipAddress: "IP Address", location: "Location", provider: "Provider",
     system: "SYSTEM", os: "OS", uptime: "Uptime", version: "Version", admin: "Admin",
     activeConns: "Active connections", connectToSee: "Connect to see connections",
-    noProfiles: "No saved profiles", addProfile: "Add profile",
+    noProfiles: "No saved profiles", addProfile: "Add key",
+    keysSection: "Keys", noKeys: "No saved keys or subscriptions",
     systemLog: "System Log", logReady: "System ready. Waiting for logs...",
     mixedPort: "Mixed port :", bindAddr: "Bind address :", tunStack: "Tun Stack :", shareProxy: "Share proxy",
     theme: "Theme :", dark: "Dark", auto: "Light", dnsRedirect: "DNS redirect :",
@@ -445,7 +447,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     ipInfo: "IP信息", ipAddress: "IP地址", location: "位置", provider: "运营商",
     system: "系统", os: "操作系统", uptime: "运行时间", version: "版本", admin: "管理员",
     activeConns: "活跃连接", connectToSee: "连接后查看连接",
-    noProfiles: "无保存配置", addProfile: "添加配置",
+    noProfiles: "无保存配置", addProfile: "添加密钥",
+    keysSection: "密钥", noKeys: "没有已保存的密钥或订阅",
     systemLog: "系统日志", logReady: "系统就绪，等待日志...",
     mixedPort: "混合端口：", bindAddr: "绑定地址：", tunStack: "Tun堆栈：", shareProxy: "共享代理",
     theme: "主题：", dark: "深色", auto: "浅色", dnsRedirect: "DNS重定向：",
@@ -624,7 +627,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     ipInfo: "اطلاعات IP", ipAddress: "آدرس IP", location: "موقعیت", provider: "ارائه‌دهنده",
     system: "سیستم", os: "سیستم‌عامل", uptime: "مدت اجرا", version: "نسخه", admin: "مدیر",
     activeConns: "اتصالات فعال", connectToSee: "برای مشاهده متصل شوید",
-    noProfiles: "پروفایلی ذخیره نشده", addProfile: "افزودن پروفایل",
+    noProfiles: "پروفایلی ذخیره نشده", addProfile: "افزودن کلید",
+    keysSection: "کلیدها", noKeys: "کلید یا اشتراکی ذخیره نشده",
     systemLog: "گزارش سیستم", logReady: "سیستم آماده است. منتظر گزارش...",
     mixedPort: "پورت ترکیبی:", bindAddr: "آدرس bind:", tunStack: "Tun Stack:", shareProxy: "اشتراک پراکسی",
     theme: "پوسته:", dark: "تیره", auto: "روشن", dnsRedirect: "هدایت DNS:",
@@ -1209,16 +1213,16 @@ function renderHome(): string {
     ${powerBlock}
 
     <div class="section-header">
-      <span class="section-title">${t("profiles")}</span>
-      <button class="btn-icon-add" id="btn-add-profile">${ICONS.plus}</button>
+      <span class="section-title">${t("keysSection")}</span>
+      <div class="key-menu-wrap">
+        <button class="btn-icon-add" id="btn-add-key">${ICONS.plus}</button>
+        <div class="key-menu" data-addmenu hidden style="min-width:190px">
+          <button class="km-item" id="btn-add-key-single">${ICONS.user}<span>${t("addProfile")}</span></button>
+          <button class="km-item" id="btn-add-key-sub">${ICONS.link}<span>${t("addSubscription")}</span></button>
+        </div>
+      </div>
     </div>
-    ${renderProfileList()}
-
-    <div class="section-header">
-      <span class="section-title">${t("subscriptions")}</span>
-      <button class="btn-icon-add" id="btn-add-sub">${ICONS.plus}</button>
-    </div>
-    ${renderSubList()}
+    ${renderKeysList()}
   </div>`;
 }
 
@@ -1234,9 +1238,16 @@ function bindHomeEvents(): void {
 
 }
 
+function renderKeysList(): string {
+  if (profiles.length === 0 && subscriptions.length === 0) {
+    return `<div class="empty-state"><div class="empty-icon">${ICONS.user}</div><p>${t("noKeys")}</p></div>`;
+  }
+  return renderProfileList() + renderSubList();
+}
+
 function renderProfileList(): string {
   return profiles.length === 0
-    ? `<div class="empty-state"><div class="empty-icon">${ICONS.user}</div><p>${t("noProfiles")}</p></div>`
+    ? ""
     : profiles.map(p => `
         <div class="profile-card">
           <div class="profile-info"><span>${ICONS.user}</span><span>${esc(p.name)}</span></div>
@@ -1255,7 +1266,7 @@ function renderProfileList(): string {
 
 function renderSubList(): string {
   return subscriptions.length === 0
-    ? `<div class="empty-state"><p>${t("noSubscriptions")}</p></div>`
+    ? ""
     : subscriptions.map(s => {
         const keyRows = s.keys.map((k, i) => {
           const pr = pingResults.get(`${s.id}:${i}`);
@@ -1300,7 +1311,23 @@ function renderSubList(): string {
 }
 
 function bindProfileEvents(): void {
-  document.getElementById("btn-add-profile")?.addEventListener("click", () => showProfileModal());
+  document.getElementById("btn-add-key")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const menu = document.querySelector<HTMLElement>(".key-menu[data-addmenu]");
+    const isOpen = menu ? !menu.hidden : false;
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    if (menu) menu.hidden = isOpen;
+  });
+  document.getElementById("btn-add-key-single")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    showProfileModal();
+  });
+  document.getElementById("btn-add-key-sub")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    showSubModal();
+  });
 
   document.querySelectorAll<HTMLElement>(".btn-use-profile").forEach(el => {
     el.addEventListener("click", () => {
@@ -1332,8 +1359,6 @@ function bindProfileEvents(): void {
       profiles = profiles.filter(x => x.id !== el.dataset.id); saveProfiles(); renderPage();
     });
   });
-
-  document.getElementById("btn-add-sub")?.addEventListener("click", () => showSubModal());
 
   document.querySelectorAll<HTMLElement>(".sub-collapse-hdr").forEach(hdr => {
     hdr.addEventListener("click", () => {
@@ -2012,14 +2037,14 @@ function renderSettings(): string {
           <button class="pill-btn ${settings.dns_strategy === "local" ? "active" : ""}" data-dnsstrategy="local">${t("dnsLocal")}</button>
         </div></div>
       </div>
-      <div class="setting-row" style="align-items:flex-start">
+      <div class="setting-row" style="align-items:center">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
           <span class="setting-label">${t("mtuLabel")}</span>
           <span style="font-size:11px;opacity:.5;font-weight:400">${t("mtuHint")}</span>
         </div>
         <div class="setting-value"><input type="number" id="set-mtu" min="576" max="9000" value="${settings.mtu ?? 1500}" style="width:80px;box-sizing:border-box;text-align:right"/></div>
       </div>
-      <div class="setting-row" style="align-items:flex-start">
+      <div class="setting-row" style="align-items:center">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
           <span class="setting-label">${t("tlsFragment")}</span>
           <span style="font-size:11px;opacity:.5;font-weight:400">${t("tlsFragmentHint")}</span>
