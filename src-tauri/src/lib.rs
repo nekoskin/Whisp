@@ -164,6 +164,8 @@ struct AppSettings {
     mtu: u16,
     #[serde(default)]
     tls_fragment: bool,
+    #[serde(default = "default_true")]
+    sub_auto_update: bool,
 }
 
 fn default_true() -> bool {
@@ -215,6 +217,7 @@ impl Default for AppSettings {
             dns_strategy: "fakeip".to_string(),
             mtu: 1500,
             tls_fragment: false,
+            sub_auto_update: true,
         }
     }
 }
@@ -1426,6 +1429,32 @@ async fn add_subscription(
 }
 
 #[tauri::command]
+fn import_subscriptions(
+    app: tauri::AppHandle,
+    entries: Vec<SubscriptionEntry>,
+) -> Result<Vec<SubscriptionEntry>, String> {
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+    for e in &entries {
+        validate_subscription_url(&e.url)?;
+    }
+    let base_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let mut subs = load_subs(&app);
+    let mut imported: Vec<SubscriptionEntry> = Vec::with_capacity(entries.len());
+    for (i, mut entry) in entries.into_iter().enumerate() {
+        entry.id = (base_ms + i as u128).to_string();
+        subs.push(entry.clone());
+        imported.push(entry);
+    }
+    save_subs(&app, &subs);
+    Ok(imported)
+}
+
+#[tauri::command]
 async fn refresh_subscription(
     app: tauri::AppHandle,
     id: String,
@@ -1970,6 +1999,7 @@ pub fn run() {
             save_blocklist,
             get_subscriptions,
             add_subscription,
+            import_subscriptions,
             refresh_subscription,
             delete_subscription,
             rename_subscription,

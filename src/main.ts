@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { writeText as clipboardWrite } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText as clipboardWrite, readText as clipboardRead } from "@tauri-apps/plugin-clipboard-manager";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import "./styles.css";
 
@@ -19,6 +19,9 @@ const ICONS = {
   ping: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
   pencil: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
   kebab: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>`,
+  clipboard: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>`,
+  qr: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="21" y1="14" x2="21" y2="21"/><line x1="17.5" y1="14" x2="17.5" y2="17.5"/><line x1="14" y1="17.5" x2="21" y2="17.5"/></svg>`,
+  code: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
 };
 
 interface MultiBridgeEntry {
@@ -56,6 +59,7 @@ interface AppSettings {
   dns_strategy?: string;
   mtu?: number;
   tls_fragment?: boolean;
+  sub_auto_update?: boolean;
 }
 
 interface Profile { id: string; name: string; key: string; }
@@ -89,6 +93,12 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "Активные соединения", connectToSee: "Подключитесь чтобы увидеть соединения",
     noProfiles: "Нет сохранённых профилей", addProfile: "Добавить ключ",
     keysSection: "Ключи", noKeys: "Нет сохранённых ключей и подписок",
+    pasteFromClipboard: "Вставить из буфера обмена", pasteJson: "Вставить JSON", copyJson: "Копировать JSON",
+    jsonData: "JSON", jsonParseError: "Некорректный JSON", jsonImported: "Импортировано записей:", jsonCopied: "JSON скопирован в буфер обмена",
+    clipboardEmpty: "Буфер обмена пуст", clipboardReadFailed: "Не удалось прочитать буфер обмена", clipboardWriteFailed: "Не удалось скопировать в буфер обмена",
+    pasteUnrecognized: "Не удалось распознать содержимое. Ожидается whispera:// ключ или https:// ссылка",
+    refreshAllSubs: "Обновить подписки", subsRefreshedSummary: "Обновлено подписок:",
+    subAutoUpdateOn: "Автообновление: Вкл", subAutoUpdateOff: "Автообновление: Выкл",
     systemLog: "Системный журнал", logReady: "Система готова. Ожидание логов...",
     mixedPort: "Смешанный порт :", bindAddr: "Привязать адрес :", tunStack: "Tun Stack :", shareProxy: "Общий доступ к прокси",
     theme: "Тема :", dark: "Тёмная", auto: "Белая", dnsRedirect: "DNS перенаправление :",
@@ -269,6 +279,12 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "Active connections", connectToSee: "Connect to see connections",
     noProfiles: "No saved profiles", addProfile: "Add key",
     keysSection: "Keys", noKeys: "No saved keys or subscriptions",
+    pasteFromClipboard: "Paste from clipboard", pasteJson: "Paste JSON", copyJson: "Copy JSON",
+    jsonData: "JSON", jsonParseError: "Invalid JSON", jsonImported: "Imported entries:", jsonCopied: "JSON copied to clipboard",
+    clipboardEmpty: "Clipboard is empty", clipboardReadFailed: "Failed to read clipboard", clipboardWriteFailed: "Failed to copy to clipboard",
+    pasteUnrecognized: "Could not recognize the content. Expected a whispera:// key or an https:// link",
+    refreshAllSubs: "Refresh subscriptions", subsRefreshedSummary: "Subscriptions refreshed:",
+    subAutoUpdateOn: "Auto-update: On", subAutoUpdateOff: "Auto-update: Off",
     systemLog: "System Log", logReady: "System ready. Waiting for logs...",
     mixedPort: "Mixed port :", bindAddr: "Bind address :", tunStack: "Tun Stack :", shareProxy: "Share proxy",
     theme: "Theme :", dark: "Dark", auto: "Light", dnsRedirect: "DNS redirect :",
@@ -449,6 +465,12 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "活跃连接", connectToSee: "连接后查看连接",
     noProfiles: "无保存配置", addProfile: "添加密钥",
     keysSection: "密钥", noKeys: "没有已保存的密钥或订阅",
+    pasteFromClipboard: "从剪贴板粘贴", pasteJson: "粘贴 JSON", copyJson: "复制 JSON",
+    jsonData: "JSON", jsonParseError: "JSON 格式无效", jsonImported: "已导入条目：", jsonCopied: "JSON 已复制到剪贴板",
+    clipboardEmpty: "剪贴板为空", clipboardReadFailed: "读取剪贴板失败", clipboardWriteFailed: "复制到剪贴板失败",
+    pasteUnrecognized: "无法识别内容。需要 whispera:// 密钥或 https:// 链接",
+    refreshAllSubs: "更新订阅", subsRefreshedSummary: "已更新订阅：",
+    subAutoUpdateOn: "自动更新：开", subAutoUpdateOff: "自动更新：关",
     systemLog: "系统日志", logReady: "系统就绪，等待日志...",
     mixedPort: "混合端口：", bindAddr: "绑定地址：", tunStack: "Tun堆栈：", shareProxy: "共享代理",
     theme: "主题：", dark: "深色", auto: "浅色", dnsRedirect: "DNS重定向：",
@@ -629,6 +651,12 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "اتصالات فعال", connectToSee: "برای مشاهده متصل شوید",
     noProfiles: "پروفایلی ذخیره نشده", addProfile: "افزودن کلید",
     keysSection: "کلیدها", noKeys: "کلید یا اشتراکی ذخیره نشده",
+    pasteFromClipboard: "جای‌گذاری از کلیپ‌بورد", pasteJson: "جای‌گذاری JSON", copyJson: "کپی JSON",
+    jsonData: "JSON", jsonParseError: "JSON نامعتبر", jsonImported: "موارد وارد شده:", jsonCopied: "JSON در کلیپ‌بورد کپی شد",
+    clipboardEmpty: "کلیپ‌بورد خالی است", clipboardReadFailed: "خواندن کلیپ‌بورد ناموفق بود", clipboardWriteFailed: "کپی در کلیپ‌بورد ناموفق بود",
+    pasteUnrecognized: "محتوا شناسایی نشد. کلید whispera:// یا لینک https:// مورد نیاز است",
+    refreshAllSubs: "به‌روزرسانی اشتراک‌ها", subsRefreshedSummary: "اشتراک‌های به‌روزشده:",
+    subAutoUpdateOn: "به‌روزرسانی خودکار: روشن", subAutoUpdateOff: "به‌روزرسانی خودکار: خاموش",
     systemLog: "گزارش سیستم", logReady: "سیستم آماده است. منتظر گزارش...",
     mixedPort: "پورت ترکیبی:", bindAddr: "آدرس bind:", tunStack: "Tun Stack:", shareProxy: "اشتراک پراکسی",
     theme: "پوسته:", dark: "تیره", auto: "روشن", dnsRedirect: "هدایت DNS:",
@@ -830,7 +858,7 @@ let settings: AppSettings = {
   conn_key: "", auto_connect: false, theme: "dark", mihomo_port: 9887,
   socks_addr: "127.0.0.1", kill_switch: false, dns_redirect: false,
   ipv6: true, tun_stack: "Mixed", hwid: true, auth_tip: true, secret: "",
-  dns_strategy: "fakeip", mtu: 1500, tls_fragment: false,
+  dns_strategy: "fakeip", mtu: 1500, tls_fragment: false, sub_auto_update: true,
 };
 
 let profiles: Profile[] = [];
@@ -905,9 +933,16 @@ async function autoCheckSubscriptions(): Promise<void> {
   if (subUpdateAvailable.size > 0 && currentPage === "home") renderPage();
 }
 
+const SUB_AUTO_CHECK_INTERVAL_MS = 10 * 60 * 1000;
+
 function startSubAutoCheck(): void {
-  if (subAutoCheckTimer) clearInterval(subAutoCheckTimer);
-  subAutoCheckTimer = setInterval(() => autoCheckSubscriptions(), 10 * 60 * 1000);
+  stopSubAutoCheck();
+  if (!settings.sub_auto_update) return;
+  subAutoCheckTimer = setInterval(() => autoCheckSubscriptions(), SUB_AUTO_CHECK_INTERVAL_MS);
+}
+
+function stopSubAutoCheck(): void {
+  if (subAutoCheckTimer) { clearInterval(subAutoCheckTimer); subAutoCheckTimer = null; }
 }
 function loadLang(): void { const s = localStorage.getItem("whisp_lang"); if (s === "en" || s === "ru" || s === "zh" || s === "fa") lang = s as Lang; }
 function saveLang(): void { localStorage.setItem("whisp_lang", lang); }
@@ -1216,9 +1251,14 @@ function renderHome(): string {
       <span class="section-title">${t("keysSection")}</span>
       <div class="key-menu-wrap">
         <button class="btn-icon-add" id="btn-add-key">${ICONS.plus}</button>
-        <div class="key-menu" data-addmenu hidden style="min-width:190px">
+        <div class="key-menu" data-addmenu hidden style="min-width:210px">
           <button class="km-item" id="btn-add-key-single">${ICONS.user}<span>${t("addProfile")}</span></button>
           <button class="km-item" id="btn-add-key-sub">${ICONS.link}<span>${t("addSubscription")}</span></button>
+          <button class="km-item" id="btn-add-key-paste">${ICONS.clipboard}<span>${t("pasteFromClipboard")}</span></button>
+          <button class="km-item" id="btn-add-key-import-json">${ICONS.code}<span>${t("pasteJson")}</span></button>
+          <button class="km-item" id="btn-add-key-export-json">${ICONS.copy}<span>${t("copyJson")}</span></button>
+          <button class="km-item" id="btn-refresh-all-subs">${ICONS.refresh}<span>${t("refreshAllSubs")}</span></button>
+          <button class="km-item" id="btn-toggle-sub-auto">${ICONS.bolt}<span>${settings.sub_auto_update ? t("subAutoUpdateOn") : t("subAutoUpdateOff")}</span></button>
         </div>
       </div>
     </div>
@@ -1289,7 +1329,6 @@ function renderSubList(): string {
             </div>
           </div>`;
         }).join("");
-        const updLabel = s.updated ? `<span class="sub-meta">${t("subLastUpdated")}: ${s.updated.slice(0, 10)}</span>` : "";
         return `
           <div class="profile-card sub-card">
             <div class="profile-info sub-collapse-hdr" data-sub-id="${s.id}" style="cursor:pointer">
@@ -1297,7 +1336,6 @@ function renderSubList(): string {
               <span>${ICONS.link}</span>
               <span class="sub-name" title="${esc(s.name || s.url)}">${esc(s.name || s.url)}</span>
               <span class="sub-meta">${s.keys.length} ${t("subKeys")}</span>
-              ${updLabel}
             </div>
             <div class="profile-actions">
               <button class="btn-ping-all-sub" data-id="${s.id}" title="${t("pingAll")}">${ICONS.ping}</button>
@@ -1327,6 +1365,55 @@ function bindProfileEvents(): void {
     e.stopPropagation();
     document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
     showSubModal();
+  });
+  document.getElementById("btn-add-key-paste")?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    try {
+      const text = await clipboardRead();
+      if (!text) { showToast(t("clipboardEmpty"), "error", 2500); return; }
+      handlePastedOrScannedText(text);
+    } catch {
+      showToast(t("clipboardReadFailed"), "error", 2500);
+    }
+  });
+  document.getElementById("btn-add-key-import-json")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    showImportJsonModal();
+  });
+  document.getElementById("btn-add-key-export-json")?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    try {
+      await clipboardWrite(JSON.stringify({ profiles, subscriptions }));
+      showToast(t("jsonCopied"), "success", 3000);
+    } catch {
+      showToast(t("clipboardWriteFailed"), "error", 2500);
+    }
+  });
+  document.getElementById("btn-refresh-all-subs")?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    const total = subscriptions.length;
+    if (total === 0) { showToast(t("noSubscriptions"), "error", 2000); return; }
+    const results = await Promise.all(subscriptions.map(s =>
+      invoke<Subscription>("refresh_subscription", { id: s.id }).catch(() => null)
+    ));
+    let ok = 0;
+    results.forEach((updated, i) => {
+      if (updated) { subscriptions[i] = updated; ok++; }
+    });
+    showToast(`${t("subsRefreshedSummary")} ${ok}/${total}`, ok === total ? "success" : "info", 3000);
+    renderPage();
+  });
+  document.getElementById("btn-toggle-sub-auto")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    settings.sub_auto_update = !settings.sub_auto_update;
+    persistSettings();
+    if (settings.sub_auto_update) startSubAutoCheck(); else stopSubAutoCheck();
+    renderPage();
   });
 
   document.querySelectorAll<HTMLElement>(".btn-use-profile").forEach(el => {
@@ -1496,7 +1583,7 @@ function bindProfileEvents(): void {
   });
 }
 
-function showSubModal(): void {
+function showSubModal(prefillUrl?: string): void {
   const ov = document.createElement("div");
   ov.className = "modal-overlay";
   ov.innerHTML = `
@@ -1508,7 +1595,7 @@ function showSubModal(): void {
       </div>
       <div class="modal-field">
         <label>${t("subUrl")}</label>
-        <input id="sub-modal-url" placeholder="${t("subUrlHint")}" />
+        <input id="sub-modal-url" placeholder="${t("subUrlHint")}" value="${prefillUrl ? esc(prefillUrl) : ""}" />
       </div>
       <div id="sub-modal-err" style="color:var(--danger,#e55);font-size:12px;margin-top:4px;word-break:break-all;overflow-wrap:anywhere;display:none"></div>
       <div class="modal-actions">
@@ -1530,6 +1617,65 @@ function showSubModal(): void {
       subscriptions.push(entry);
       ov.remove();
       showToast(t("subAdded"), "success", 3000);
+      if (currentPage === "home") renderPage();
+    } catch (e) {
+      errEl.textContent = String(e);
+      errEl.style.display = "";
+      btn.disabled = false; btn.textContent = t("save");
+    }
+  });
+}
+
+function showImportJsonModal(): void {
+  const ov = document.createElement("div");
+  ov.className = "modal-overlay";
+  ov.innerHTML = `
+    <div class="modal">
+      <h3>${t("pasteJson")}</h3>
+      <div class="modal-field">
+        <label>${t("jsonData")}</label>
+        <textarea id="import-json-text" rows="8" placeholder='{"profiles":[...],"subscriptions":[...]}'></textarea>
+      </div>
+      <div id="import-json-err" style="color:var(--danger,#e55);font-size:12px;margin-top:4px;word-break:break-all;overflow-wrap:anywhere;display:none"></div>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="import-json-cancel">${t("cancel")}</button>
+        <button class="btn-save" id="import-json-save">${t("save")}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  document.getElementById("import-json-cancel")?.addEventListener("click", () => ov.remove());
+  document.getElementById("import-json-save")?.addEventListener("click", async () => {
+    const raw = (document.getElementById("import-json-text") as HTMLTextAreaElement).value.trim();
+    const errEl = document.getElementById("import-json-err")!;
+    let parsed: { profiles?: Profile[]; subscriptions?: Subscription[] };
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      errEl.textContent = t("jsonParseError");
+      errEl.style.display = "";
+      return;
+    }
+    const btn = document.getElementById("import-json-save") as HTMLButtonElement;
+    btn.disabled = true; btn.textContent = t("subRefreshing");
+    try {
+      let importedProfiles = 0;
+      let importedSubs = 0;
+      if (Array.isArray(parsed.profiles)) {
+        parsed.profiles.forEach((p, i) => {
+          if (p?.name && p?.key) {
+            profiles.push({ id: (Date.now() + i).toString(), name: p.name, key: p.key });
+            importedProfiles++;
+          }
+        });
+        if (importedProfiles > 0) saveProfiles();
+      }
+      if (Array.isArray(parsed.subscriptions) && parsed.subscriptions.length > 0) {
+        const imported = await invoke<Subscription[]>("import_subscriptions", { entries: parsed.subscriptions });
+        subscriptions.push(...imported);
+        importedSubs = imported.length;
+      }
+      ov.remove();
+      showToast(`${t("jsonImported")} ${importedProfiles + importedSubs}`, "success", 3000);
       if (currentPage === "home") renderPage();
     } catch (e) {
       errEl.textContent = String(e);
@@ -2027,7 +2173,7 @@ function renderSettings(): string {
         <button class="pill-btn ${settings.dns_mode === "tcp" ? "active" : ""}" data-dnsmode="tcp">TCP</button>
         <button class="pill-btn ${settings.dns_mode === "doh" ? "active" : ""}" data-dnsmode="doh">DoH</button>
       </div></div></div>
-      <div class="setting-row" style="align-items:flex-start">
+      <div class="setting-row" style="align-items:center">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
           <span class="setting-label">${t("dnsStrategy")}</span>
           <span style="font-size:11px;opacity:.5;font-weight:400">${t("dnsStrategyHint")}</span>
@@ -2461,12 +2607,12 @@ function bindSettingsEvents(): void {
   });
 }
 
-function showProfileModal(): void {
+function showProfileModal(prefillKey?: string): void {
   const ov = document.createElement("div");
   ov.className = "modal-overlay";
   ov.innerHTML = `<div class="modal"><h3>${t("addProfile")}</h3>
     <div class="modal-field"><label>${t("profileName")}</label><input type="text" id="modal-name"/></div>
-    <div class="modal-field"><label>${t("profileKey")}</label><textarea id="modal-key" rows="3"></textarea></div>
+    <div class="modal-field"><label>${t("profileKey")}</label><textarea id="modal-key" rows="3">${prefillKey ? esc(prefillKey) : ""}</textarea></div>
     <div class="modal-actions"><button class="btn-cancel" id="modal-cancel">${t("cancel")}</button><button class="btn-save" id="modal-save">${t("save")}</button></div>
   </div>`;
   document.body.appendChild(ov);
@@ -2481,6 +2627,20 @@ function showProfileModal(): void {
     if (!settings.conn_key) { settings.conn_key = key; persistSettings(); }
     ov.remove(); renderPage();
   });
+}
+
+function classifyPastedText(text: string): { kind: "key" | "url" | "unknown"; value: string } {
+  const trimmed = text.trim();
+  if (/^whispera:\/\//i.test(trimmed)) return { kind: "key", value: trimmed };
+  if (/^https?:\/\//i.test(trimmed)) return { kind: "url", value: trimmed };
+  return { kind: "unknown", value: trimmed };
+}
+
+function handlePastedOrScannedText(text: string): void {
+  const { kind, value } = classifyPastedText(text);
+  if (kind === "key") showProfileModal(value);
+  else if (kind === "url") showSubModal(value);
+  else showToast(t("pasteUnrecognized"), "error", 3000);
 }
 
 function esc(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }

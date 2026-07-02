@@ -1030,7 +1030,7 @@ button.spinning svg {
   cursor: pointer;
 }
 .km-item:hover { background: var(--md-secondary-cont); }
-.km-item svg { flex-shrink: 0; opacity: .8; }
+.km-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: .8; }
 .km-item.km-danger { color: var(--danger, #e55); }
 .km-item.km-danger:hover { background: rgba(229,85,85,.12); }
 
