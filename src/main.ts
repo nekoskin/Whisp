@@ -1082,13 +1082,20 @@ function addLog(line: string): void {
 // go-client's console encoder pads short level names to a fixed width inside
 // the brackets (e.g. "[INFO ]", "[WARN ]"), so match tolerating whitespace
 // rather than an exact "[INFO]" substring.
-function logLineLevel(line: string): "error" | "warn" | "info" | "debug" | null {
+function logLineLevel(line: string): "error" | "warn" | "info" {
   const u = line.toUpperCase();
   if (/\[\s*ERROR\s*\]/.test(u) || u.includes('"LEVEL":"ERROR"')) return "error";
   if (/\[\s*WARN\s*\]/.test(u) || u.includes('"LEVEL":"WARN"')) return "warn";
   if (/\[\s*INFO\s*\]/.test(u) || u.includes('"LEVEL":"INFO"')) return "info";
-  if (/\[\s*DEBUG\s*\]/.test(u) || u.includes('"LEVEL":"DEBUG"')) return "debug";
-  return null;
+  // go-client (desktop + Android) logs via Go's stdlib `log` package — plain
+  // "date time message" lines with no bracketed level tag. It marks failures
+  // and warnings with literal text instead ("... failed: ...", "WARNING: ..."),
+  // so classify by that real convention; anything else is routine info output.
+  // "WARNING:" is checked first since a warning line can still mention "failed"
+  // in its message body (e.g. "WARNING: Failed to connect...").
+  if (u.includes("WARNING:")) return "warn";
+  if (line.startsWith("✗") || u.includes("FATAL") || u.includes("FAILED") || u.includes("ERROR")) return "error";
+  return "info";
 }
 
 function renderShell(): void {
@@ -2113,7 +2120,6 @@ function renderLogs(): string {
         <button class="pill-btn log-filter-btn ${logFilter === "error" ? "active" : ""}" data-filter="error">Error</button>
         <button class="pill-btn log-filter-btn ${logFilter === "warn" ? "active" : ""}" data-filter="warn">Warn</button>
         <button class="pill-btn log-filter-btn ${logFilter === "info" ? "active" : ""}" data-filter="info">Info</button>
-        <button class="pill-btn log-filter-btn ${logFilter === "debug" ? "active" : ""}" data-filter="debug">Debug</button>
       </div>
       <span class="log-count">${filtered.length}/${logLines.length}</span>
     </div>

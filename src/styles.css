@@ -1115,7 +1115,6 @@ button.spinning svg {
 .log-error { color: #f87171; }
 .log-warn { color: #fbbf24; }
 .log-info { color: #a5b4fc; }
-.log-debug { color: var(--md-outline); }
 .log-filter-btn { font-size: 10px !important; padding: 3px 8px !important; }
 
 /* ══════════════════════════════════════════════════════════════
