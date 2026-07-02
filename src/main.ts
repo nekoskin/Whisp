@@ -231,7 +231,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     caCert: "CA сертификат",
     installMitmCa: "Установить CA",
     allowLan: "Разрешить LAN",
-    allowLanHint: "Другие устройства в сети смогут использовать этот прокси",
+    allowLanHint: "Другие устройства в сети смогут использовать прокси",
     logLevel: "Уровень логов",
     routingMode: "Режим маршрутизации",
     socksAuth: "SOCKS5 аутентификация",
@@ -2051,7 +2051,7 @@ function renderSettings(): string {
     <div class="settings-section">
       <div class="settings-section-title">${t("shareProxy")}</div>
       <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/></div></div>
-      <div class="setting-row" style="align-items:flex-start">
+      <div class="setting-row" style="align-items:center">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
           <span class="setting-label">${t("allowLan")}</span>
           <span style="font-size:11px;opacity:.5;font-weight:400">${t("allowLanHint")}</span>
@@ -2101,7 +2101,7 @@ function renderSettings(): string {
       <div class="settings-section-title">${t("mihomo")}</div>
       <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/></div></div>
       <div class="setting-row"><span class="setting-label">${t("bindAddr")}</span><div class="setting-value"><input type="text" id="set-bind" value="${settings.socks_addr}"/><span class="edit-icon">✎</span></div></div>
-      <div class="setting-row" style="align-items:flex-start">
+      <div class="setting-row" style="align-items:center">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
           <span class="setting-label">${t("allowLan")}</span>
           <span style="font-size:11px;opacity:.5;font-weight:400">${t("allowLanHint")}</span>
