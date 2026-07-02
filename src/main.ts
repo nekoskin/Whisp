@@ -803,27 +803,7 @@ let lang: Lang = "ru";
 let isConnected = false;
 let isConnecting = false;
 
-interface ConnectionEntry {
-  id: string;
-  transport: string;
-  server: string;
-  status: "connecting" | "connected" | "disconnected" | "failed";
-  enabled: boolean;
-  obfuscated: boolean;
-  mux: boolean;
-  rate_limit_kb: number;
-  sni: string;
-  bridge: string;
-  bytes_up: number;
-  bytes_down: number;
-  connected_at?: string;
-  error?: string;
-  force_obfuscation: boolean;
-  behavioral_profile?: string;
-}
 
-let connectionsList: ConnectionEntry[] = [];
-let connectionsExpanded: Set<string> = new Set();
 
 const isAndroid = /android/i.test(navigator.userAgent);
 
@@ -860,7 +840,6 @@ let multiBridges: MultiBridgeEntry[] = [];
 let currentFingerprint = localStorage.getItem("tls_fingerprint") || "chrome";
 let logLines: string[] = [];
 let connectTime: number | null = null;
-let ipInfo = { ip: "—", location: "—", provider: "—" };
 let sysInfo = { os: "—", uptime: "—", version: "v0.1.4", admin: false };
 
 function t(key: string): string { return i18n[lang][key] || key; }
@@ -962,30 +941,6 @@ async function persistBlocklist(): Promise<void> {
   try { await invoke("save_blocklist", { rules: blocklistRules }); } catch {/**/ }
 }
 
-interface AgentArm {
-  name: string;
-  attempts: number;
-  successes: number;
-  q_value: number;
-  avg_ms: number;
-  streak: number;
-  last_ok: boolean;
-}
-interface AgentStats {
-  state: number | string;
-  current_arm: number;
-  total_probes: number;
-  total_rotations: number;
-  arms: AgentArm[];
-  consec_fails: number;
-}
-let _agentStats: AgentStats | null = null;
-
-async function fetchAgentStats(): Promise<void> {
-  try {
-    _agentStats = await invoke<AgentStats>("get_agent_stats");
-  } catch { _agentStats = null; }
-}
 
 async function doConnect(): Promise<void> {
   isConnecting = true;
@@ -1038,23 +993,6 @@ async function checkStatus(): Promise<void> {
 }
 
 /* Site checks — update DOM in-place, no flicker */
-async function fetchIpInfo(): Promise<void> {
-  try {
-    const info = await invoke<{ ip: string; city: string; region: string; country: string; org: string; loc: string }>("get_ip_info");
-    ipInfo = { ip: info.ip || "—", location: (info.city || "—") + ", " + (info.country || ""), provider: info.org || "—" };
-  } catch { ipInfo = { ip: "—", location: "—", provider: "—" }; }
-  updateIPDOM();
-}
-
-function updateIPDOM(): void {
-  const el = document.getElementById("ip-val");
-  const loc = document.getElementById("loc-val");
-  const prov = document.getElementById("prov-val");
-  if (el) el.innerHTML = `${esc(ipInfo.ip)} <span class="copy-icon" data-copy="${esc(ipInfo.ip)}">${ICONS.copy}</span>`;
-  if (loc) loc.textContent = ipInfo.location;
-  if (prov) prov.textContent = ipInfo.provider;
-}
-
 async function fetchSysInfo(): Promise<void> {
   try {
     const info = await invoke<{ os: string; uptime: string; version: string; admin: boolean }>("get_system_info");
@@ -1190,23 +1128,8 @@ function renderPage(): void {
       const scrollY = main.scrollTop;
       main.innerHTML = renderHome();
       bindHomeEvents();
-      bindConnectionsEvents();
       bindProfileEvents();
       main.scrollTop = scrollY;
-      Promise.all([fetchConnections(), fetchAgentStats()]).then(() => {
-        if (currentPage !== "home") return;
-        try {
-          const scrollY2 = main.scrollTop;
-          main.innerHTML = renderHome();
-          bindHomeEvents();
-          bindConnectionsEvents();
-          bindProfileEvents();
-          main.scrollTop = scrollY2;
-        } catch (e) {
-          console.error("renderHome failed:", e);
-          connectionsList = [];
-        }
-      });
       break;
     }
     case "routing": main.innerHTML = renderRouting(); bindRoutingEvents(); break;
@@ -1280,10 +1203,6 @@ function renderHome(): string {
     <div class="power-status">
       <div class="status-text">${dis ? t("connecting") : isConnected ? t("connected") : t("disconnected")}</div>
       ${isConnected ? `<div class="status-server">${profileName ? esc(profileName) + " · " : ""}${serverHost ? esc(serverHost) + " · " : ""}<span id="status-uptime">${uptimeStr}</span></div>` : ""}
-    </div>
-    <div class="ks-row" style="max-width:280px;margin:6px auto 0">
-      <span class="ks-label">${t("killSwitch")}</span>
-      <label class="toggle"><input type="checkbox" id="ks-home" ${settings.kill_switch ? "checked" : ""}${dis ? " disabled" : ""}/><span class="toggle-slider"></span></label>
     </div>`;
 
   return `<div class="home-grid">
@@ -1300,83 +1219,7 @@ function renderHome(): string {
       <button class="btn-icon-add" id="btn-add-sub">${ICONS.plus}</button>
     </div>
     ${renderSubList()}
-
-    <div class="card card-ip">
-      <div class="card-header"><span class="card-title">${t("ipInfo")}</span><button class="refresh-btn" id="btn-refresh-ip">${ICONS.refresh}</button></div>
-      <div class="info-row"><span class="info-label">${t("ipAddress")}</span><span class="info-value" id="ip-val">${ipInfo.ip} <span class="copy-icon" data-copy="${ipInfo.ip}">${ICONS.copy}</span></span></div>
-      <div class="info-row"><span class="info-label">${t("location")}</span><span class="info-value" id="loc-val">${ipInfo.location}</span></div>
-      <div class="info-row"><span class="info-label">${t("provider")}</span><span class="info-value" id="prov-val">${ipInfo.provider}</span></div>
-    </div>
-
-    <div class="card card-system">
-      <div class="card-header"><span class="card-title">${t("system")}</span></div>
-      <div class="info-row"><span class="info-label">${t("os")}</span><span class="info-value" id="sys-os">${sysInfo.os}</span></div>
-      <div class="info-row"><span class="info-label">${t("uptime")}</span><span class="info-value" id="sys-uptime">${sysInfo.uptime}</span></div>
-      <div class="info-row"><span class="info-label">${t("version")}</span><span class="info-value" id="sys-ver">${sysInfo.version}</span></div>
-      <div class="info-row"><span class="info-label">${t("admin")}</span><span class="info-value ${sysInfo.admin ? "badge-on" : "badge-off"}" id="sys-admin">${sysInfo.admin ? "ON" : "OFF"}</span></div>
-    </div>
-  </div>
-
-  ${renderConnectionsSection()}`;
-}
-
-function renderConnectionsSection(): string {
-  const server = getServerHost() || (settings.conn_key ? t("connKeyEncrypted") : t("notSet"));
-  const uptimeStr = isConnected && connectTime ? formatDuration(Date.now() - connectTime) : "—";
-  const stChipCls = isConnected ? "chip-active" : "chip-idle";
-  const stChipTxt = isConnected ? t("active") : t("inactive");
-  const connCount = connectionsList.length;
-  const activeCount = connectionsList.filter(c => c.status === "connected").length;
-
-  const connCards = connectionsList.map(renderConnectionCard).join("");
-
-  return `
-    <div class="card" style="margin-top:9px">
-      <div class="card-header">
-        <span class="card-title">${t("tunnel")}</span>
-        <span class="conn-chip ${stChipCls}" style="margin-right:6px">${stChipTxt}</span>
-        <button class="refresh-btn" id="btn-refresh-conns">${ICONS.refresh}</button>
-      </div>
-      <div class="info-row">
-        <span class="info-label">${t("server")}</span>
-        <span class="info-value">${esc(server)}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">${t("duration")}</span>
-        <span class="info-value" id="conn-uptime">${uptimeStr}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">${t("connCountLabel")}</span>
-        <span class="info-value">${activeCount} / ${connCount}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">Kill Switch</span>
-        <span class="info-value"><span class="${settings.kill_switch ? "badge-on" : "badge-off"}">${settings.kill_switch ? "ON" : "OFF"}</span></span>
-      </div>
-    </div>
-
-    <div id="conn-list">${connCards}</div>
-
-    <div class="card" style="margin-top:9px">
-      <div class="card-header"><span class="card-title">${t("proxy")}</span></div>
-      <div class="info-row">
-        <span class="info-label">SOCKS5</span>
-        <span class="info-value">${esc(settings.socks_addr)}:10800</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">Mihomo</span>
-        <span class="info-value">:${settings.mihomo_port}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">IPv6</span>
-        <span class="info-value"><span class="${settings.ipv6 ? "badge-on" : "badge-off"}">${settings.ipv6 ? "ON" : "OFF"}</span></span>
-      </div>
-    </div>
-
-    ${connectionsList.length === 0 ? `
-    <div class="empty-state" style="padding:32px 0;margin-top:9px">
-      <p style="opacity:.4">${t("connNoActive")}</p>
-    </div>` : ""}`;
+  </div>`;
 }
 
 function bindHomeEvents(): void {
@@ -1389,389 +1232,6 @@ function bindHomeEvents(): void {
     isConnected ? await doDisconnect() : await doConnect();
   });
 
-  document.getElementById("ks-home")?.addEventListener("change", function () {
-    settings.kill_switch = (this as HTMLInputElement).checked;
-    persistSettings();
-  });
-
-  document.getElementById("btn-refresh-ip")?.addEventListener("click", () => fetchIpInfo());
-}
-
-async function fetchConnections(): Promise<void> {
-  try {
-    const list = await invoke<ConnectionEntry[]>("get_connections");
-    connectionsList = list || [];
-  } catch {
-    connectionsList = [];
-  }
-}
-
-function fmtBytes(b: number): string {
-  if (b < 1024) return b + " B";
-  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
-  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + " MB";
-  return (b / 1024 / 1024 / 1024).toFixed(2) + " GB";
-}
-
-function marionetteProfileOpts(current?: string): string {
-  const profiles = [
-    { value: "",              label: t("profileNone") },
-    { value: "telegram",      label: "Telegram (Android)" },
-    { value: "telegram_ios",  label: "Telegram (iOS)" },
-    { value: "vk",            label: "VK Messenger (Android)" },
-    { value: "vk_ios",        label: "VK Messenger (iOS)" },
-    { value: "vkvideo",       label: "VK Video" },
-    { value: "instagram",     label: "Instagram (Android)" },
-    { value: "instagram_ios", label: "Instagram (iOS)" },
-    { value: "facebook",      label: "Facebook Messenger (Android)" },
-    { value: "facebook_ios",  label: "Facebook Messenger (iOS)" },
-    { value: "wechat",        label: "WeChat (Android)" },
-    { value: "wechat_ios",    label: "WeChat (iOS)" },
-    { value: "max",           label: "MAX / Mail.ru" },
-    // Music streaming
-    { value: "",              label: t("profileMusicSep"), disabled: true },
-    { value: "spotify",       label: "Spotify" },
-    { value: "yandex_music",  label: "Yandex Music" },
-    { value: "vk_music",      label: "VK Music" },
-    // Video streaming
-    { value: "",              label: t("profileVideoSep"), disabled: true },
-    { value: "youtube",       label: "YouTube" },
-    { value: "vk_video_stream", label: "VK Video Stream" },
-  ];
-  return profiles.map(p =>
-    p.disabled
-      ? `<option disabled>${p.label}</option>`
-      : `<option value="${p.value}" ${(current ?? "") === p.value ? "selected" : ""}>${p.label}</option>`
-  ).join("");
-}
-
-function renderConnectionCard(c: ConnectionEntry): string {
-  const stCls = c.status === "connected" ? "badge-on" : c.status === "failed" ? "badge-off" : "badge-idle";
-  const stTxt = c.status === "connected" ? t("connStatusActive")
-    : c.status === "connecting" ? t("connStatusConnecting")
-    : c.status === "failed" ? t("connStatusFailed")
-    : t("connStatusOff");
-  const expanded = connectionsExpanded.has(c.id);
-
-  const speedBadge = c.rate_limit_kb > 0
-    ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(250,204,21,0.12);color:#fde047">⚡${c.rate_limit_kb}KB/s</span>`
-    : "";
-  const sniBadge = c.sni
-    ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(99,102,241,0.12);color:#a5b4fc" title="SNI: ${esc(c.sni)}">SNI</span>`
-    : "";
-  const bridgeBadge = c.bridge
-    ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(34,197,94,0.12);color:#86efac" title="${esc(c.bridge)}">⇒bridge</span>`
-    : "";
-
-  return `
-  <div class="card conn-entry" data-id="${esc(c.id)}" style="margin-bottom:8px">
-    <div class="card-header" style="cursor:pointer" data-expand="${esc(c.id)}">
-      <span class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span class="${stCls}" style="font-size:11px;padding:2px 7px">${stTxt}</span>
-        <span style="opacity:.55;font-size:12px">${esc(c.server)}</span>
-        ${speedBadge}${sniBadge}${bridgeBadge}
-      </span>
-      <span style="display:flex;align-items:center;gap:8px">
-        <label class="toggle" onclick="event.stopPropagation()">
-          <input type="checkbox" class="conn-toggle" data-id="${esc(c.id)}" ${c.enabled ? "checked" : ""}>
-          <span class="toggle-slider"></span>
-        </label>
-        <span style="opacity:.4;font-size:13px">${expanded ? "▲" : "▼"}</span>
-      </span>
-    </div>
-
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;gap:8px">
-      <div style="display:flex;gap:10px">
-        <span class="info-label">↑ ${fmtBytes(c.bytes_up)}</span>
-        <span class="info-value">↓ ${fmtBytes(c.bytes_down)}</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px">
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;opacity:.7;cursor:pointer" title="${t("connMuxTitle")}" onclick="event.stopPropagation()">
-          <input type="checkbox" class="conn-mux-quick" data-id="${esc(c.id)}" ${c.mux ? "checked" : ""} style="accent-color:var(--accent,#a78bfa)">
-          MUX
-        </label>
-        <button class="btn-sm conn-duplicate-quick" data-id="${esc(c.id)}" onclick="event.stopPropagation()"
-          style="font-size:11px;padding:1px 7px" title="${t("connDuplicate")}">⊕</button>
-        <button class="btn-sm btn-danger conn-close-quick" data-id="${esc(c.id)}" onclick="event.stopPropagation()"
-          style="font-size:11px;padding:1px 7px" title="${t("connClose")}">✕</button>
-      </div>
-    </div>
-
-    ${expanded ? `
-    <div class="conn-details" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
-      <div class="info-row" style="align-items:center;margin-bottom:6px">
-        <span class="info-label" style="min-width:90px">SNI</span>
-        <input class="conn-sni input-sm" data-id="${esc(c.id)}" value="${esc(c.sni)}" placeholder="cloudflare.com" style="flex:1">
-        <button class="btn-sm btn-apply conn-sni-apply" data-id="${esc(c.id)}" style="margin-left:6px">${t("connApply")}</button>
-      </div>
-
-      <div class="info-row" style="align-items:center;margin-bottom:6px">
-        <span class="info-label" style="min-width:90px">${t("connPort")}</span>
-        <input class="conn-port input-sm" data-id="${esc(c.id)}" value="${esc(c.server.includes(":") ? c.server.split(":").pop()! : "")}" placeholder="443" style="flex:1;max-width:100px">
-        <button class="btn-sm btn-apply conn-port-apply" data-id="${esc(c.id)}" style="margin-left:6px">${t("connApply")}</button>
-      </div>
-
-      <div class="info-row" style="align-items:center;margin-bottom:6px">
-        <span class="info-label" style="min-width:90px">${t("connBridge")}</span>
-        <input class="conn-bridge input-sm" data-id="${esc(c.id)}" value="${esc(c.bridge)}" placeholder="host:port" style="flex:1">
-        <button class="btn-sm btn-apply conn-bridge-apply" data-id="${esc(c.id)}" style="margin-left:6px">${t("connApply")}</button>
-      </div>
-
-      <div class="info-row" style="align-items:center;margin-bottom:6px">
-        <span class="info-label" style="min-width:90px">${t("connSpeed")}</span>
-        <input class="conn-speed input-sm" data-id="${esc(c.id)}" type="number" min="0" value="${c.rate_limit_kb}" placeholder="0 = нет лимита" style="flex:1;max-width:100px">
-        <button class="btn-sm btn-apply conn-speed-apply" data-id="${esc(c.id)}" style="margin-left:6px">${t("connApply")}</button>
-      </div>
-
-      <div class="ks-row" style="margin-bottom:6px">
-        <span class="ks-label">${t("connObfs")}</span>
-        <label class="toggle">
-          <input type="checkbox" class="conn-obfs-toggle" data-id="${esc(c.id)}" ${c.obfuscated ? "checked" : ""}>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-
-      <div class="ks-row" style="margin-bottom:6px">
-        <span class="ks-label">${t("connMuxTitle")}</span>
-        <label class="toggle">
-          <input type="checkbox" class="conn-mux-toggle" data-id="${esc(c.id)}" ${c.mux ? "checked" : ""}>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-
-      <div class="ks-row" style="margin-bottom:6px">
-        <span class="ks-label" title="${t("connTransportSecureTitle")}" style="cursor:help;border-bottom:1px dashed var(--text-muted)">
-          Transport Secure ⓘ
-        </span>
-        <label class="toggle">
-          <input type="checkbox" class="conn-transport-secure" data-id="${esc(c.id)}" ${!c.force_obfuscation ? "checked" : ""}>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-
-      <div class="info-row" style="align-items:center;margin-bottom:6px">
-        <span class="info-label" style="min-width:90px" title="${t("connMarionetteTitle")}" style="cursor:help;border-bottom:1px dashed var(--text-muted)">
-          Marionette ⓘ
-        </span>
-        <select class="conn-profile-sel input-sm" data-id="${esc(c.id)}" style="flex:1;max-width:220px">
-          ${marionetteProfileOpts(c.behavioral_profile)}
-        </select>
-        <button class="btn-sm btn-apply conn-profile-apply" data-id="${esc(c.id)}" style="margin-left:6px">${t("connApply")}</button>
-      </div>
-
-      ${c.error ? `<div style="color:var(--danger);font-size:12px;margin-top:6px">${esc(c.error)}</div>` : ""}
-    </div>` : ""}
-  </div>`;
-}
-
-function renderAgentPanel(): string {
-  const a = _agentStats;
-  if (!a || (a as any).state === "disabled") {
-    return `<div class="card" style="margin-top:9px;opacity:.55">
-      <div class="card-header"><span class="card-title">${t("agentTransport")}</span></div>
-      <div style="padding:8px 0;font-size:12px;color:var(--text-muted)">${t("agentNotRunning")}</div>
-    </div>`;
-  }
-
-  const stateNames: Record<string | number, string> = {
-    0: t("agentIdle"),
-    1: t("agentProbing"),
-    2: t("agentRotating"),
-    3: t("agentConnected"),
-    4: t("agentBlocked"),
-  };
-  const stateName = stateNames[a.state] ?? String(a.state);
-  const stateColor = a.state === 3 ? "var(--success)" : a.state === 4 ? "var(--danger)" : "var(--text-muted)";
-
-  const arms = (a.arms || []);
-  const maxQ = Math.max(...arms.map(x => x.q_value), 0.01);
-
-  const armRows = arms.map(arm => {
-    const barW = Math.round((arm.q_value / maxQ) * 100);
-    const isActive = a.arms[a.current_arm]?.name === arm.name;
-    const okColor = arm.last_ok ? "var(--success)" : "var(--danger)";
-    const streakStr = arm.streak > 0 ? `+${arm.streak}` : String(arm.streak);
-    return `<div style="margin:5px 0">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-        <span style="font-size:12px;font-weight:${isActive ? 600 : 400};min-width:90px">${esc(arm.name)}${isActive ? " ▶" : ""}</span>
-        <div style="flex:1;height:6px;background:var(--border-color);border-radius:3px;overflow:hidden">
-          <div style="height:100%;width:${barW}%;background:var(--accent);border-radius:3px;transition:width .3s"></div>
-        </div>
-        <span style="font-size:11px;color:var(--text-muted);min-width:36px;text-align:right">Q=${arm.q_value.toFixed(2)}</span>
-        <span style="font-size:11px;color:${okColor};min-width:18px">${arm.attempts > 0 ? streakStr : "—"}</span>
-      </div>
-      <div style="font-size:10px;color:var(--text-muted);padding-left:98px">${arm.attempts > 0 ? `${arm.successes}/${arm.attempts} ok · ${Math.round(arm.avg_ms)}ms` : t("agentNoData")}</div>
-    </div>`;
-  }).join("");
-
-  return `<div class="card" style="margin-top:9px">
-    <div class="card-header">
-      <span class="card-title">${t("agentTransportUCB")}</span>
-      <button class="refresh-btn" id="btn-agent-refresh" title="${t("agentRefresh")}">${ICONS.refresh}</button>
-    </div>
-    <div class="info-row">
-      <span class="info-label">${t("agentState")}</span>
-      <span class="info-value" style="color:${stateColor}">${stateName}</span>
-    </div>
-    <div class="info-row">
-      <span class="info-label">${t("agentProbesRotations")}</span>
-      <span class="info-value">${a.total_probes} / ${a.total_rotations}</span>
-    </div>
-    <div style="margin:10px 0 4px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${t("agentQValues")}</div>
-    ${armRows}
-    <div style="margin-top:10px">
-      <button class="btn-sm" id="btn-agent-apply" style="font-size:12px;padding:5px 14px">${t("agentApply")}</button>
-    </div>
-  </div>`;
-}
-
-function bindConnectionsEvents(): void {
-  document.getElementById("btn-refresh-conns")?.addEventListener("click", async () => {
-    const btn = document.getElementById("btn-refresh-conns") as HTMLButtonElement | null;
-    if (btn) btn.disabled = true;
-    await Promise.all([fetchConnections(), fetchAgentStats()]);
-    if (btn) btn.disabled = false;
-    renderPage();
-  });
-
-  document.querySelectorAll<HTMLElement>("[data-expand]").forEach(el => {
-    el.addEventListener("click", () => {
-      const id = el.dataset.expand!;
-      if (connectionsExpanded.has(id)) connectionsExpanded.delete(id);
-      else connectionsExpanded.add(id);
-      renderPage();
-    });
-  });
-
-  document.querySelectorAll<HTMLInputElement>(".conn-toggle").forEach(cb => {
-    cb.addEventListener("change", async () => {
-      const id = cb.dataset.id!;
-      await invoke("toggle_connection", { id, enabled: cb.checked }).catch(() => {});
-      await fetchConnections();
-      renderPage();
-    });
-  });
-
-  document.querySelectorAll<HTMLInputElement>(".conn-obfs-toggle").forEach(cb => {
-    cb.addEventListener("change", async () => {
-      const id = cb.dataset.id!;
-      await invoke("toggle_obfuscation", { id, enabled: cb.checked }).catch(() => {});
-    });
-  });
-
-  document.querySelectorAll<HTMLInputElement>(".conn-mux-toggle").forEach(cb => {
-    cb.addEventListener("change", async () => {
-      const id = cb.dataset.id!;
-      await invoke("set_connection_mux", { id, enabled: cb.checked }).catch(() => {});
-    });
-  });
-
-  document.querySelectorAll<HTMLInputElement>(".conn-mux-quick").forEach(cb => {
-    cb.addEventListener("change", async () => {
-      const id = cb.dataset.id!;
-      await invoke("set_connection_mux", { id, enabled: cb.checked }).catch(() => {});
-      showToast(cb.checked ? t("muxEnabled") : t("muxDisabled"), "success", 1500);
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-close-quick").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.dataset.id!;
-      await invoke("close_connection", { id }).catch(() => {});
-      connectionsExpanded.delete(id);
-      showToast(t("connClosed"), "info", 2000);
-      await fetchConnections();
-      renderPage();
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-duplicate-quick").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.dataset.id!;
-      const newId = await invoke<string>("duplicate_connection", { id }).catch(() => "");
-      if (newId) {
-        connectionsExpanded.add(newId);
-        showToast(`${t("duplicatedTo")} ${newId}`, "success", 2500);
-      }
-      await fetchConnections();
-      renderPage();
-    });
-  });
-
-  // Transport Secure toggle: ON = доверяем транспорту (force_obfuscation OFF)
-  document.querySelectorAll<HTMLInputElement>(".conn-transport-secure").forEach(cb => {
-    cb.addEventListener("change", async () => {
-      const id = cb.dataset.id!;
-      await invoke("set_transport_secure", { id, enabled: cb.checked })
-        .catch(err => showToast(String(err), "error", 3000));
-      showToast(
-        cb.checked ? t("connTransportSecureOn") : t("connTransportSecureOff"),
-        "info", 2500
-      );
-    });
-  });
-
-  // Marionette: применить поведенческий профиль
-  document.querySelectorAll<HTMLButtonElement>(".conn-profile-apply").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.dataset.id!;
-      const sel = document.querySelector<HTMLSelectElement>(`.conn-profile-sel[data-id="${id}"]`);
-      if (!sel) return;
-      try {
-        await invoke("set_behavioral_profile", { id, profile: sel.value });
-        showToast(
-          sel.value
-            ? `${t("profileSet")} ${sel.value}`
-            : t("marionetteDisabled"),
-          "success", 2000
-        );
-      } catch (err) {
-        showToast(String(err), "error", 4000);
-      }
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-port-apply").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.dataset.id!;
-      const inp = document.querySelector<HTMLInputElement>(`.conn-port[data-id="${id}"]`);
-      if (!inp || !inp.value.trim()) return;
-      await invoke("change_connection_port", { id, port: inp.value.trim() }).catch(() => {});
-      showToast(t("portUpdated"), "success", 1800);
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-sni-apply").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.dataset.id!;
-      const inp = document.querySelector<HTMLInputElement>(`.conn-sni[data-id="${id}"]`);
-      if (!inp) return;
-      await invoke("set_connection_sni", { id, sni: inp.value }).catch(() => {});
-      showToast("SNI updated", "success", 1800);
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-bridge-apply").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.dataset.id!;
-      const inp = document.querySelector<HTMLInputElement>(`.conn-bridge[data-id="${id}"]`);
-      if (!inp) return;
-      await invoke("set_connection_bridge", { id, bridge: inp.value }).catch(() => {});
-      showToast(t("bridgeUpdated"), "success", 1800);
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>(".conn-speed-apply").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.dataset.id!;
-      const inp = document.querySelector<HTMLInputElement>(`.conn-speed[data-id="${id}"]`);
-      if (!inp) return;
-      const kb = parseInt(inp.value) || 0;
-      await invoke("set_connection_speed", { id, rateLimitKb: kb }).catch(() => {});
-      showToast(t("speedUpdated"), "success", 1800);
-    });
-  });
-
 }
 
 function renderProfileList(): string {
@@ -1782,7 +1242,13 @@ function renderProfileList(): string {
           <div class="profile-info"><span>${ICONS.user}</span><span>${esc(p.name)}</span></div>
           <div class="profile-actions">
             <button class="btn-use-profile" data-id="${p.id}" title="${t("subSelectKey")}">${ICONS.play}</button>
-            <button class="btn-del-profile" data-id="${p.id}" title="${t("subDelete")}">${ICONS.x}</button>
+            <div class="key-menu-wrap">
+              <button class="btn-profile-menu" data-id="${p.id}" title="${t("more")}">${ICONS.kebab}</button>
+              <div class="key-menu" data-profile="${p.id}" hidden>
+                <button class="km-item btn-copy-profile" data-key="${esc(p.key)}">${ICONS.copy}<span>${t("copy")}</span></button>
+                <button class="km-item km-danger btn-del-profile" data-id="${p.id}">${ICONS.x}<span>${t("subDelete")}</span></button>
+              </div>
+            </div>
           </div>
         </div>`).join("");
 }
@@ -1842,8 +1308,29 @@ function bindProfileEvents(): void {
       if (p) { settings.conn_key = p.key; persistSettings(); currentPage = "home"; renderNav(); renderPage(); }
     });
   });
+  document.querySelectorAll<HTMLElement>(".btn-profile-menu").forEach(el => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = el.dataset.id!;
+      const menu = document.querySelector<HTMLElement>(`.key-menu[data-profile="${id}"]`);
+      const isOpen = menu ? !menu.hidden : false;
+      document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+      if (menu) menu.hidden = isOpen;
+    });
+  });
+  document.querySelectorAll<HTMLElement>(".btn-copy-profile").forEach(el => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      clipboardWrite(el.dataset.key ?? "");
+      document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+      showToast(t("copied"), "success", 1500);
+    });
+  });
   document.querySelectorAll<HTMLElement>(".btn-del-profile").forEach(el => {
-    el.addEventListener("click", () => { profiles = profiles.filter(x => x.id !== el.dataset.id); saveProfiles(); renderPage(); });
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      profiles = profiles.filter(x => x.id !== el.dataset.id); saveProfiles(); renderPage();
+    });
   });
 
   document.getElementById("btn-add-sub")?.addEventListener("click", () => showSubModal());
@@ -2539,6 +2026,7 @@ function renderSettings(): string {
         </div>
         <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-tls-fragment" ${settings.tls_fragment ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
       </div>
+      <div class="setting-row"><span class="setting-label">${t("killSwitch")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ks" ${settings.kill_switch ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><span class="setting-label">${t("ipv6Label")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ipv6" ${settings.ipv6 ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row" style="align-items:flex-start">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
@@ -2604,9 +2092,6 @@ function renderSettings(): string {
       <div class="setting-row">
         <button class="btn-sm" id="btn-check-updates" style="width:100%">${t("checkUpdates")}</button>
       </div>
-    </div>
-    <div class="settings-section">
-      ${renderAgentPanel()}
     </div>
     `;
   }
@@ -2677,6 +2162,7 @@ function renderSettings(): string {
     </div>
     <div class="settings-section">
       <div class="settings-section-title">${t("advanced")}</div>
+      <div class="setting-row"><span class="setting-label">${t("killSwitch")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ks" ${settings.kill_switch ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row" style="align-items:center">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
           <span class="setting-label">${t("mitmInspection")}</span>
@@ -2714,9 +2200,6 @@ function renderSettings(): string {
       </div>
     </div>
     <div class="settings-section">
-      ${renderAgentPanel()}
-    </div>
-    <div class="settings-section">
       <div class="settings-section-title">TLS Fingerprint</div>
       <div style="display:flex;flex-direction:column;gap:6px">
         <span style="font-size:12px;opacity:.55">${t("fpBrowser")}</span>
@@ -2736,23 +2219,10 @@ function renderSettings(): string {
 }
 
 function bindSettingsEvents(): void {
-  document.getElementById("btn-agent-refresh")?.addEventListener("click", async () => {
-    await fetchAgentStats();
-    renderPage();
-  });
-
-  document.getElementById("btn-agent-apply")?.addEventListener("click", async () => {
-    try {
-      const rec = await invoke<{ transport: string; server: string }>("agent_recommend");
-      if (!rec.transport) { showToast(t("noRecommendation"), "error"); return; }
-      // Apply to all enabled connections
-      const connected = connectionsList.filter(c => c.status === "connected" || c.status === "connecting");
-      if (connected.length === 0) { showToast(t("noActiveConns"), "error"); return; }
-      await Promise.all(connected.map(c => invoke("switch_transport", { id: c.id, transport: rec.transport }).catch(() => {})));
-      showToast(`${t("transportSet")} ${rec.transport}`, "success", 3000);
-      await fetchConnections();
-      renderPage();
-    } catch (e) { showToast(String(e), "error"); }
+  (document.getElementById("set-ks") as HTMLInputElement)?.addEventListener("change", function () {
+    settings.kill_switch = this.checked;
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
   });
 
   const fpSelect = document.getElementById("set-fingerprint");
@@ -3151,11 +2621,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     loadRoutingRules(),
     loadBlocklist(),
     checkStatus(),
-    fetchConnections(),
-    fetchAgentStats(),
   ]);
   renderShell();
-  fetchIpInfo(); fetchSysInfo();
+  fetchSysInfo();
   startSubAutoCheck();
 
   // On Android autostart means "reconnect once after a phone reboot" — handled
@@ -3172,18 +2640,4 @@ window.addEventListener("DOMContentLoaded", async () => {
     await checkStatus();
     if (prev !== isConnected) updateHome();
   }, 10000);
-
-  // periodic connections list refresh while on the home page
-  setInterval(async () => {
-    if (currentPage !== "home") return;
-    await Promise.all([fetchConnections(), fetchAgentStats()]);
-    if (currentPage !== "home") return;
-    const main = document.getElementById("main-content")!;
-    const scrollY = main.scrollTop;
-    main.innerHTML = renderHome();
-    bindHomeEvents();
-    bindConnectionsEvents();
-    bindProfileEvents();
-    main.scrollTop = scrollY;
-  }, 15000);
 });
