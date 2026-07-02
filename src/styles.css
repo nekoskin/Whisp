@@ -871,6 +871,16 @@ body {
   box-shadow: var(--elev-1);
 }
 
+.profile-card.key-active {
+  border-color: var(--md-ok);
+  background: rgba(26, 122, 84, 0.08);
+}
+
+.sub-key-row.key-active {
+  background: rgba(26, 122, 84, 0.08);
+  border-radius: var(--s-sm);
+}
+
 .profile-card:hover {
   border-color: var(--md-outline);
   background: var(--md-surface-high);

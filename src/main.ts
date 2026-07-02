@@ -133,6 +133,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     loading: "Загрузка…",
     copied: "Скопировано",
     vpnConnected: "Подключено",
+    switchingKey: "Переключение ключа...", pleaseWait: "Подождите, идёт переключение...",
     vpnDisconnected: "Отключено",
     muxOn: "MUX включён",
     muxOff: "MUX выключен",
@@ -315,6 +316,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     loading: "Loading…",
     copied: "Copied",
     vpnConnected: "Connected",
+    switchingKey: "Switching key...", pleaseWait: "Please wait, switching in progress...",
     vpnDisconnected: "Disconnected",
     muxOn: "MUX on",
     muxOff: "MUX off",
@@ -497,6 +499,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     loading: "加载中…",
     copied: "已复制",
     vpnConnected: "已连接",
+    switchingKey: "正在切换密钥...", pleaseWait: "请稍候，正在切换...",
     vpnDisconnected: "已断开",
     muxOn: "MUX已开启",
     muxOff: "MUX已关闭",
@@ -679,6 +682,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     loading: "در حال بارگذاری…",
     copied: "کپی شد",
     vpnConnected: "متصل شد",
+    switchingKey: "در حال تعویض کلید...", pleaseWait: "لطفاً صبر کنید، در حال تعویض...",
     vpnDisconnected: "قطع شد",
     muxOn: "MUX روشن شد",
     muxOff: "MUX خاموش شد",
@@ -1006,6 +1010,28 @@ async function doDisconnect(): Promise<void> {
   if (currentPage === "home") renderPage();
 }
 
+// Switches the active connection key. If a tunnel is already up (or mid-
+// connect), live-reconnects with the new key instead of just storing it —
+// otherwise the change would silently do nothing until the user manually
+// disconnects and reconnects themselves.
+async function switchToKey(newKey: string): Promise<void> {
+  if (isConnecting) {
+    showToast(t("pleaseWait"), "info", 2000);
+    return;
+  }
+  const wasActive = isConnected;
+  const isSameKey = settings.conn_key === newKey;
+  settings.conn_key = newKey;
+  persistSettings();
+  currentPage = "home";
+  renderNav();
+  renderPage();
+  if (!wasActive || isSameKey) return;
+  showToast(t("switchingKey"), "info", 2500);
+  await doDisconnect();
+  await doConnect();
+}
+
 async function checkStatus(): Promise<void> {
   try {
     const was = isConnected;
@@ -1278,9 +1304,11 @@ function renderKeysList(): string {
 function renderProfileList(): string {
   return profiles.length === 0
     ? ""
-    : profiles.map(p => `
-        <div class="profile-card">
-          <div class="profile-info"><span>${ICONS.user}</span><span>${esc(p.name)}</span></div>
+    : profiles.map(p => {
+        const isActive = isConnected && settings.conn_key === p.key;
+        return `
+        <div class="profile-card${isActive ? " key-active" : ""}">
+          <div class="profile-info"><span>${ICONS.user}</span><span>${esc(p.name)}</span>${isActive ? `<span class="badge-on" style="font-size:10px;padding:1px 6px;flex-shrink:0">${t("active")}</span>` : ""}</div>
           <div class="profile-actions">
             <button class="btn-use-profile" data-id="${p.id}" title="${t("subSelectKey")}">${ICONS.play}</button>
             <div class="key-menu-wrap">
@@ -1291,7 +1319,8 @@ function renderProfileList(): string {
               </div>
             </div>
           </div>
-        </div>`).join("");
+        </div>`;
+      }).join("");
 }
 
 function renderSubList(): string {
@@ -1304,9 +1333,11 @@ function renderSubList(): string {
             : pr === "timeout" ? `<span class="ping-val timeout">${t("pingTimeout")}</span>`
             : pr !== undefined ? `<span class="ping-val ok">${pr}${t("pingMs")}</span>`
             : "";
+          const keyIsActive = isConnected && settings.conn_key === k;
           return `
-          <div class="sub-key-row">
+          <div class="sub-key-row${keyIsActive ? " key-active" : ""}">
             <span class="sub-key-val" title="${esc(k)}">${esc(k.length > 50 ? k.slice(0, 50) + "…" : k)}</span>
+            ${keyIsActive ? `<span class="badge-on" style="font-size:10px;padding:1px 6px;flex-shrink:0">${t("active")}</span>` : ""}
             ${pingLabel}
             <button class="btn-use-sub-key" data-sub="${s.id}" data-idx="${i}" title="${t("subSelectKey")}">${ICONS.play}</button>
             <div class="key-menu-wrap">
@@ -1409,7 +1440,7 @@ function bindProfileEvents(): void {
   document.querySelectorAll<HTMLElement>(".btn-use-profile").forEach(el => {
     el.addEventListener("click", () => {
       const p = profiles.find(x => x.id === el.dataset.id);
-      if (p) { settings.conn_key = p.key; persistSettings(); currentPage = "home"; renderNav(); renderPage(); }
+      if (p) switchToKey(p.key);
     });
   });
   document.querySelectorAll<HTMLElement>(".btn-profile-menu").forEach(el => {
@@ -1532,7 +1563,7 @@ function bindProfileEvents(): void {
       invoke("rename_subscription", { id: subId, name: newName.trim() }).then(() => {
         sub.name = newName.trim();
         renderPage();
-      }).catch(() => { });
+      }).catch((e: unknown) => showToast(String(e), "error", 4000));
     });
   });
 
@@ -1553,22 +1584,20 @@ function bindProfileEvents(): void {
   document.querySelectorAll<HTMLElement>(".btn-del-sub").forEach(el => {
     el.addEventListener("click", async () => {
       const id = el.dataset.id!;
-      await invoke("delete_subscription", { id }).catch(() => {/**/});
-      subscriptions = subscriptions.filter(s => s.id !== id);
-      renderPage();
+      try {
+        await invoke("delete_subscription", { id });
+        subscriptions = subscriptions.filter(s => s.id !== id);
+        renderPage();
+      } catch (e) {
+        showToast(String(e), "error", 4000);
+      }
     });
   });
   document.querySelectorAll<HTMLElement>(".btn-use-sub-key").forEach(el => {
     el.addEventListener("click", () => {
       const sub = subscriptions.find(s => s.id === el.dataset.sub);
       const idx = parseInt(el.dataset.idx ?? "0", 10);
-      if (sub && sub.keys[idx]) {
-        settings.conn_key = sub.keys[idx];
-        persistSettings();
-        currentPage = "home";
-        renderNav();
-        renderPage();
-      }
+      if (sub && sub.keys[idx]) switchToKey(sub.keys[idx]);
     });
   });
 }
