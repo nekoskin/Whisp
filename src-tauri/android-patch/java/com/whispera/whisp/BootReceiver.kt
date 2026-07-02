@@ -5,21 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 
-/**
- * Перезапускает VPN один раз после ребута телефона, если пользователь включил
- * автозапуск и была активная сессия. НЕ срабатывает при каждом открытии
- * приложения — только на BOOT_COMPLETED.
- *
- * Работает в процессе :vpn (см. manifest), поэтому читает те же SharedPreferences
- * "whisp_vpn", что пишет WhispVpnService.saveParams(). Флаг auto_connect и conn_key
- * сохраняются при подключении; на ACTION_STOP параметры чистятся, так что после
- * ручного отключения ребут ничего не поднимает.
- */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent?) {
-        val action = intent?.action ?: return
-        if (action != Intent.ACTION_BOOT_COMPLETED &&
-            action != "android.intent.action.QUICKBOOT_POWERON"
+        val receivedAction = intent?.action ?: return
+        if (receivedAction != Intent.ACTION_BOOT_COMPLETED &&
+            receivedAction != "android.intent.action.QUICKBOOT_POWERON"
         ) return
 
         val p = ctx.getSharedPreferences("whisp_vpn", Context.MODE_PRIVATE)
