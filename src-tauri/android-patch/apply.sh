@@ -94,7 +94,33 @@ if "fileTree" not in src:
     src = re.sub(r"(dependencies \{)", r"\1\n" + dep, src, count=1)
     print("[android-patch] gradle: singbox.aar dependency added")
 
+# CameraX 1.5.1 (притянут plugin-barcode-scanner) требует compileSdk >= 35 —
+# шаблон tauri-cli генерирует compileSdk 34.
+new_src = re.sub(r"compileSdk\s*=\s*\d+", "compileSdk = 35", src)
+if new_src != src:
+    src = new_src
+    print("[android-patch] gradle: compileSdk bumped to 35 (CameraX requirement)")
+
 p.write_text(src, encoding="utf-8")
+PY
+fi
+
+# Тот же CameraX 1.5.1 требует Android Gradle Plugin >= 8.6.0 — шаблон
+# tauri-cli генерирует более старый AGP в корневом build.gradle.kts.
+ROOT_GRADLE="$GEN/build.gradle.kts"
+if [ -f "$ROOT_GRADLE" ]; then
+  python3 - <<PY
+import pathlib, re
+p = pathlib.Path("$ROOT_GRADLE")
+src = p.read_text(encoding="utf-8")
+new_src = re.sub(
+    r'com\.android\.tools\.build:gradle:[0-9.]+',
+    'com.android.tools.build:gradle:8.6.0',
+    src,
+)
+if new_src != src:
+    p.write_text(new_src, encoding="utf-8")
+    print("[android-patch] gradle: AGP bumped to 8.6.0 (CameraX requirement)")
 PY
 fi
 
