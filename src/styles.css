@@ -973,6 +973,67 @@ button.spinning svg {
 .ping-val.timeout { color: var(--danger, #e55); }
 .ping-val.pinging { color: var(--md-outline); }
 
+.btn-use-sub-key {
+  background: transparent;
+  border: none;
+  color: var(--md-primary);
+  padding: 4px;
+  border-radius: var(--s-full);
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.btn-use-sub-key:hover { background: var(--md-secondary-cont); }
+
+/* Per-key kebab (⋯) menu */
+.key-menu-wrap { position: relative; flex-shrink: 0; display: inline-flex; }
+.btn-key-menu {
+  background: transparent;
+  border: none;
+  color: var(--md-on-surface-var);
+  padding: 4px;
+  border-radius: var(--s-full);
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.btn-key-menu:hover { background: rgba(255,255,255,.06); color: var(--md-on-surface); }
+.key-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 30;
+  min-width: 150px;
+  background: var(--md-surface-high);
+  border: 1px solid var(--md-outline-var);
+  border-radius: var(--s-md);
+  box-shadow: var(--elev-2);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.key-menu[hidden] { display: none; }
+.km-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--md-on-surface);
+  font-size: 12px;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: var(--s-sm);
+  cursor: pointer;
+}
+.km-item:hover { background: var(--md-secondary-cont); }
+.km-item svg { flex-shrink: 0; opacity: .8; }
+.km-item.km-danger { color: var(--danger, #e55); }
+.km-item.km-danger:hover { background: rgba(229,85,85,.12); }
+
 .section-header {
   display: flex;
   align-items: center;

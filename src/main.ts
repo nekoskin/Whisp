@@ -18,6 +18,7 @@ const ICONS = {
   link: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`,
   ping: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
   pencil: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+  kebab: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>`,
 };
 
 interface MultiBridgeEntry {
@@ -117,7 +118,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     subName: "Название", subUrl: "URL подписки", subUrlHint: "https://server/sub/TOKEN",
     noSubscriptions: "Нет подписок", subKeys: "ключей", subRefreshing: "Обновление...", subAdded: "Подписка добавлена",
     subRefresh: "Обновить", subDelete: "Удалить", subLastUpdated: "Обновлено",
-    subSelectKey: "Выбрать ключ", subRename: "Переименовать",
+    subSelectKey: "Выбрать ключ", subRename: "Переименовать", more: "Ещё",
     pingKey: "Пинг", pingAll: "Пинг всех", pingMs: "мс", pingTimeout: "timeout", pingRunning: "...",
     loading: "Загрузка…",
     copied: "Скопировано",
@@ -296,7 +297,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     subName: "Name", subUrl: "Subscription URL", subUrlHint: "https://server/sub/TOKEN",
     noSubscriptions: "No subscriptions", subKeys: "keys", subRefreshing: "Refreshing...", subAdded: "Subscription added",
     subRefresh: "Refresh", subDelete: "Delete", subLastUpdated: "Updated",
-    subSelectKey: "Use key", subRename: "Rename",
+    subSelectKey: "Use key", subRename: "Rename", more: "More",
     pingKey: "Ping", pingAll: "Ping all", pingMs: "ms", pingTimeout: "timeout", pingRunning: "...",
     loading: "Loading…",
     copied: "Copied",
@@ -475,7 +476,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     subName: "名称", subUrl: "订阅URL", subUrlHint: "https://server/sub/TOKEN",
     noSubscriptions: "无订阅", subKeys: "密钥", subRefreshing: "更新中...", subAdded: "订阅已添加",
     subRefresh: "刷新", subDelete: "删除", subLastUpdated: "已更新",
-    subSelectKey: "使用密钥", subRename: "重命名",
+    subSelectKey: "使用密钥", subRename: "重命名", more: "更多",
     pingKey: "延迟", pingAll: "全部延迟", pingMs: "毫秒", pingTimeout: "超时", pingRunning: "...",
     loading: "加载中…",
     copied: "已复制",
@@ -654,7 +655,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     subName: "نام", subUrl: "URL اشتراک", subUrlHint: "https://server/sub/TOKEN",
     noSubscriptions: "اشتراکی وجود ندارد", subKeys: "کلیدها", subRefreshing: "در حال بروزرسانی...", subAdded: "اشتراک اضافه شد",
     subRefresh: "بروزرسانی", subDelete: "حذف", subLastUpdated: "بروزرسانی شده",
-    subSelectKey: "استفاده از کلید", subRename: "تغییر نام",
+    subSelectKey: "استفاده از کلید", subRename: "تغییر نام", more: "بیشتر",
     pingKey: "پینگ", pingAll: "پینگ همه", pingMs: "میلی‌ثانیه", pingTimeout: "تایم‌اوت", pingRunning: "...",
     loading: "در حال بارگذاری…",
     copied: "کپی شد",
@@ -1800,8 +1801,15 @@ function renderSubList(): string {
           <div class="sub-key-row">
             <span class="sub-key-val" title="${esc(k)}">${esc(k.length > 50 ? k.slice(0, 50) + "…" : k)}</span>
             ${pingLabel}
-            <button class="btn-ping-key" data-sub="${s.id}" data-idx="${i}" data-key="${esc(k)}" title="${t("pingKey")}">${ICONS.ping}</button>
-            <button class="btn-use-sub-key" data-sub="${s.id}" data-idx="${i}">${ICONS.play}</button>
+            <button class="btn-use-sub-key" data-sub="${s.id}" data-idx="${i}" title="${t("subSelectKey")}">${ICONS.play}</button>
+            <div class="key-menu-wrap">
+              <button class="btn-key-menu" data-sub="${s.id}" data-idx="${i}" title="${t("more")}">${ICONS.kebab}</button>
+              <div class="key-menu" data-sub="${s.id}" data-idx="${i}" hidden>
+                <button class="km-item btn-ping-key" data-sub="${s.id}" data-idx="${i}" data-key="${esc(k)}">${ICONS.ping}<span>${t("pingKey")}</span></button>
+                <button class="km-item btn-copy-key" data-key="${esc(k)}">${ICONS.copy}<span>${t("copy")}</span></button>
+                <button class="km-item km-danger btn-del-key" data-sub="${s.id}" data-idx="${i}">${ICONS.x}<span>${t("subDelete")}</span></button>
+              </div>
+            </div>
           </div>`;
         }).join("");
         const updLabel = s.updated ? `<span class="sub-meta">${t("subLastUpdated")}: ${s.updated.slice(0, 10)}</span>` : "";
@@ -1852,12 +1860,48 @@ function bindProfileEvents(): void {
     });
   });
 
+  document.querySelectorAll<HTMLElement>(".btn-key-menu").forEach(el => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const subId = el.dataset.sub!;
+      const idx = el.dataset.idx!;
+      const menu = document.querySelector<HTMLElement>(`.key-menu[data-sub="${subId}"][data-idx="${idx}"]`);
+      const isOpen = menu ? !menu.hidden : false;
+      document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+      if (menu) menu.hidden = isOpen;
+    });
+  });
+  document.querySelectorAll<HTMLElement>(".btn-copy-key").forEach(el => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      clipboardWrite(el.dataset.key ?? "");
+      document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+      showToast(t("copied"), "success", 1500);
+    });
+  });
+  document.querySelectorAll<HTMLElement>(".btn-del-key").forEach(el => {
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const subId = el.dataset.sub!;
+      const idx = parseInt(el.dataset.idx ?? "0", 10);
+      try {
+        const updated = await invoke<Subscription>("delete_sub_key", { id: subId, index: idx });
+        subscriptions = subscriptions.map(s => s.id === subId ? updated : s);
+      } catch (err) {
+        showToast(String(err), "error", 3000);
+      }
+      renderPage();
+    });
+  });
+
   document.querySelectorAll<HTMLElement>(".btn-ping-key").forEach(el => {
-    el.addEventListener("click", async () => {
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
       const subId = el.dataset.sub!;
       const idx = parseInt(el.dataset.idx ?? "0", 10);
       const key = el.dataset.key!;
       const mapKey = `${subId}:${idx}`;
+      document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
       pingResults.set(mapKey, "pinging");
       renderPage();
       try {
@@ -3099,6 +3143,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   loadLang(); loadProfiles();
   await loadSettings();
   initNotifications().catch(() => {});
+  document.addEventListener("click", () => {
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+  });
   await Promise.all([
     loadSubscriptions(),
     loadRoutingRules(),

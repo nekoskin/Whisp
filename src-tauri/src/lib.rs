@@ -1462,6 +1462,22 @@ fn rename_subscription(app: tauri::AppHandle, id: String, name: String) -> Resul
 }
 
 #[tauri::command]
+fn delete_sub_key(app: tauri::AppHandle, id: String, index: usize) -> Result<SubscriptionEntry, String> {
+    let mut subs = load_subs(&app);
+    let idx = subs.iter().position(|s| s.id == id).ok_or("Subscription not found")?;
+    if index >= subs[idx].keys.len() {
+        return Err("key index out of range".into());
+    }
+    subs[idx].keys.remove(index);
+    if index < subs[idx].servers.len() {
+        subs[idx].servers.remove(index);
+    }
+    let result = subs[idx].clone();
+    save_subs(&app, &subs);
+    Ok(result)
+}
+
+#[tauri::command]
 async fn check_subscription_update(
     app: tauri::AppHandle,
     id: String,
@@ -1956,6 +1972,7 @@ pub fn run() {
             refresh_subscription,
             delete_subscription,
             rename_subscription,
+            delete_sub_key,
             check_subscription_update,
             ping_key,
             get_connections,
