@@ -34,6 +34,7 @@ keyring = "3"
 # Нативный VPN-ядро для Android (чистый Rust rules engine + JNI-мост).
 # На desktop не подключается: там роутинг делает mihomo sidecar.
 whisp-vpn-android = { path = "crates/whisp-vpn-android", features = ["jni-bindings"] }
+tauri-plugin-barcode-scanner = "2"
 
 [features]
 default = ["custom-protocol"]

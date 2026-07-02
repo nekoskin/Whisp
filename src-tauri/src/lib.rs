@@ -1840,6 +1840,8 @@ pub fn run() {
             let _ = &app;
             #[cfg(target_os = "android")]
             {
+                app.handle().plugin(tauri_plugin_barcode_scanner::init())?;
+
                 let init_app = app.handle().clone();
                 tauri::async_runtime::spawn_blocking(move || {
                     if whisp_vpn_android::service_intent::is_vpn_service_running() {

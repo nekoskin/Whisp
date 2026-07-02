@@ -919,8 +919,6 @@ body {
   min-width: 30px;
   flex: 1;
 }
-.sub-card .sub-meta { flex-shrink: 0; white-space: nowrap; }
-
 /* M3 Icon Button */
 .profile-actions button {
   background: transparent;
@@ -1059,12 +1057,6 @@ button.spinning svg {
   letter-spacing: 2px;
   color: var(--md-primary);
 }
-.sub-meta {
-  font-size: 10px;
-  color: var(--md-outline);
-  margin-left: 4px;
-}
-
 /* ══════════════════════════════════════════════════════════════
    LOGS
 ══════════════════════════════════════════════════════════════ */

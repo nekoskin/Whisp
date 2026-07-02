@@ -1,0 +1,12 @@
+{
+  "identifier": "android",
+  "description": "permissions only relevant on Android (barcode-scanner plugin is not a desktop dependency)",
+  "local": true,
+  "platforms": ["android"],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "barcode-scanner:default"
+  ]
+}

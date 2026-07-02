@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { writeText as clipboardWrite, readText as clipboardRead } from "@tauri-apps/plugin-clipboard-manager";
+import { scan as qrScan, Format as QrFormat } from "@tauri-apps/plugin-barcode-scanner";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import "./styles.css";
 
@@ -92,7 +93,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "Активные соединения", connectToSee: "Подключитесь чтобы увидеть соединения",
     noProfiles: "Нет сохранённых профилей", addProfile: "Добавить ключ",
     keysSection: "Ключи", noKeys: "Нет сохранённых ключей и подписок",
-    pasteFromClipboard: "Вставить из буфера обмена", pasteJson: "Вставить JSON", copyJson: "Копировать JSON",
+    pasteFromClipboard: "Вставить из буфера обмена", scanQr: "Сканировать QR-код", qrScanFailed: "Не удалось отсканировать QR-код", pasteJson: "Вставить JSON", copyJson: "Копировать JSON",
     jsonData: "JSON", jsonParseError: "Некорректный JSON", jsonImported: "Импортировано записей:", jsonCopied: "JSON скопирован в буфер обмена",
     clipboardEmpty: "Буфер обмена пуст", clipboardReadFailed: "Не удалось прочитать буфер обмена", clipboardWriteFailed: "Не удалось скопировать в буфер обмена",
     pasteUnrecognized: "Не удалось распознать содержимое. Ожидается whispera:// ключ или https:// ссылка",
@@ -213,6 +214,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     multibridgeNone: "Нет бриджей",
     multibridgeAllTraffic: "весь трафик",
     subUpdated: "Подписка обновлена",
+    subUpdateAvailableToast: "Доступно обновление подписки",
     subUpdateFailed: "Ошибка обновления",
     secretCopied: "Secret скопирован",
     updateAvailable: "Установлена актуальная версия",
@@ -275,7 +277,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "Active connections", connectToSee: "Connect to see connections",
     noProfiles: "No saved profiles", addProfile: "Add key",
     keysSection: "Keys", noKeys: "No saved keys or subscriptions",
-    pasteFromClipboard: "Paste from clipboard", pasteJson: "Paste JSON", copyJson: "Copy JSON",
+    pasteFromClipboard: "Paste from clipboard", scanQr: "Scan QR code", qrScanFailed: "Failed to scan QR code", pasteJson: "Paste JSON", copyJson: "Copy JSON",
     jsonData: "JSON", jsonParseError: "Invalid JSON", jsonImported: "Imported entries:", jsonCopied: "JSON copied to clipboard",
     clipboardEmpty: "Clipboard is empty", clipboardReadFailed: "Failed to read clipboard", clipboardWriteFailed: "Failed to copy to clipboard",
     pasteUnrecognized: "Could not recognize the content. Expected a whispera:// key or an https:// link",
@@ -396,6 +398,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     multibridgeNone: "None configured",
     multibridgeAllTraffic: "all traffic",
     subUpdated: "Subscription updated",
+    subUpdateAvailableToast: "Subscription update available",
     subUpdateFailed: "Update failed",
     secretCopied: "Secret copied",
     updateAvailable: "Already up to date",
@@ -458,7 +461,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "活跃连接", connectToSee: "连接后查看连接",
     noProfiles: "无保存配置", addProfile: "添加密钥",
     keysSection: "密钥", noKeys: "没有已保存的密钥或订阅",
-    pasteFromClipboard: "从剪贴板粘贴", pasteJson: "粘贴 JSON", copyJson: "复制 JSON",
+    pasteFromClipboard: "从剪贴板粘贴", scanQr: "扫描二维码", qrScanFailed: "二维码扫描失败", pasteJson: "粘贴 JSON", copyJson: "复制 JSON",
     jsonData: "JSON", jsonParseError: "JSON 格式无效", jsonImported: "已导入条目：", jsonCopied: "JSON 已复制到剪贴板",
     clipboardEmpty: "剪贴板为空", clipboardReadFailed: "读取剪贴板失败", clipboardWriteFailed: "复制到剪贴板失败",
     pasteUnrecognized: "无法识别内容。需要 whispera:// 密钥或 https:// 链接",
@@ -579,6 +582,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     multibridgeNone: "未配置",
     multibridgeAllTraffic: "所有流量",
     subUpdated: "订阅已更新",
+    subUpdateAvailableToast: "订阅有可用更新",
     subUpdateFailed: "更新失败",
     secretCopied: "Secret已复制",
     updateAvailable: "已是最新版本",
@@ -641,7 +645,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     activeConns: "اتصالات فعال", connectToSee: "برای مشاهده متصل شوید",
     noProfiles: "پروفایلی ذخیره نشده", addProfile: "افزودن کلید",
     keysSection: "کلیدها", noKeys: "کلید یا اشتراکی ذخیره نشده",
-    pasteFromClipboard: "جای‌گذاری از کلیپ‌بورد", pasteJson: "جای‌گذاری JSON", copyJson: "کپی JSON",
+    pasteFromClipboard: "جای‌گذاری از کلیپ‌بورد", scanQr: "اسکن کد QR", qrScanFailed: "اسکن کد QR ناموفق بود", pasteJson: "جای‌گذاری JSON", copyJson: "کپی JSON",
     jsonData: "JSON", jsonParseError: "JSON نامعتبر", jsonImported: "موارد وارد شده:", jsonCopied: "JSON در کلیپ‌بورد کپی شد",
     clipboardEmpty: "کلیپ‌بورد خالی است", clipboardReadFailed: "خواندن کلیپ‌بورد ناموفق بود", clipboardWriteFailed: "کپی در کلیپ‌بورد ناموفق بود",
     pasteUnrecognized: "محتوا شناسایی نشد. کلید whispera:// یا لینک https:// مورد نیاز است",
@@ -762,6 +766,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     multibridgeNone: "پیکربندی نشده",
     multibridgeAllTraffic: "همه ترافیک",
     subUpdated: "اشتراک به‌روز شد",
+    subUpdateAvailableToast: "بروزرسانی اشتراک موجود است",
     subUpdateFailed: "به‌روزرسانی ناموفق",
     secretCopied: "Secret کپی شد",
     updateAvailable: "نسخه به‌روز نصب است",
@@ -909,15 +914,23 @@ async function loadSubscriptions(): Promise<void> {
 }
 
 async function autoCheckSubscriptions(): Promise<void> {
+  const newlyAvailable: Subscription[] = [];
   for (const sub of subscriptions) {
     try {
       const remote = await invoke<Subscription>("check_subscription_update", { id: sub.id });
-      if (remote && remote.updated !== sub.updated) {
+      // Only flag+notify once per pending update — re-checking every cycle
+      // shouldn't re-notify for the same still-unrefreshed version.
+      if (remote && remote.updated !== sub.updated && !subUpdateAvailable.has(sub.id)) {
         subUpdateAvailable.add(sub.id);
+        newlyAvailable.push(sub);
       }
     } catch {/**/}
   }
-  if (subUpdateAvailable.size > 0 && currentPage === "home") renderPage();
+  if (newlyAvailable.length === 0) return;
+  if (currentPage === "home") renderPage();
+  const names = newlyAvailable.map(s => s.name || s.url).join(", ");
+  showToast(`${t("subUpdateAvailableToast")}: ${names}`, "info", 5000);
+  osNotify(t("subUpdateAvailableToast"), names);
 }
 
 const SUB_AUTO_CHECK_INTERVAL_MS = 10 * 60 * 1000;
@@ -1271,6 +1284,7 @@ function renderHome(): string {
           <button class="km-item" id="btn-add-key-single">${ICONS.user}<span>${t("addProfile")}</span></button>
           <button class="km-item" id="btn-add-key-sub">${ICONS.link}<span>${t("addSubscription")}</span></button>
           <button class="km-item" id="btn-add-key-paste">${ICONS.clipboard}<span>${t("pasteFromClipboard")}</span></button>
+          ${isAndroid ? `<button class="km-item" id="btn-add-key-qr">${ICONS.qr}<span>${t("scanQr")}</span></button>` : ""}
           <button class="km-item" id="btn-add-key-import-json">${ICONS.code}<span>${t("pasteJson")}</span></button>
           <button class="km-item" id="btn-add-key-export-json">${ICONS.copy}<span>${t("copyJson")}</span></button>
           <button class="km-item" id="btn-refresh-all-subs">${ICONS.refresh}<span>${t("refreshAllSubs")}</span></button>
@@ -1356,7 +1370,6 @@ function renderSubList(): string {
               <span class="sub-collapse-arrow" data-sub-id="${s.id}" style="opacity:.4;font-size:11px;flex-shrink:0">▶</span>
               <span>${ICONS.link}</span>
               <span class="sub-name" title="${esc(s.name || s.url)}">${esc(s.name || s.url)}</span>
-              <span class="sub-meta">${s.keys.length} ${t("subKeys")}</span>
             </div>
             <div class="profile-actions">
               <button class="btn-ping-all-sub" data-id="${s.id}" title="${t("pingAll")}">${ICONS.ping}</button>
@@ -1398,6 +1411,16 @@ function bindProfileEvents(): void {
       showToast(t("clipboardReadFailed"), "error", 2500);
     }
   });
+  document.getElementById("btn-add-key-qr")?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    try {
+      const result = await qrScan({ windowed: true, formats: [QrFormat.QRCode] });
+      handlePastedOrScannedText(result.content);
+    } catch {
+      showToast(t("qrScanFailed"), "error", 2500);
+    }
+  });
   document.getElementById("btn-add-key-import-json")?.addEventListener("click", (e) => {
     e.stopPropagation();
     document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
@@ -1409,6 +1432,7 @@ function bindProfileEvents(): void {
     try {
       await clipboardWrite(JSON.stringify({ profiles, subscriptions }));
       showToast(t("jsonCopied"), "success", 3000);
+      osNotify(t("jsonCopied"), `${profiles.length + subscriptions.length}`);
     } catch {
       showToast(t("clipboardWriteFailed"), "error", 2500);
     }
@@ -1426,6 +1450,7 @@ function bindProfileEvents(): void {
       if (updated) { subscriptions[i] = updated; ok++; }
     });
     showToast(`${t("subsRefreshedSummary")} ${ok}/${total}`, ok === total ? "success" : "info", 3000);
+    if (ok > 0) osNotify(t("subUpdated"), `${t("subsRefreshedSummary")} ${ok}/${total}`);
     renderPage();
   });
   document.getElementById("btn-toggle-sub-auto")?.addEventListener("click", (e) => {
@@ -1577,6 +1602,7 @@ function bindProfileEvents(): void {
         subscriptions = subscriptions.map(s => s.id === id ? updated : s);
         subUpdateAvailable.delete(id);
         showToast(t("subUpdated"), "success");
+        osNotify(t("subUpdated"), updated.name || updated.url);
       } catch { showToast(t("subUpdateFailed"), "error"); }
       renderPage();
     });
@@ -1695,6 +1721,7 @@ function showImportJsonModal(): void {
       }
       ov.remove();
       showToast(`${t("jsonImported")} ${importedProfiles + importedSubs}`, "success", 3000);
+      osNotify(t("jsonImported"), `${importedProfiles + importedSubs}`);
       if (currentPage === "home") renderPage();
     } catch (e) {
       errEl.textContent = String(e);
