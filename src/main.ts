@@ -3158,7 +3158,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   fetchIpInfo(); fetchSysInfo();
   startSubAutoCheck();
 
-  if (settings.auto_connect && !isConnected && settings.conn_key && !isConnecting) {
+  // On Android autostart means "reconnect once after a phone reboot" — handled
+  // natively by BootReceiver, NOT on every app launch. So skip auto-connect on
+  // open for Android; on desktop keep connect-on-launch behaviour.
+  if (!isAndroid && settings.auto_connect && !isConnected && settings.conn_key && !isConnecting) {
     doConnect();
   }
   setInterval(() => { if (isConnected && connectTime) tickUptime(); }, 1000);

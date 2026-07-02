@@ -25,6 +25,7 @@ class WhispVpnService : VpnService() {
         const val TAG = "WhispVpnService"
         const val ACTION_START = "com.whispera.whisp.ACTION_VPN_START"
         const val ACTION_STOP  = "com.whispera.whisp.ACTION_VPN_STOP"
+        const val ACTION_BOOT  = "com.whispera.whisp.ACTION_VPN_BOOT"
         const val EXTRA_CONN_KEY   = "com.whispera.whisp.EXTRA_CONN_KEY"
         const val EXTRA_RULES_JSON = "com.whispera.whisp.EXTRA_RULES_JSON"
         const val EXTRA_VPN_DNS    = "com.whispera.whisp.EXTRA_VPN_DNS"
@@ -36,6 +37,7 @@ class WhispVpnService : VpnService() {
         const val EXTRA_DNS_STRATEGY = "com.whispera.whisp.EXTRA_DNS_STRATEGY"
         const val EXTRA_MTU        = "com.whispera.whisp.EXTRA_MTU"
         const val EXTRA_TLS_FRAGMENT = "com.whispera.whisp.EXTRA_TLS_FRAGMENT"
+        const val EXTRA_AUTO_CONNECT = "com.whispera.whisp.EXTRA_AUTO_CONNECT"
         const val EXTRA_MIXED_PORT = "com.whispera.whisp.EXTRA_MIXED_PORT"
         const val EXTRA_ALLOW_LAN  = "com.whispera.whisp.EXTRA_ALLOW_LAN"
         const val EXTRA_SOCKS_USER = "com.whispera.whisp.EXTRA_SOCKS_USER"
@@ -79,6 +81,7 @@ class WhispVpnService : VpnService() {
     private var pendingDnsStrategy: String = "fakeip"
     private var pendingMtu: Int = 1500
     private var pendingTlsFragment: Boolean = false
+    private var pendingAutoConnect: Boolean = false
     private var pendingMixedPort: Int = 0
     private var pendingAllowLan: Boolean = false
     private var pendingSocksUser: String = ""
@@ -105,6 +108,7 @@ class WhispVpnService : VpnService() {
             .putString("dns_strategy", pendingDnsStrategy)
             .putInt("mtu",            pendingMtu)
             .putBoolean("tls_fragment", pendingTlsFragment)
+            .putBoolean("auto_connect", pendingAutoConnect)
             .putInt("mixed_port",     pendingMixedPort)
             .putBoolean("allow_lan",  pendingAllowLan)
             .putString("socks_user",  pendingSocksUser)
@@ -127,6 +131,7 @@ class WhispVpnService : VpnService() {
         pendingDnsStrategy = p.getString("dns_strategy", "fakeip") ?: "fakeip"
         pendingMtu       = p.getInt("mtu", 1500)
         pendingTlsFragment = p.getBoolean("tls_fragment", false)
+        pendingAutoConnect = p.getBoolean("auto_connect", false)
         pendingMixedPort = p.getInt("mixed_port", 0)
         pendingAllowLan  = p.getBoolean("allow_lan", false)
         pendingSocksUser = p.getString("socks_user", "") ?: ""
@@ -147,6 +152,19 @@ class WhispVpnService : VpnService() {
                     stopVpn()
                     return START_NOT_STICKY
                 }
+                ACTION_BOOT -> {
+                    try { startForegroundCompat() } catch (t: Throwable) {
+                        toast("startForeground: ${t.message}"); stopSelf(); return START_NOT_STICKY
+                    }
+                    // Восстанавливаем последнюю сессию из prefs; поднимаем только если
+                    // был ключ и включён автозапуск. Иначе — тихо гасим сервис.
+                    if (!restoreParams() || !pendingAutoConnect) {
+                        stopVpn(); return START_NOT_STICKY
+                    }
+                    isRunning = true
+                    startVpnSafe()
+                    return START_STICKY
+                }
                 else -> {
                     try { startForegroundCompat() } catch (t: Throwable) {
                         toast("startForeground: ${t.message}"); stopSelf(); return START_NOT_STICKY
@@ -163,6 +181,7 @@ class WhispVpnService : VpnService() {
                         pendingDnsStrategy = intent.getStringExtra(EXTRA_DNS_STRATEGY)?.takeIf { it in listOf("fakeip","local") } ?: "fakeip"
                         pendingMtu       = intent.getStringExtra(EXTRA_MTU)?.toIntOrNull()?.coerceIn(576, 9000) ?: 1500
                         pendingTlsFragment = (intent.getStringExtra(EXTRA_TLS_FRAGMENT) ?: "0") == "1"
+                        pendingAutoConnect = (intent.getStringExtra(EXTRA_AUTO_CONNECT) ?: "0") == "1"
                         pendingMixedPort = intent.getStringExtra(EXTRA_MIXED_PORT)?.toIntOrNull() ?: 0
                         pendingAllowLan  = (intent.getStringExtra(EXTRA_ALLOW_LAN) ?: "0") == "1"
                         pendingSocksUser = intent.getStringExtra(EXTRA_SOCKS_USER) ?: ""

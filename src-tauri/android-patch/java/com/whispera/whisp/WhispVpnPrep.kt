@@ -34,6 +34,7 @@ object WhispVpnPrep {
     @Volatile private var pendingDnsStrategy: String = "fakeip"
     @Volatile private var pendingMtu: Int = 1500
     @Volatile private var pendingTlsFragment: Boolean = false
+    @Volatile private var pendingAutoConnect: Boolean = false
 
     @JvmStatic fun setActivity(a: Activity?) { currentActivity = a }
 
@@ -56,7 +57,7 @@ object WhispVpnPrep {
         }
     }
 
-    @JvmStatic fun savePending(rulesJson: String, connKey: String, vpnDns: String, ipv6: Boolean, mitm: Boolean, hwid: Boolean, tlsFingerprint: String, mixedPort: Int, allowLan: Boolean, socksUser: String, socksPass: String, dnsMode: String, dnsStrategy: String, mtu: Int, tlsFragment: Boolean) {
+    @JvmStatic fun savePending(rulesJson: String, connKey: String, vpnDns: String, ipv6: Boolean, mitm: Boolean, hwid: Boolean, tlsFingerprint: String, mixedPort: Int, allowLan: Boolean, socksUser: String, socksPass: String, dnsMode: String, dnsStrategy: String, mtu: Int, tlsFragment: Boolean, autoConnect: Boolean) {
         pendingRulesJson = rulesJson
         pendingConnKey   = connKey
         pendingVpnDns    = vpnDns.ifEmpty { "1.1.1.1" }
@@ -72,6 +73,7 @@ object WhispVpnPrep {
         pendingDnsStrategy = dnsStrategy.ifEmpty { "fakeip" }
         pendingMtu       = if (mtu in 576..9000) mtu else 1500
         pendingTlsFragment = tlsFragment
+        pendingAutoConnect = autoConnect
         hasPending       = true
         Log.d("WhispVpnPrep", "savePending: key=${connKey.take(6)}… dns=$vpnDns ipv6=$ipv6 mitm=$mitm hwid=$hwid fp=$tlsFingerprint mixedPort=$mixedPort allowLan=$allowLan dnsMode=$pendingDnsMode dnsStrategy=$pendingDnsStrategy mtu=$pendingMtu tlsFragment=$pendingTlsFragment")
     }
@@ -97,6 +99,7 @@ object WhispVpnPrep {
             putExtra(WhispVpnService.EXTRA_DNS_STRATEGY, pendingDnsStrategy)
             putExtra(WhispVpnService.EXTRA_MTU,        pendingMtu.toString())
             putExtra(WhispVpnService.EXTRA_TLS_FRAGMENT, if (pendingTlsFragment) "1" else "0")
+            putExtra(WhispVpnService.EXTRA_AUTO_CONNECT, if (pendingAutoConnect) "1" else "0")
         }
         ctx.startForegroundService(intent)
     }

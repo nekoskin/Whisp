@@ -316,6 +316,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         let dns_strategy = settings.dns_strategy.clone();
         let mtu = settings.mtu;
         let tls_fragment = settings.tls_fragment;
+        let auto_connect = settings.auto_connect;
 
         if !conn_key.is_empty() {
             use sha2::Digest;
@@ -338,7 +339,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
                 whisp_vpn_android::service_intent::save_pending_start(
                     &rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid, &tls_fingerprint,
                     mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode,
-                    &dns_strategy, mtu, tls_fragment,
+                    &dns_strategy, mtu, tls_fragment, auto_connect,
                 )
             }));
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
@@ -349,7 +350,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
 
         let res = tokio::task::spawn_blocking(move || {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid, &tls_fingerprint, mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode, &dns_strategy, mtu, tls_fragment)
+                whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid, &tls_fingerprint, mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode, &dns_strategy, mtu, tls_fragment, auto_connect)
             }))
         }).await.map_err(|e| format!("spawn_blocking: {}", e))?;
         match res {
