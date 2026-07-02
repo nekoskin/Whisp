@@ -30,7 +30,6 @@ class WhispVpnService : VpnService() {
         const val EXTRA_RULES_JSON = "com.whispera.whisp.EXTRA_RULES_JSON"
         const val EXTRA_VPN_DNS    = "com.whispera.whisp.EXTRA_VPN_DNS"
         const val EXTRA_IPV6       = "com.whispera.whisp.EXTRA_IPV6"
-        const val EXTRA_MITM       = "com.whispera.whisp.EXTRA_MITM"
         const val EXTRA_HWID       = "com.whispera.whisp.EXTRA_HWID"
         const val EXTRA_TLS_FINGERPRINT = "com.whispera.whisp.EXTRA_TLS_FINGERPRINT"
         const val EXTRA_DNS_MODE   = "com.whispera.whisp.EXTRA_DNS_MODE"
@@ -74,7 +73,6 @@ class WhispVpnService : VpnService() {
     private var pendingRulesJson: String = ""
     private var pendingVpnDns: String = "1.1.1.1"
     private var pendingIpv6: Boolean = true
-    private var pendingMitm: Boolean = false
     private var pendingHwid: Boolean = true
     private var pendingTlsFingerprint: String = ""
     private var pendingDnsMode: String = "udp"
@@ -101,7 +99,6 @@ class WhispVpnService : VpnService() {
             .putString("rules_json",  pendingRulesJson)
             .putString("vpn_dns",     pendingVpnDns)
             .putBoolean("ipv6",       pendingIpv6)
-            .putBoolean("mitm",       pendingMitm)
             .putBoolean("hwid",       pendingHwid)
             .putString("tls_fingerprint", pendingTlsFingerprint)
             .putString("dns_mode",    pendingDnsMode)
@@ -124,7 +121,6 @@ class WhispVpnService : VpnService() {
         pendingRulesJson = p.getString("rules_json", "") ?: ""
         pendingVpnDns    = p.getString("vpn_dns", "1.1.1.1") ?: "1.1.1.1"
         pendingIpv6      = p.getBoolean("ipv6", true)
-        pendingMitm      = p.getBoolean("mitm", false)
         pendingHwid      = p.getBoolean("hwid", true)
         pendingTlsFingerprint = p.getString("tls_fingerprint", "") ?: ""
         pendingDnsMode   = p.getString("dns_mode", "udp") ?: "udp"
@@ -172,7 +168,6 @@ class WhispVpnService : VpnService() {
                         pendingRulesJson = intent.getStringExtra(EXTRA_RULES_JSON) ?: ""
                         pendingVpnDns    = intent.getStringExtra(EXTRA_VPN_DNS)?.takeIf { it.isNotEmpty() } ?: "1.1.1.1"
                         pendingIpv6      = (intent.getStringExtra(EXTRA_IPV6) ?: "1") != "0"
-                        pendingMitm      = (intent.getStringExtra(EXTRA_MITM) ?: "0") == "1"
                         pendingHwid      = (intent.getStringExtra(EXTRA_HWID) ?: "1") != "0"
                         pendingTlsFingerprint = intent.getStringExtra(EXTRA_TLS_FINGERPRINT) ?: ""
                         pendingDnsMode   = intent.getStringExtra(EXTRA_DNS_MODE)?.takeIf { it in listOf("udp","tcp","doh") } ?: "udp"
@@ -333,7 +328,6 @@ class WhispVpnService : VpnService() {
     private fun launchGoClient(path: String): Process? {
         val logPath = "${filesDir.absolutePath}/go-client.log"
         val args = mutableListOf(path, "-key", pendingConnKey, "-socks", "127.0.0.1:1080", "-no-tun", "-log-file", logPath)
-        if (pendingMitm) args.add("-mitm")
         if (!pendingHwid) args.add("-hwid=false")
         if (pendingTlsFingerprint.isNotEmpty() && pendingTlsFingerprint != "random") {
             args.add("-force-fingerprint"); args.add(pendingTlsFingerprint)

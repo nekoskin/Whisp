@@ -132,8 +132,9 @@ print("[android-patch] MainActivity: systemGestureExclusionRects injected")
 PYEOF
 fi
 
-# Copy network_security_config.xml so user-installed CAs are trusted (Android 7+).
-# Without this, MITM CA installed via KeyChain won't be trusted by apps.
+# Copy network_security_config.xml — Android 9+ blocks cleartext HTTP by
+# default; this whitelists 127.0.0.1/localhost so calls to go-client's local
+# control API (multi-bridge status, etc.) still work.
 NSC_SRC="$ROOT/android-patch/res/xml/network_security_config.xml"
 NSC_DST="$GEN/app/src/main/res/xml/network_security_config.xml"
 if [ -f "$NSC_SRC" ]; then

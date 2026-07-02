@@ -45,7 +45,6 @@ interface AppSettings {
   secret: string;
   custom_dns?: string[];
   vpn_dns?: string;
-  mitm_enabled?: boolean;
   spoof_ips?: string;
   multi_bridges?: MultiBridgeEntry[];
   tls_fingerprint?: string;
@@ -235,12 +234,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     bypassRu: "Обходить .ru / .su напрямую",
     bypassRuHint: "GEOIP Россия + домены .ru/.su идут напрямую, минуя VPN",
     advanced: "Расширенные",
-    mitmInspection: "MITM-инспекция",
-    mitmDesc: "Локальный TLS-перехват. Требует установить CA в систему (порт 10899)",
     spoofIpsHint: "Список локальных IP для ротации источника. Пусто = отключено",
     ipSpoofing: "IP Spoofing",
-    caCert: "CA сертификат",
-    installMitmCa: "Установить CA",
     allowLan: "Разрешить LAN",
     allowLanHint: "Другие устройства в сети смогут использовать прокси",
     logLevel: "Уровень логов",
@@ -421,12 +416,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     bypassRu: "Bypass .ru / .su direct",
     bypassRuHint: "GEOIP Russia + .ru/.su domains go direct, bypassing VPN",
     advanced: "Advanced",
-    mitmInspection: "MITM Inspection",
-    mitmDesc: "Local TLS intercept. Install CA cert in system trust store (port 10899)",
     spoofIpsHint: "Local IPs for source rotation. Empty = disabled",
     ipSpoofing: "IP Spoofing",
-    caCert: "CA Certificate",
-    installMitmCa: "Install CA",
     allowLan: "Allow LAN",
     allowLanHint: "Other devices on the network can use this proxy",
     logLevel: "Log Level",
@@ -607,12 +598,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     bypassRu: "直连 .ru / .su 域名",
     bypassRuHint: "俄罗斯IP + .ru/.su域名直连，不走VPN",
     advanced: "高级",
-    mitmInspection: "MITM检查",
-    mitmDesc: "本地TLS拦截。需要在系统信任存储中安装CA证书（端口10899）",
     spoofIpsHint: "用于源轮换的本地IP列表。留空=禁用",
     ipSpoofing: "IP欺骗",
-    caCert: "CA证书",
-    installMitmCa: "安装 CA",
     allowLan: "允许 LAN",
     allowLanHint: "局域网其他设备可使用此代理",
     logLevel: "日志级别",
@@ -793,12 +780,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     bypassRu: "دور زدن .ru / .su مستقیم",
     bypassRuHint: "دامنه‌های روسی و GEOIP Russia مستقیم، بدون VPN",
     advanced: "پیشرفته",
-    mitmInspection: "بازرسی MITM",
-    mitmDesc: "رهگیری TLS محلی. نیاز به نصب گواهی CA در سیستم دارد (پورت 10899)",
     spoofIpsHint: "لیست IP‌های محلی برای چرخش منبع. خالی = غیرفعال",
     ipSpoofing: "جعل IP",
-    caCert: "گواهی CA",
-    installMitmCa: "نصب CA",
     allowLan: "اجازه LAN",
     allowLanHint: "سایر دستگاه‌های شبکه می‌توانند از این پروکسی استفاده کنند",
     logLevel: "سطح لاگ",
@@ -2212,14 +2195,6 @@ function renderSettings(): string {
         </div>
         <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-bypass-ru" ${settings.bypass_ru !== false ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
       </div>
-      <div class="setting-row" style="align-items:center">
-        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
-          <span class="setting-label">${t("mitmInspection")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("mitmDesc")}</span>
-        </div>
-        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-mitm" ${settings.mitm_enabled ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
-      </div>
-      ${settings.mitm_enabled ? `<div class="setting-row"><span class="setting-label">${t("caCert")}</span><div class="setting-value"><button class="btn-sm" id="btn-install-mitm-ca">${t("installMitmCa")}</button></div></div>` : ''}
       <div class="setting-row"><span class="setting-label">${t("theme")}</span><div class="setting-value"><div class="pill-group">
         <button class="pill-btn ${settings.theme === "dark" ? "active" : ""}" data-theme="dark">${t("dark")}</button>
         <button class="pill-btn ${settings.theme === "auto" ? "active" : ""}" data-theme="auto">${t("auto")}</button>
@@ -2340,18 +2315,10 @@ function renderSettings(): string {
     <div class="settings-section">
       <div class="settings-section-title">${t("advanced")}</div>
       <div class="setting-row"><span class="setting-label">${t("killSwitch")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ks" ${settings.kill_switch ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row" style="align-items:center">
-        <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
-          <span class="setting-label">${t("mitmInspection")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("mitmDesc")}</span>
-        </div>
-        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-mitm" ${settings.mitm_enabled ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
-      </div>
       <div class="setting-row"><span class="setting-label">${t("ipSpoofing")}</span><div class="setting-value" style="flex-direction:column;align-items:stretch;gap:4px">
         <input type="text" id="set-spoof-ips" value="${esc(settings.spoof_ips || '')}" placeholder="192.168.1.10, 192.168.1.11" style="width:100%;box-sizing:border-box;text-align:left"/>
         <span style="font-size:11px;opacity:.5">${t("spoofIpsHint")}</span>
       </div></div>
-      ${settings.mitm_enabled ? `<div class="setting-row"><span class="setting-label">${t("caCert")}</span><div class="setting-value"><button class="btn-sm" id="btn-install-mitm-ca">${t("installMitmCa")}</button></div></div>` : ''}
     </div>
     <div class="settings-section">
       <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link">${t("installed")}</span></div>
@@ -2501,21 +2468,6 @@ function bindSettingsEvents(): void {
     settings.vpn_dns = this.value.trim();
     persistSettings();
   });
-  document.getElementById("btn-install-mitm-ca")?.addEventListener("click", () => {
-    invoke("install_mitm_ca")
-      .then(() => showToast(t("caCert") + " OK", "success", 3000))
-      .catch((e: unknown) => {
-        const msg = String(e);
-        if (msg.startsWith("ca_saved_to_downloads:")) {
-          showToast(
-            "CA сохранён в Загрузки. Настройки открыты → Безопасность → Установить сертификат → Файл сертификата CA → whisp-ca.crt",
-            "info", 15000
-          );
-        } else {
-          showToast(msg, "error", 5000);
-        }
-      });
-  });
   document.getElementById("btn-toggle-socks-pass")?.addEventListener("click", () => {
     const inp = document.getElementById("set-socks-pass") as HTMLInputElement | null;
     if (inp) inp.type = inp.type === "password" ? "text" : "password";
@@ -2534,12 +2486,6 @@ function bindSettingsEvents(): void {
     clipboardWrite(url);
   });
 
-  (document.getElementById("set-mitm") as HTMLInputElement)?.addEventListener("change", function () {
-    settings.mitm_enabled = this.checked;
-    persistSettings();
-    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
-    renderPage();
-  });
   (document.getElementById("set-spoof-ips") as HTMLInputElement)?.addEventListener("change", function () {
     settings.spoof_ips = this.value.trim();
     persistSettings();

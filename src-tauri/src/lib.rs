@@ -137,8 +137,6 @@ struct AppSettings {
     #[serde(default)]
     vpn_dns: String,
     #[serde(default)]
-    mitm_enabled: bool,
-    #[serde(default)]
     spoof_ips: String,
     #[serde(default)]
     multi_bridges: Vec<serde_json::Value>,
@@ -203,7 +201,6 @@ impl Default for AppSettings {
             blocklist: Vec::new(),
             custom_dns: Vec::new(),
             vpn_dns: String::new(),
-            mitm_enabled: false,
             spoof_ips: String::new(),
             multi_bridges: Vec::new(),
             tls_fingerprint: String::new(),
@@ -269,7 +266,6 @@ fn save_app_setting(app: tauri::AppHandle, mut settings: AppSettings) -> Result<
                 if settings.custom_dns.is_empty() { settings.custom_dns = existing.custom_dns; }
                 if settings.vpn_dns.is_empty() { settings.vpn_dns = existing.vpn_dns; }
                 if settings.spoof_ips.is_empty() { settings.spoof_ips = existing.spoof_ips; }
-                if !settings.mitm_enabled { settings.mitm_enabled = existing.mitm_enabled; }
                 if settings.multi_bridges.is_empty() { settings.multi_bridges = existing.multi_bridges; }
                 if settings.tls_fingerprint.is_empty() { settings.tls_fingerprint = existing.tls_fingerprint; }
             }
@@ -308,7 +304,6 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         let conn_key = settings.conn_key.clone();
         let vpn_dns = settings.vpn_dns.clone();
         let ipv6 = settings.ipv6;
-        let mitm = settings.mitm_enabled;
         let hwid = settings.hwid;
         let tls_fingerprint = settings.tls_fingerprint.clone();
         let mixed_port = settings.mihomo_port;
@@ -340,7 +335,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         if !prepared {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 whisp_vpn_android::service_intent::save_pending_start(
-                    &rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid, &tls_fingerprint,
+                    &rules_json, &conn_key, &vpn_dns, ipv6, hwid, &tls_fingerprint,
                     mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode,
                     &dns_strategy, mtu, tls_fragment, auto_connect,
                 )
@@ -353,7 +348,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
 
         let res = tokio::task::spawn_blocking(move || {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, mitm, hwid, &tls_fingerprint, mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode, &dns_strategy, mtu, tls_fragment, auto_connect)
+                whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, hwid, &tls_fingerprint, mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode, &dns_strategy, mtu, tls_fragment, auto_connect)
             }))
         }).await.map_err(|e| format!("spawn_blocking: {}", e))?;
         match res {
@@ -390,7 +385,6 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         kill_switch: settings.kill_switch,
         transport: "",
         vpn_dns: &settings.vpn_dns,
-        mitm_enabled: settings.mitm_enabled,
         spoof_ips: &settings.spoof_ips,
         hwid: settings.hwid,
         tls_fingerprint: &settings.tls_fingerprint,
@@ -840,16 +834,6 @@ fn open_config_dir(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "android")]
-fn pem_to_der(pem: &[u8]) -> Option<Vec<u8>> {
-    let s = std::str::from_utf8(pem).ok()?;
-    let b64: String = s.lines()
-        .filter(|l| !l.starts_with('-') && !l.is_empty())
-        .collect();
-    use base64::Engine as _;
-    base64::engine::general_purpose::STANDARD.decode(&b64).ok()
-}
-
 fn validate_external_url(url: &str) -> Result<(), String> {
     if url.len() > 2048 {
         return Err("url too long".into());
@@ -895,92 +879,6 @@ fn open_url(url: String) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
-}
-
-#[tauri::command]
-async fn install_mitm_ca(app: tauri::AppHandle) -> Result<(), String> {
-    let cache_path = app.path().app_config_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("mitm-ca.crt");
-
-    let ca_bytes: Vec<u8> = match reqwest::Client::new()
-        .get("http://127.0.0.1:10801/mitm/ca")
-        .timeout(Duration::from_secs(5))
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            let bytes = resp.bytes().await.map_err(|e| format!("CA read: {}", e))?.to_vec();
-            let _ = fs::write(&cache_path, &bytes);
-            bytes
-        }
-        Err(_) => {
-            if cache_path.exists() {
-                fs::read(&cache_path).map_err(|e| format!("CA cache read: {}", e))?
-            } else {
-                return Err("go-client не запущен и кеш CA отсутствует — сначала подключитесь".into());
-            }
-        }
-    };
-
-    #[cfg(target_os = "android")]
-    {
-        let der = if ca_bytes.starts_with(b"-----BEGIN") {
-            pem_to_der(&ca_bytes).unwrap_or_else(|| ca_bytes.clone())
-        } else {
-            ca_bytes.clone()
-        };
-        match whisp_vpn_android::service_intent::install_ca_cert_android(&der)? {
-            None => return Ok(()),
-            Some(path) => {
-                return Err(format!(
-                    "ca_saved_to_downloads:{}",
-                    path
-                ));
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let tmp_path = std::env::temp_dir().join("whispera-ca.crt");
-        fs::write(&tmp_path, &ca_bytes).map_err(|e| format!("write temp: {}", e))?;
-        let ps_script = format!(
-            "$cert=New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('{}'); \
-             $store=New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','CurrentUser'); \
-             $store.Open('ReadWrite'); $store.Add($cert); $store.Close()",
-            tmp_path.to_string_lossy().replace('\'', "''")
-        );
-        let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-            .output()
-            .map_err(|e| format!("powershell: {}", e))?;
-        let _ = fs::remove_file(&tmp_path);
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            return Err(format!("CA install failed: {}", stderr.trim()));
-        }
-        return Ok(());
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let tmp_path = std::env::temp_dir().join("whispera-ca.crt");
-        fs::write(&tmp_path, &ca_bytes).map_err(|e| format!("write temp: {}", e))?;
-        let status = std::process::Command::new("security")
-            .args(["add-trusted-cert", "-d", "-r", "trustRoot", "-k",
-                   "/Library/Keychains/System.keychain", &tmp_path.to_string_lossy()])
-            .status()
-            .map_err(|e| format!("security: {}", e))?;
-        let _ = fs::remove_file(&tmp_path);
-        if !status.success() {
-            return Err(format!("security exit code {}", status.code().unwrap_or(-1)));
-        }
-        return Ok(());
-    }
-
-    #[allow(unreachable_code)]
-    Err("CA install not supported on this platform".into())
 }
 
 #[tauri::command]
@@ -1271,7 +1169,6 @@ fn install_services(
             kill_switch: settings.kill_switch,
             transport: "",
             vpn_dns: &settings.vpn_dns,
-            mitm_enabled: settings.mitm_enabled,
             spoof_ips: &settings.spoof_ips,
             hwid: settings.hwid,
             tls_fingerprint: &settings.tls_fingerprint,
@@ -1989,7 +1886,6 @@ pub fn run() {
             get_system_info,
             open_config_dir,
             open_url,
-            install_mitm_ca,
             install_services,
             uninstall_services,
             get_routing_rules,

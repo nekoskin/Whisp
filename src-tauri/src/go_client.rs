@@ -24,7 +24,6 @@ pub struct GoClientConfig<'a> {
     pub kill_switch: bool,
     pub transport: &'a str,
     pub vpn_dns: &'a str,
-    pub mitm_enabled: bool,
     pub spoof_ips: &'a str,
     pub hwid: bool,
     pub tls_fingerprint: &'a str,
@@ -216,10 +215,6 @@ impl GoClientManager {
 
         if !cfg.vpn_dns.is_empty() {
             cmd.arg("-dns").arg(cfg.vpn_dns);
-        }
-
-        if cfg.mitm_enabled {
-            cmd.arg("-mitm");
         }
 
         if !cfg.hwid {
