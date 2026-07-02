@@ -1,4 +1,14 @@
 allprojects {
+    buildscript {
+        configurations.all {
+            resolutionStrategy {
+                force 'com.android.tools.build:gradle:8.6.0'
+            }
+        }
+    }
+}
+
+allprojects {
     afterEvaluate { proj ->
         if (proj.name == 'app') {
             proj.dependencies {
