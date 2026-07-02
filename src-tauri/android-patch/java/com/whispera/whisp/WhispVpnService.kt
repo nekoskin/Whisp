@@ -156,8 +156,6 @@ class WhispVpnService : VpnService() {
                     try { startForegroundCompat() } catch (t: Throwable) {
                         toast("startForeground: ${t.message}"); stopSelf(); return START_NOT_STICKY
                     }
-                    // Восстанавливаем последнюю сессию из prefs; поднимаем только если
-                    // был ключ и включён автозапуск. Иначе — тихо гасим сервис.
                     if (!restoreParams() || !pendingAutoConnect) {
                         stopVpn(); return START_NOT_STICKY
                     }

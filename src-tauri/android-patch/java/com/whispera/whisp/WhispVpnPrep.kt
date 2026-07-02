@@ -17,7 +17,6 @@ object WhispVpnPrep {
 
     @Volatile private var currentActivity: Activity? = null
 
-    // Pending VPN params saved before requesting permission; used by onActivityResult
     @Volatile var hasPending: Boolean = false
     @Volatile private var pendingRulesJson: String = ""
     @Volatile private var pendingConnKey: String = ""
@@ -104,19 +103,10 @@ object WhispVpnPrep {
         ctx.startForegroundService(intent)
     }
 
-    /**
-     * Installs a CA certificate.
-     * Returns "ok" if KeyChain intent was launched (Android < 11),
-     * "saved:/path/to/file" if saved to Downloads (Android 11+ blocks KeyChain for CAs),
-     * "error:message" on failure.
-     */
     @JvmStatic fun installCaCert(ctx: Context, certDer: ByteArray): String {
-        // Always save to Downloads so user has the file regardless of Android version
         val savedPath = saveCertToDownloads(ctx, certDer)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+ (API 30+): KeyChain.createInstallIntent() blocks CA cert installation.
-            // Save file + open Security Settings so user just taps Install certificate → CA certificate.
             if (savedPath != null) {
                 try {
                     val intent = Intent(Settings.ACTION_SECURITY_SETTINGS).apply {
@@ -131,7 +121,6 @@ object WhispVpnPrep {
             return "error:Failed to save cert to Downloads"
         }
 
-        // Android < 11: try KeyChain install intent from activity context if available
         val activity = currentActivity
         return try {
             val intent = KeyChain.createInstallIntent().apply {
@@ -154,14 +143,12 @@ object WhispVpnPrep {
     private fun saveCertToDownloads(ctx: Context, certDer: ByteArray): String? {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Android 10+ (API 29+): MediaStore, no WRITE_EXTERNAL_STORAGE needed
                 val existing = ctx.contentResolver.query(
                     MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                     arrayOf(MediaStore.MediaColumns._ID),
                     "${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
                     arrayOf("whisp-ca.crt"), null
                 )
-                // Delete existing entry if present to allow overwrite
                 existing?.use { c ->
                     if (c.moveToFirst()) {
                         val id = c.getLong(0)

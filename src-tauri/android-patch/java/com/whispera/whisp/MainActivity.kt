@@ -32,10 +32,6 @@ class MainActivity : TauriActivity() {
         } catch (_: Throwable) {}
     }
 
-    // When VPN is active, back press moves the app to background instead of killing it.
-    // This fires BEFORE Tauri's CloseRequested event, preventing the Rust side from
-    // attempting to stop service managers and preventing the activity from being destroyed
-    // while a foreground service is keeping the tunnel alive.
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (WhispVpnService.isActuallyRunning(this)) {
