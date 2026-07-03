@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { writeText as clipboardWrite, readText as clipboardRead } from "@tauri-apps/plugin-clipboard-manager";
-import { scan as qrScan, Format as QrFormat } from "@tauri-apps/plugin-barcode-scanner";
+import { scan as qrScan, Format as QrFormat, checkPermissions as qrCheckPermissions, requestPermissions as qrRequestPermissions } from "@tauri-apps/plugin-barcode-scanner";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import "./styles.css";
 
@@ -1403,23 +1403,35 @@ function bindProfileEvents(): void {
   document.getElementById("btn-add-key-paste")?.addEventListener("click", async (e) => {
     e.stopPropagation();
     document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    let text: string | null;
     try {
-      const text = await clipboardRead();
-      if (!text) { showToast(t("clipboardEmpty"), "error", 2500); return; }
-      handlePastedOrScannedText(text);
-    } catch {
+      text = await clipboardRead();
+    } catch (err) {
+      console.error("clipboard read failed", err);
       showToast(t("clipboardReadFailed"), "error", 2500);
+      return;
     }
+    if (!text) { showToast(t("clipboardEmpty"), "error", 2500); return; }
+    handlePastedOrScannedText(text);
   });
   document.getElementById("btn-add-key-qr")?.addEventListener("click", async (e) => {
     e.stopPropagation();
     document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+    let content: string;
     try {
-      const result = await qrScan({ windowed: true, formats: [QrFormat.QRCode] });
-      handlePastedOrScannedText(result.content);
-    } catch {
+      let perm = await qrCheckPermissions();
+      if (perm !== "granted") perm = await qrRequestPermissions();
+      if (perm !== "granted") { showToast(t("qrScanFailed"), "error", 2500); return; }
+      const result = await qrScan({ windowed: false, formats: [QrFormat.QRCode] });
+      content = result?.content ?? "";
+    } catch (err) {
+      console.error("qr scan failed", err);
+      if (/cancel/i.test(String((err as { message?: string })?.message ?? err ?? ""))) return;
       showToast(t("qrScanFailed"), "error", 2500);
+      return;
     }
+    if (!content) return;
+    handlePastedOrScannedText(content);
   });
   document.getElementById("btn-add-key-import-json")?.addEventListener("click", (e) => {
     e.stopPropagation();
