@@ -862,6 +862,7 @@ let routingRules: RoutingRule[] = [];
 let blocklistRules: RoutingRule[] = [];
 let multiBridges: MultiBridgeEntry[] = [];
 let logLines: string[] = [];
+let logTimes: number[] = [];
 let connectTime: number | null = null;
 let sysInfo = { os: "—", uptime: "—", version: "v0.1.4", admin: false };
 
@@ -988,6 +989,7 @@ async function doConnect(): Promise<void> {
     const msg = await invoke<string>("connect");
     isConnected = true;
     connectTime = Date.now();
+    localStorage.setItem("connectTime", String(connectTime));
     addLog("✓ " + msg);
     startLogPolling();
     playConnectSound();
@@ -1009,6 +1011,7 @@ async function doDisconnect(): Promise<void> {
     const msg = await invoke<string>("disconnect");
     isConnected = false;
     connectTime = null;
+    localStorage.removeItem("connectTime");
     stopLogPolling();
     addLog("○ " + msg);
     playDisconnectSound();
@@ -1048,7 +1051,10 @@ async function checkStatus(): Promise<void> {
   try {
     const was = isConnected;
     isConnected = await invoke<boolean>("get_status");
-    if (isConnected && !was && connectTime === null) connectTime = Date.now();
+    if (isConnected && !was && connectTime === null) {
+      const saved = parseInt(localStorage.getItem("connectTime") || "", 10);
+      connectTime = Number.isFinite(saved) && saved > 0 ? saved : Date.now();
+    }
   } catch {/**/ }
 }
 
@@ -1093,10 +1099,22 @@ function _refreshLogBox(): void {
   if (cnt) cnt.textContent = `${filtered.length}/${logLines.length}`;
 }
 
+const LOG_RETENTION_MS = 60 * 60 * 1000;
+const LOG_MAX_LINES = 5000;
+
 function addLog(line: string): void {
+  const now = Date.now();
   const ts = new Date().toLocaleTimeString();
   logLines.push("[" + ts + "] " + line);
-  if (logLines.length > 500) logLines.shift();
+  logTimes.push(now);
+  const cutoff = now - LOG_RETENTION_MS;
+  let drop = 0;
+  while (drop < logTimes.length && logTimes[drop] < cutoff) drop++;
+  if (logLines.length - drop > LOG_MAX_LINES) drop = logLines.length - LOG_MAX_LINES;
+  if (drop > 0) {
+    logLines.splice(0, drop);
+    logTimes.splice(0, drop);
+  }
   _refreshLogBox();
 }
 
@@ -1205,6 +1223,7 @@ function renderPage(): void {
       bindLogEvents();
       document.getElementById("btn-clear-logs")?.addEventListener("click", () => {
         logLines = [];
+        logTimes = [];
         logSearch = "";
         logFilter = "all";
         renderPage();
@@ -1402,15 +1421,29 @@ function bindProfileEvents(): void {
   document.getElementById("btn-add-key-paste")?.addEventListener("click", async (e) => {
     e.stopPropagation();
     document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
-    let text: string | null;
+    let text: string | null = null;
+    let readErr: unknown = null;
     try {
       text = await clipboardRead();
     } catch (err) {
-      console.error("clipboard read failed", err);
-      showToast(t("clipboardReadFailed"), "error", 2500);
+      readErr = err;
+    }
+    if (!text) {
+      try {
+        text = await navigator.clipboard?.readText();
+      } catch (err) {
+        readErr = readErr ?? err;
+      }
+    }
+    if (!text) {
+      if (readErr) {
+        console.error("clipboard read failed", readErr);
+        showToast(t("clipboardReadFailed"), "error", 2500);
+      } else {
+        showToast(t("clipboardEmpty"), "error", 2500);
+      }
       return;
     }
-    if (!text) { showToast(t("clipboardEmpty"), "error", 2500); return; }
     handlePastedOrScannedText(text);
   });
   document.getElementById("btn-add-key-qr")?.addEventListener("click", async (e) => {
