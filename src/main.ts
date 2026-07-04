@@ -861,7 +861,6 @@ let subAutoCheckTimer: ReturnType<typeof setInterval> | null = null;
 let routingRules: RoutingRule[] = [];
 let blocklistRules: RoutingRule[] = [];
 let multiBridges: MultiBridgeEntry[] = [];
-let currentFingerprint = localStorage.getItem("tls_fingerprint") || "chrome";
 let logLines: string[] = [];
 let connectTime: number | null = null;
 let sysInfo = { os: "—", uptime: "—", version: "v0.1.4", admin: false };
@@ -2189,22 +2188,6 @@ function bindLogEvents(): void {
   }));
 }
 
-function getFPDescription(fp: string): string {
-  const descs: Record<string, Record<Lang, string>> = {
-    chrome:     { ru: "Chrome — самый распространённый, рекомендуется", en: "Chrome — most common, recommended",       zh: "Chrome — 最常用，推荐",              fa: "Chrome — رایج‌ترین، توصیه می‌شود" },
-    chrome_120: { ru: "Chrome 120 — конкретная версия",                 en: "Chrome 120 — specific version",           zh: "Chrome 120 — 指定版本",              fa: "Chrome 120 — نسخه مشخص" },
-    chrome_115: { ru: "Chrome 115 — конкретная версия",                 en: "Chrome 115 — specific version",           zh: "Chrome 115 — 指定版本",              fa: "Chrome 115 — نسخه مشخص" },
-    firefox:    { ru: "Firefox — второй по популярности",               en: "Firefox — second most popular",           zh: "Firefox — 第二受欢迎",              fa: "Firefox — دومین مرورگر محبوب" },
-    firefox_120:{ ru: "Firefox 120 — конкретная версия",                en: "Firefox 120 — specific version",          zh: "Firefox 120 — 指定版本",            fa: "Firefox 120 — نسخه مشخص" },
-    safari:     { ru: "Safari — macOS/iOS браузер Apple",               en: "Safari — Apple macOS/iOS browser",        zh: "Safari — Apple macOS/iOS浏览器",    fa: "Safari — مرورگر Apple macOS/iOS" },
-    ios:        { ru: "iOS Safari — мобильный фингерпринт",             en: "iOS Safari — mobile fingerprint",         zh: "iOS Safari — 移动设备指纹",          fa: "iOS Safari — اثر انگشت موبایل" },
-    android:    { ru: "Android OkHttp — мобильный клиент",              en: "Android OkHttp — mobile client",          zh: "Android OkHttp — 移动客户端",        fa: "Android OkHttp — کلاینت موبایل" },
-    edge:       { ru: "Microsoft Edge — на базе Chromium",              en: "Microsoft Edge — Chromium-based",         zh: "Microsoft Edge — 基于Chromium",     fa: "Microsoft Edge — مبتنی بر Chromium" },
-    random:     { ru: "Случайный фингерпринт каждое подключение",       en: "Random fingerprint per connection",       zh: "每次连接随机指纹",                    fa: "اثر انگشت تصادفی برای هر اتصال" },
-  };
-  return descs[fp]?.[lang] ?? "";
-}
-
 function renderSettings(): string {
   const vpnDnsVal = settings.vpn_dns || "1.1.1.1";
   const vpnDnsPills = [
@@ -2411,22 +2394,6 @@ function renderSettings(): string {
         <button class="btn-sm" id="btn-check-updates" style="width:100%">${t("checkUpdates")}</button>
       </div>
     </div>
-    <div class="settings-section">
-      <div class="settings-section-title">TLS Fingerprint</div>
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <span style="font-size:12px;opacity:.55">${t("fpBrowser")}</span>
-        <div id="set-fingerprint" class="custom-select" data-value="${currentFingerprint}">
-          <div class="custom-select-trigger"><span class="custom-select-label">${({"chrome":"Chrome Auto","chrome_120":"Chrome 120","chrome_115":"Chrome 115","firefox":"Firefox Auto","firefox_120":"Firefox 120","safari":"Safari Auto","ios":"iOS Safari","android":"Android OkHttp","edge":"Edge Auto","random":t("fpRandom")} as Record<string,string>)[currentFingerprint] || currentFingerprint}</span><span class="arrow">▾</span></div>
-          <div class="custom-select-options">
-            ${[["chrome","Chrome Auto"],["chrome_120","Chrome 120"],["chrome_115","Chrome 115"],["firefox","Firefox Auto"],["firefox_120","Firefox 120"],["safari","Safari Auto"],["ios","iOS Safari"],["android","Android OkHttp"],["edge","Edge Auto"],["random",t("fpRandom")]].map(([v,l])=>`<div class="custom-select-option${currentFingerprint===v?" selected":""}" data-value="${v}">${l}</div>`).join("")}
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
-          <span id="fp-desc" style="font-size:12px;opacity:.45;flex:1">${getFPDescription(currentFingerprint)}</span>
-          ${isConnected ? `<button class="btn-sm" id="btn-fp-apply" style="font-size:11px;padding:3px 10px">${t("fpApplyNow")}</button>` : ""}
-        </div>
-      </div>
-    </div>
     `;
 }
 
@@ -2435,54 +2402,6 @@ function bindSettingsEvents(): void {
     settings.kill_switch = this.checked;
     persistSettings();
     if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
-  });
-
-  const fpSelect = document.getElementById("set-fingerprint");
-  if (fpSelect) {
-    const trigger = fpSelect.querySelector(".custom-select-trigger") as HTMLElement;
-    trigger?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      fpSelect.classList.toggle("open");
-    });
-    fpSelect.querySelectorAll(".custom-select-option").forEach((opt) => {
-      opt.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const val = (opt as HTMLElement).dataset.value || "";
-        currentFingerprint = val;
-        fpSelect.dataset.value = val;
-        fpSelect.classList.remove("open");
-        const label = fpSelect.querySelector(".custom-select-label");
-        if (label) label.textContent = opt.textContent || val;
-        fpSelect.querySelectorAll(".custom-select-option").forEach((o) => o.classList.remove("selected"));
-        opt.classList.add("selected");
-        const desc = document.getElementById("fp-desc");
-        if (desc) desc.textContent = getFPDescription(val);
-        localStorage.setItem("tls_fingerprint", val);
-        invoke("patch_app_settings", { patch: { tls_fingerprint: val } }).catch(() => {});
-        showToast(`${t("fingerprintSet")} ${val}`, "success", 2000);
-      });
-    });
-    document.addEventListener("click", () => fpSelect.classList.remove("open"));
-  }
-
-  document.getElementById("btn-fp-apply")?.addEventListener("click", async () => {
-    const btn = document.getElementById("btn-fp-apply") as HTMLButtonElement | null;
-    if (btn) btn.disabled = true;
-    try {
-      // apply_tls_fingerprint only hot-reloads mihomo's own fingerprint (its side
-      // connections); the real tunnel's ClientHello is set by go-client at
-      // startup via -force-fingerprint, so it only takes effect after a reconnect.
-      await invoke("apply_tls_fingerprint").catch(() => {});
-      if (isConnected) {
-        await doDisconnect();
-        await doConnect();
-      }
-      showToast(`${t("fingerprintSet")} ${currentFingerprint}`, "success", 2000);
-    } catch (e) {
-      showToast(String(e), "error", 3000);
-    } finally {
-      if (btn) btn.disabled = false;
-    }
   });
 
   (document.getElementById("set-port") as HTMLInputElement)?.addEventListener("change", function () {
