@@ -1025,6 +1025,51 @@ fn go_client_log_path() -> Option<std::path::PathBuf> {
     None
 }
 
+// read_vpn_log_history returns the tail (~last hour's worth) of the persistent
+// go-client log file so the UI can restore recent logs on launch regardless of
+// connection state, then rebases the incremental offset to EOF so subsequent
+// get_vpn_log polls don't re-deliver the same lines.
+#[tauri::command]
+fn read_vpn_log_history() -> Vec<String> {
+    #[cfg(target_os = "android")]
+    {
+        use std::io::{Read, Seek, SeekFrom};
+        let Some(path) = go_client_log_path() else {
+            return Vec::new();
+        };
+        let Ok(mut f) = std::fs::File::open(&path) else {
+            return Vec::new();
+        };
+        let Ok(meta) = f.metadata() else {
+            return Vec::new();
+        };
+        let len = meta.len();
+        const TAIL: u64 = 256 * 1024;
+        let start = len.saturating_sub(TAIL);
+        if f.seek(SeekFrom::Start(start)).is_err() {
+            return Vec::new();
+        }
+        let mut buf = Vec::new();
+        if f.read_to_end(&mut buf).is_err() {
+            return Vec::new();
+        }
+        if let Ok(mut offset) = GO_CLIENT_LOG_OFFSET.lock() {
+            *offset = len;
+        }
+        let text = if start > 0 {
+            match buf.iter().position(|&b| b == b'\n') {
+                Some(nl) => String::from_utf8_lossy(&buf[nl + 1..]).into_owned(),
+                None => String::new(),
+            }
+        } else {
+            String::from_utf8_lossy(&buf).into_owned()
+        };
+        return text.lines().map(|l| l.to_string()).collect();
+    }
+    #[allow(unreachable_code)]
+    Vec::new()
+}
+
 #[tauri::command]
 fn get_vpn_log() -> Vec<String> {
     #[cfg(target_os = "android")]
@@ -1893,6 +1938,7 @@ pub fn run() {
             get_routing_rules,
             save_routing_rules,
             get_vpn_log,
+            read_vpn_log_history,
             get_blocklist,
             save_blocklist,
             get_subscriptions,

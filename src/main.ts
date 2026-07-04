@@ -1012,7 +1012,6 @@ async function doDisconnect(): Promise<void> {
     isConnected = false;
     connectTime = null;
     localStorage.removeItem("connectTime");
-    stopLogPolling();
     addLog("○ " + msg);
     playDisconnectSound();
     showToast(t("vpnDisconnected"), "info");
@@ -1422,29 +1421,19 @@ function bindProfileEvents(): void {
     e.stopPropagation();
     document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
     let text: string | null = null;
-    let readErr: unknown = null;
     try {
       text = await clipboardRead();
-    } catch (err) {
-      readErr = err;
-    }
+    } catch { /* fall through to fallbacks */ }
     if (!text) {
       try {
         text = await navigator.clipboard?.readText();
-      } catch (err) {
-        readErr = readErr ?? err;
-      }
+      } catch { /* fall through to manual paste */ }
     }
-    if (!text) {
-      if (readErr) {
-        console.error("clipboard read failed", readErr);
-        showToast(t("clipboardReadFailed"), "error", 2500);
-      } else {
-        showToast(t("clipboardEmpty"), "error", 2500);
-      }
-      return;
+    if (text && text.trim()) {
+      handlePastedOrScannedText(text.trim());
+    } else {
+      showPasteKeyModal();
     }
-    handlePastedOrScannedText(text);
   });
   document.getElementById("btn-add-key-qr")?.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -1712,6 +1701,31 @@ function showSubModal(prefillUrl?: string): void {
       errEl.style.display = "";
       btn.disabled = false; btn.textContent = t("save");
     }
+  });
+}
+
+function showPasteKeyModal(): void {
+  const ov = document.createElement("div");
+  ov.className = "modal-overlay";
+  ov.innerHTML = `
+    <div class="modal">
+      <h3>${t("pasteFromClipboard")}</h3>
+      <div class="modal-field">
+        <textarea id="paste-key-text" rows="4" placeholder="whispera:// · vless:// · https://…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="paste-key-cancel">${t("cancel")}</button>
+        <button class="btn-save" id="paste-key-save">${t("save")}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  const ta = document.getElementById("paste-key-text") as HTMLTextAreaElement | null;
+  setTimeout(() => ta?.focus(), 50);
+  document.getElementById("paste-key-cancel")?.addEventListener("click", () => ov.remove());
+  document.getElementById("paste-key-save")?.addEventListener("click", () => {
+    const text = (ta?.value || "").trim();
+    ov.remove();
+    if (text) handlePastedOrScannedText(text);
   });
 }
 
@@ -2164,13 +2178,6 @@ function startLogPolling(): void {
       lines.forEach(l => addLog(l));
     } catch { /* ignore */ }
   }, 2000);
-}
-
-function stopLogPolling(): void {
-  if (_logPollTimer !== null) {
-    clearInterval(_logPollTimer);
-    _logPollTimer = null;
-  }
 }
 
 let logFilter = "all";
@@ -2782,6 +2789,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   renderShell();
   fetchSysInfo();
   startSubAutoCheck();
+  if (isAndroid) {
+    try {
+      const hist = await invoke<string[]>("read_vpn_log_history");
+      hist.forEach(l => addLog(l));
+    } catch { /* ignore */ }
+  }
+  startLogPolling();
 
   // On Android autostart means "reconnect once after a phone reboot" — handled
   // natively by BootReceiver, NOT on every app launch. So skip auto-connect on
