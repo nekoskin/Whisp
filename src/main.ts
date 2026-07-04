@@ -1432,7 +1432,7 @@ function bindProfileEvents(): void {
     if (text && text.trim()) {
       handlePastedOrScannedText(text.trim());
     } else {
-      showPasteKeyModal();
+      showToast(t("clipboardReadFailed"), "error", 2500);
     }
   });
   document.getElementById("btn-add-key-qr")?.addEventListener("click", async (e) => {
@@ -1701,31 +1701,6 @@ function showSubModal(prefillUrl?: string): void {
       errEl.style.display = "";
       btn.disabled = false; btn.textContent = t("save");
     }
-  });
-}
-
-function showPasteKeyModal(): void {
-  const ov = document.createElement("div");
-  ov.className = "modal-overlay";
-  ov.innerHTML = `
-    <div class="modal">
-      <h3>${t("pasteFromClipboard")}</h3>
-      <div class="modal-field">
-        <textarea id="paste-key-text" rows="4" placeholder="whispera:// · vless:// · https://…"></textarea>
-      </div>
-      <div class="modal-actions">
-        <button class="btn-cancel" id="paste-key-cancel">${t("cancel")}</button>
-        <button class="btn-save" id="paste-key-save">${t("save")}</button>
-      </div>
-    </div>`;
-  document.body.appendChild(ov);
-  const ta = document.getElementById("paste-key-text") as HTMLTextAreaElement | null;
-  setTimeout(() => ta?.focus(), 50);
-  document.getElementById("paste-key-cancel")?.addEventListener("click", () => ov.remove());
-  document.getElementById("paste-key-save")?.addEventListener("click", () => {
-    const text = (ta?.value || "").trim();
-    ov.remove();
-    if (text) handlePastedOrScannedText(text);
   });
 }
 
@@ -2615,9 +2590,18 @@ function classifyPastedText(text: string): { kind: "key" | "url" | "unknown"; va
   return { kind: "unknown", value: trimmed };
 }
 
+function addKeyDirect(key: string): void {
+  const name = "Key-" + Math.random().toString(36).slice(2, 6).toUpperCase();
+  profiles.push({ id: Date.now().toString(), name, key });
+  saveProfiles();
+  if (!settings.conn_key) { settings.conn_key = key; persistSettings(); }
+  renderPage();
+  showToast(name, "success", 2000);
+}
+
 function handlePastedOrScannedText(text: string): void {
   const { kind, value } = classifyPastedText(text);
-  if (kind === "key") showProfileModal(value);
+  if (kind === "key") addKeyDirect(value);
   else if (kind === "url") showSubModal(value);
   else showToast(t("pasteUnrecognized"), "error", 3000);
 }
