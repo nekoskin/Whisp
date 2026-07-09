@@ -242,7 +242,7 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		}
 	}
 
-	ruleParts := []string{`{"action":"sniff"}`}
+	ruleParts := []string{`{"action":"sniff"}`, `{"port":53,"action":"hijack-dns"}`}
 	if routesJSON != "" {
 		inner := strings.TrimSpace(routesJSON)
 		inner = strings.TrimPrefix(inner, "[")

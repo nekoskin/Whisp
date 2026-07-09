@@ -173,7 +173,7 @@ fn default_tun() -> String {
     "Mixed".to_string()
 }
 fn default_dns_mode() -> String {
-    "udp".to_string()
+    "doh".to_string()
 }
 fn default_dns_strategy() -> String {
     "fakeip".to_string()
@@ -210,7 +210,7 @@ impl Default for AppSettings {
             allow_lan: false,
             log_level: String::new(),
             routing_mode: String::new(),
-            dns_mode: "udp".to_string(),
+            dns_mode: "doh".to_string(),
             dns_strategy: "fakeip".to_string(),
             mtu: 1500,
             tls_fragment: false,
