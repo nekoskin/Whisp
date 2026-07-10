@@ -18,6 +18,7 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.widget.Toast
+import goclient.Goclient
 import singbox.Singbox
 
 class WhispVpnService : VpnService() {
@@ -66,7 +67,6 @@ class WhispVpnService : VpnService() {
     @Volatile private var vpnStartThread: Thread? = null
 
     private var tunInterface: ParcelFileDescriptor? = null
-    private var goClientProc: Process? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var pendingWake: Runnable? = null
     private var pendingConnKey: String = ""
@@ -229,24 +229,18 @@ class WhispVpnService : VpnService() {
         tunInterface = pfd
         toast("TUN fd=${pfd.fd}")
 
-        val libDir = applicationInfo.nativeLibraryDir
-        val goClientPath = "$libDir/libwhispera-go-client.so"
         val filesAbsDir = filesDir.absolutePath
         val t = Thread({
             try {
                 var socksAddr = ""
-                if (pendingConnKey.isNotEmpty() && java.io.File(goClientPath).exists()) {
-                    val proc = launchGoClient(goClientPath)
-                    if (proc != null) {
-                        goClientProc = proc
-                        socksAddr = "127.0.0.1:1080"
-                        val ready = waitForPort("127.0.0.1", 1080, 4000)
-                        if (ready) toast("go-client started")
-                        else Log.w(TAG, "go-client did not bind on :1080 within 4s, proceeding anyway")
-                        startGoClientWatchdog(goClientPath, proc)
-                    } else {
-                        toast("go-client failed to launch")
-                    }
+                if (pendingConnKey.isNotEmpty()) {
+                    val goLogPath = "${filesDir.absolutePath}/go-client.log"
+                    val fp = if (pendingTlsFingerprint.isNotEmpty() && pendingTlsFingerprint != "random") pendingTlsFingerprint else ""
+                    Log.i(TAG, "go-client Start() in-process")
+                    Goclient.start(pendingConnKey, "127.0.0.1:1080", goLogPath, fp, pendingHwid)
+                    socksAddr = "127.0.0.1:1080"
+                    if (waitForPort("127.0.0.1", 1080, 4000)) toast("go-client started")
+                    else Log.w(TAG, "go-client did not bind on :1080 within 4s, proceeding anyway")
                 }
 
                 if (Thread.currentThread().isInterrupted) return@Thread
@@ -306,69 +300,12 @@ class WhispVpnService : VpnService() {
         Log.i(TAG, "stopVpn")
         unregisterNetworkCallback()
         try { Singbox.stop() } catch (_: Throwable) {}
-        goClientProc?.let { p ->
-            p.destroy()
-            Thread({
-                try {
-                    if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
-                        Log.w(TAG, "go-client did not exit within 2s, forcing kill")
-                        p.destroyForcibly()
-                    }
-                } catch (_: Throwable) {}
-            }, "goclient-stop-wait").apply { isDaemon = true }.start()
-        }
-        goClientProc = null
+        try { Goclient.stop() } catch (_: Throwable) {}
         try { tunInterface?.close() } catch (_: Throwable) {}
         tunInterface = null
         try { stopForegroundCompat() } catch (_: Throwable) {}
         stopping.set(false)
         stopSelf()
-    }
-
-    private fun launchGoClient(path: String): Process? {
-        val logPath = "${filesDir.absolutePath}/go-client.log"
-        val args = mutableListOf(path, "-key", pendingConnKey, "-socks", "127.0.0.1:1080", "-no-tun", "-log-file", logPath)
-        if (!pendingHwid) args.add("-hwid=false")
-        if (pendingTlsFingerprint.isNotEmpty() && pendingTlsFingerprint != "random") {
-            args.add("-force-fingerprint"); args.add(pendingTlsFingerprint)
-        }
-        return try {
-            val p = ProcessBuilder(args).redirectErrorStream(true).start()
-            p.inputStream?.let { s ->
-                Thread({
-                    try {
-                        val br = java.io.BufferedReader(java.io.InputStreamReader(s))
-                        var line: String?
-                        while (br.readLine().also { line = it } != null) Log.i("go-client", line!!)
-                    } catch (_: Throwable) {}
-                }, "goclient-drain").apply { isDaemon = true }.start()
-            }
-            p
-        } catch (t: Throwable) {
-            Log.e(TAG, "launchGoClient: ${t.message}")
-            null
-        }
-    }
-
-    private fun startGoClientWatchdog(path: String, firstProc: Process) {
-        Thread({
-            var proc = firstProc
-            while (!stopping.get() && isRunning) {
-                try { proc.waitFor() } catch (_: InterruptedException) { break }
-                if (stopping.get() || !isRunning) break
-                Log.w(TAG, "go-client exited unexpectedly — restarting in 1s")
-                try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
-                if (stopping.get() || !isRunning) break
-                val newProc = launchGoClient(path) ?: break
-                if (stopping.get()) { newProc.destroy(); break }
-                goClientProc = newProc
-                proc = newProc
-                if (waitForPort("127.0.0.1", 1080, 3000))
-                    Log.i(TAG, "go-client restarted, :1080 ready")
-                else
-                    Log.w(TAG, "go-client restarted but :1080 not ready in 3s")
-            }
-        }, "goclient-watchdog").apply { isDaemon = true }.start()
     }
 
     private fun registerNetworkCallback() {

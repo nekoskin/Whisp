@@ -239,7 +239,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.24.x'
+          go-version: '1.26.x'
 
       - name: Install Rust stable + Android targets
         uses: dtolnay/rust-toolchain@stable
@@ -249,7 +249,7 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
 
-      - name: Resolve Whispera version (Android)
+      - name: Resolve whispera version (Android)
         id: wver
         shell: bash
         run: |
@@ -258,15 +258,23 @@ jobs:
             echo "tag=$PINNED" >> $GITHUB_OUTPUT
           else
             TAG=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/Jalaveyan/Whispera/releases/latest" \
+              "https://api.github.com/repos/nekoskin/whispera/releases/latest" \
               | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
             echo "tag=$TAG" >> $GITHUB_OUTPUT
           fi
 
+      - name: Checkout whispera source (in-process go-client AAR)
+        uses: actions/checkout@v4
+        with:
+          repository: nekoskin/whispera
+          ref: ${{ steps.wver.outputs.tag }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: whispera-src
+
       - name: Download whispera-go-client (arm64)
         uses: robinraju/release-downloader@v1.10
         with:
-          repository: Jalaveyan/Whispera
+          repository: nekoskin/whispera
           tag: ${{ steps.wver.outputs.tag }}
           fileName: 'whispera-go-client-aarch64-linux-android'
           out-file-path: src-tauri/binaries/
@@ -298,7 +306,7 @@ jobs:
         env:
           GONOSUMDB: "*"
           GOFLAGS: "-mod=mod"
-          GOTOOLCHAIN: go1.24.7
+          GOTOOLCHAIN: go1.26.4
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
           MOBILE_VER="v0.0.0-20250813145510-f12310a0cfd9"
@@ -306,13 +314,14 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@${MOBILE_VER}
           mkdir -p src-tauri/gen/android/app/libs
           cd go-android
-          go mod download
+          go mod download github.com/sagernet/sing-box || true
           SB_MOD="$(go env GOPATH)/pkg/mod/github.com/sagernet/sing-box@v1.13.12"
           cp -r "$SB_MOD" ./sing-box-patched
           chmod -R u+w ./sing-box-patched
           go run ./cmd/patch ./sing-box-patched
           echo "" >> go.mod
           echo "replace github.com/sagernet/sing-box v1.13.12 => ./sing-box-patched" >> go.mod
+          go mod tidy
           export NDK_HOME="$ANDROID_NDK_HOME"
           gomobile bind \
             -target=android/arm64 \
@@ -320,7 +329,7 @@ jobs:
             -tags with_gvisor \
             -ldflags=-checklinkname=0 \
             -o ../src-tauri/gen/android/app/libs/singbox.aar \
-            .
+            . whispera/mobile/goclient
           ls -lh ../src-tauri/gen/android/app/libs/singbox.aar
 
       - name: Apply VpnService patch (Kotlin + manifest)

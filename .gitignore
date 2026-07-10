@@ -5,3 +5,7 @@ src-tauri/gen/
 *.pdb
 go-android/patch
 go-android/sing-box-patched/
+
+# in-process go-client: whispera source checked out at CI time
+whispera-src/
+go-android/sing-box-patched/
