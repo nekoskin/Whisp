@@ -306,6 +306,15 @@ class WhispVpnService : VpnService() {
         try { stopForegroundCompat() } catch (_: Throwable) {}
         stopping.set(false)
         stopSelf()
+        // go-client + sing-box run in-process in this ":vpn" process. Graceful
+        // stop can leave go-client's reconnect goroutines alive, so it keeps
+        // reconnecting. Hard-kill the whole ":vpn" process — the exact semantics
+        // of the old forked process.destroy(). The UI runs in a separate process
+        // and is untouched. Deferred so onStartCommand can first return
+        // START_NOT_STICKY (ACTION_STOP), otherwise Android may respawn :vpn.
+        mainHandler.postDelayed({
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }, 250)
     }
 
     private fun registerNetworkCallback() {
