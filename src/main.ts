@@ -2560,7 +2560,7 @@ function bindSettingsEvents(): void {
           invoke("open_url", { url: info.html_url }).catch(() => {});
         });
       } else {
-        content.innerHTML = `<div style="font-size:13px;color:var(--md-primary)">${t("upToDate")} (${esc(info.tag)})</div>`;
+        content.innerHTML = `<div style="font-size:13px;color:var(--md-primary)">${t("upToDate")}${info.tag ? ` (${esc(info.tag)})` : ""}</div>`;
       }
     } catch (e) {
       row.style.display = "flex";

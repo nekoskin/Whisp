@@ -1738,6 +1738,16 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
         .await
         .map_err(|e| format!("GitHub API unavailable: {}", e))?;
 
+    if resp.status().as_u16() == 404 {
+        return Ok(UpdateInfo {
+            tag: String::new(),
+            name: String::new(),
+            body: String::new(),
+            html_url: String::new(),
+            download_url: String::new(),
+            is_newer: false,
+        });
+    }
     if !resp.status().is_success() {
         return Err(format!("GitHub API: HTTP {}", resp.status().as_u16()));
     }
