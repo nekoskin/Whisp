@@ -1026,10 +1026,8 @@ async fn apply_tls_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
 // process, which is where this Tauri command runs. This does NOT rely on
 // whisp_vpn_android::LOG_BUFFER, which lives in the :vpn process and is a
 // separate memory space (Rust statics aren't shared across processes).
-#[cfg(target_os = "android")]
 static GO_CLIENT_LOG_OFFSET: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
 
-#[cfg(target_os = "android")]
 fn go_client_log_path() -> Option<std::path::PathBuf> {
     for candidate in [
         "/data/data/com.whispera.whisp/files/go-client.log",
@@ -1040,6 +1038,10 @@ fn go_client_log_path() -> Option<std::path::PathBuf> {
             return Some(p);
         }
     }
+    let desktop = std::env::temp_dir().join("whispera-go-client.log");
+    if desktop.exists() {
+        return Some(desktop);
+    }
     None
 }
 
@@ -1049,7 +1051,6 @@ fn go_client_log_path() -> Option<std::path::PathBuf> {
 // get_vpn_log polls don't re-deliver the same lines.
 #[tauri::command]
 fn read_vpn_log_history() -> Vec<String> {
-    #[cfg(target_os = "android")]
     {
         use std::io::{Read, Seek, SeekFrom};
         let Some(path) = go_client_log_path() else {
@@ -1090,7 +1091,6 @@ fn read_vpn_log_history() -> Vec<String> {
 
 #[tauri::command]
 fn get_vpn_log() -> Vec<String> {
-    #[cfg(target_os = "android")]
     {
         use std::io::{Read, Seek, SeekFrom};
         let Some(path) = go_client_log_path() else { return Vec::new(); };

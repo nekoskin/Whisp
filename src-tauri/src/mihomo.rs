@@ -122,6 +122,7 @@ impl MihomoManager {
         Ok(())
     }
 
+    #[cfg(windows)]
     fn start_service(&mut self) -> Result<(), String> {
         let out = Command::new("sc")
             .args(["start", SERVICE_NAME])
@@ -178,18 +179,49 @@ impl MihomoManager {
             self.stop()?;
         }
 
-        if service_exists(SERVICE_NAME) {
-            if self.install_service(config_path).is_ok() {
-                if self.start_service().is_ok() {
+        #[cfg(windows)]
+        {
+            if service_exists(SERVICE_NAME) {
+                if self.install_service(config_path).is_ok() && self.start_service().is_ok() {
                     return Ok(());
                 }
             }
+            return if is_admin() {
+                self.start_direct(config_path)
+            } else {
+                self.start_elevated(config_path)
+            };
         }
 
-        if is_admin() {
-            self.start_direct(config_path)
+        #[cfg(unix)]
+        {
+            // Best-effort: raise TUN capabilities on the binary (via pkexec if a
+            // polkit agent is present) so mihomo can build the tun device without
+            // root. If that is not possible (no pkexec/agent) we still start it
+            // directly — mihomo comes up unprivileged and never hard-fails on
+            // elevation; the mixed-port proxy works and TUN is best-effort.
+            if !is_admin() && !mihomo_has_caps(&self.binary_path) {
+                let _ = self.grant_caps();
+            }
+            return self.start_direct(config_path);
+        }
+
+        #[allow(unreachable_code)]
+        Err("unsupported platform".to_string())
+    }
+
+    #[cfg(unix)]
+    fn grant_caps(&self) -> Result<(), String> {
+        let status = Command::new("pkexec")
+            .arg(find_tool("setcap"))
+            .arg("cap_net_admin,cap_net_bind_service=+ep")
+            .arg(&self.binary_path)
+            .status()
+            .map_err(|e| format!("pkexec setcap: {}", e))?;
+        if status.success() {
+            Ok(())
         } else {
-            self.start_elevated(config_path)
+            Err("setcap denied".to_string())
         }
     }
 
@@ -212,6 +244,7 @@ impl MihomoManager {
         Ok(())
     }
 
+    #[cfg(windows)]
     fn start_elevated(&mut self, config_path: &Path) -> Result<(), String> {
         let bin = self.binary_path.to_string_lossy().to_string();
         let cfg = config_path.to_string_lossy().to_string();
@@ -330,6 +363,7 @@ impl Drop for MihomoManager {
 }
 
 
+#[cfg(windows)]
 fn is_admin() -> bool {
     Command::new("net")
         .arg("session")
@@ -341,6 +375,40 @@ fn is_admin() -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(unix)]
+fn is_admin() -> bool {
+    Command::new("id")
+        .arg("-u")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn find_tool(name: &str) -> String {
+    for dir in ["/usr/sbin", "/sbin", "/usr/bin", "/bin"] {
+        let p = format!("{}/{}", dir, name);
+        if Path::new(&p).exists() {
+            return p;
+        }
+    }
+    name.to_string()
+}
+
+#[cfg(unix)]
+fn mihomo_has_caps(bin: &Path) -> bool {
+    Command::new(find_tool("getcap"))
+        .arg(bin)
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .to_lowercase()
+                .contains("cap_net_admin")
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
 fn service_exists(name: &str) -> bool {
     Command::new("sc")
         .args(["query", name])
@@ -420,7 +488,7 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
         .unwrap_or(1080);
 
     let port = cfg.mixed_port;
-    let tun_stack = cfg.tun_stack;
+    let tun_stack = cfg.tun_stack.to_lowercase();
     let ipv6 = cfg.ipv6;
     let nameservers: String = if cfg.custom_dns.is_empty() {
         "    - 77.88.8.8\n    - 77.88.8.1\n    - 8.8.8.8\n    - 1.1.1.1".to_string()
@@ -531,7 +599,8 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
     };
 
     let allow_lan = cfg.allow_lan;
-    let log_level = match cfg.log_level { "debug" | "warning" | "error" | "silent" => cfg.log_level, _ => "info" };
+    let _ = cfg.log_level;
+    let log_level = "info";
     let routing_mode = match cfg.routing_mode { "global" | "direct" => cfg.routing_mode, _ => "rule" };
 
     format!(
