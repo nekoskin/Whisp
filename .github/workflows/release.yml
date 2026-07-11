@@ -86,11 +86,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.triple }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.triple }}
 
       - name: Install Linux Tauri deps
         if: matrix.runner == 'ubuntu-latest'
@@ -109,7 +116,7 @@ jobs:
             echo "Using pinned version: $PINNED"
           else
             TAG=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/Jalaveyan/Whispera/releases/latest" \
+              "https://api.github.com/repos/nekoskin/whispera/releases/latest" \
               | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
             echo "tag=$TAG" >> $GITHUB_OUTPUT
             echo "Using latest version: $TAG"
@@ -118,7 +125,7 @@ jobs:
       - name: Download whispera-go-client
         uses: robinraju/release-downloader@v1.10
         with:
-          repository: Jalaveyan/Whispera
+          repository: nekoskin/whispera
           tag: ${{ steps.wver.outputs.tag }}
           fileName: 'whispera-go-client-${{ matrix.triple }}${{ matrix.ext }}'
           out-file-path: src-tauri/binaries/
@@ -226,6 +233,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -237,14 +245,31 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Setup Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
+          cache-dependency-path: |
+            go-android/go.sum
 
       - name: Install Rust stable + Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Cache Rust build (Android)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: android
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('src-tauri/gen/android/**/*.gradle*', 'src-tauri/gen/android/**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
