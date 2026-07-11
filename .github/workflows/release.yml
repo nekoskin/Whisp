@@ -136,7 +136,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          MIHOMO_VER="v1.19.8"
+          MIHOMO_VER="v1.19.28"
           ASSET="${{ matrix.mihomo_asset }}"
           ARCH="${{ matrix.mihomo_archive }}"
           OUT="src-tauri/binaries/mihomo-${{ matrix.triple }}${{ matrix.ext }}"
