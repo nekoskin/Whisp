@@ -328,3 +328,53 @@ pub fn open_url_android(url: &str) -> Result<(), String> {
 
     Ok(())
 }
+
+/// Читает текст из системного буфера обмена (Android ClipboardManager).
+/// Нужно потому, что tauri-plugin-clipboard-manager readText на Android не
+/// реализован ("Clipboard content reader not implemented"), а WebView
+/// navigator.clipboard.readText блокируется политикой (NotAllowedError).
+pub fn read_clipboard() -> Result<String, String> {
+    let (vm, ctx_ptr) = vm_and_ctx()?;
+    let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+    let context = unsafe { JObject::from_raw(ctx_ptr as jni::sys::jobject) };
+
+    let svc_name = env.new_string("clipboard").map_err(|e| e.to_string())?;
+    let clipboard = env
+        .call_method(&context, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;",
+            &[JValue::Object(&svc_name.into())])
+        .and_then(|v| v.l())
+        .map_err(|e| format!("getSystemService clipboard: {}", e))?;
+    if clipboard.is_null() { return Ok(String::new()); }
+
+    let clip = env
+        .call_method(&clipboard, "getPrimaryClip", "()Landroid/content/ClipData;", &[])
+        .and_then(|v| v.l())
+        .map_err(|e| format!("getPrimaryClip: {}", e))?;
+    if clip.is_null() { return Ok(String::new()); }
+
+    let count = env
+        .call_method(&clip, "getItemCount", "()I", &[])
+        .and_then(|v| v.i())
+        .map_err(|e| format!("getItemCount: {}", e))?;
+    if count <= 0 { return Ok(String::new()); }
+
+    let item = env
+        .call_method(&clip, "getItemAt", "(I)Landroid/content/ClipData$Item;", &[JValue::Int(0)])
+        .and_then(|v| v.l())
+        .map_err(|e| format!("getItemAt: {}", e))?;
+
+    let text = env
+        .call_method(&item, "coerceToText", "(Landroid/content/Context;)Ljava/lang/CharSequence;",
+            &[JValue::Object(&context)])
+        .and_then(|v| v.l())
+        .map_err(|e| format!("coerceToText: {}", e))?;
+    if text.is_null() { return Ok(String::new()); }
+
+    let s = env
+        .call_method(&text, "toString", "()Ljava/lang/String;", &[])
+        .and_then(|v| v.l())
+        .map_err(|e| format!("toString: {}", e))?;
+    let jstr: jni::objects::JString = s.into();
+    let rust: String = env.get_string(&jstr).map_err(|e| e.to_string())?.into();
+    Ok(rust)
+}

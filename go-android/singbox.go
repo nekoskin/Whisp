@@ -345,6 +345,7 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
   }
 }`, dnsObject, tunAddrs, mtu, mixedInbound, outbounds, routeRules, finalOut)
 
+	_ = os.WriteFile(workDir+"/singbox-config.json", []byte(config), 0o600)
 	alog(fmt.Sprintf("calling NewService fd=%d", fd))
 	s, err := libbox.NewService(config, &platform{tunFd: fd})
 	if err != nil {

@@ -1043,7 +1043,16 @@ async function switchToKey(newKey: string): Promise<void> {
   if (!wasActive || isSameKey) return;
   showToast(t("switchingKey"), "info", 2500);
   await doDisconnect();
+  if (isAndroid) await waitForVpnStopped(2500);
   await doConnect();
+}
+
+async function waitForVpnStopped(timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try { if (!(await invoke<boolean>("get_status"))) return; } catch { return; }
+    await new Promise(r => setTimeout(r, 150));
+  }
 }
 
 async function checkStatus(): Promise<void> {
@@ -1421,13 +1430,16 @@ function bindProfileEvents(): void {
     e.stopPropagation();
     document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
     let text: string | null = null;
+    // Native Android clipboard read — the tauri clipboard-manager plugin does
+    // not implement readText on Android and WebView blocks navigator.clipboard.
     try {
-      text = await clipboardRead();
-    } catch { /* fall through to fallbacks */ }
+      text = await invoke<string>("read_clipboard_text");
+    } catch { /* not android / not available — fall through */ }
     if (!text) {
-      try {
-        text = await navigator.clipboard?.readText();
-      } catch { /* fall through to manual paste */ }
+      try { text = await clipboardRead(); } catch { /* fall through */ }
+    }
+    if (!text) {
+      try { text = await navigator.clipboard?.readText(); } catch { /* fall through */ }
     }
     if (text && text.trim()) {
       handlePastedOrScannedText(text.trim());
@@ -1838,7 +1850,7 @@ function renderRouting(): string {
       <h2 class="page-title">${t("routingTitle")}</h2>
     </div>
 
-    <div class="card" style="margin-bottom:10px">
+    ${isAndroid ? "" : `<div class="card" style="margin-bottom:10px">
       <div class="card-header" style="padding-bottom:8px">
         <span class="card-title" style="display:flex;align-items:center;gap:6px;color:#5865F2">${discordIcon} Discord</span>
         <div class="pill-group" id="discord-mode-pills">
@@ -1846,7 +1858,7 @@ function renderRouting(): string {
           <button class="pill-btn${discordAction === "DIRECT" ? " active" : ""}" data-act="DIRECT">${t("ruleDirect2")}</button>
         </div>
       </div>
-    </div>
+    </div>`}
 
     <div class="card" style="margin-bottom:10px">
       <div class="card-header" style="padding-bottom:6px">
@@ -2252,7 +2264,6 @@ function renderSettings(): string {
         </div>
         <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-tls-fragment" ${settings.tls_fragment ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
       </div>
-      <div class="setting-row"><span class="setting-label">${t("killSwitch")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ks" ${settings.kill_switch ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><span class="setting-label">${t("ipv6Label")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ipv6" ${settings.ipv6 ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row" style="align-items:flex-start">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
@@ -2504,7 +2515,7 @@ function bindSettingsEvents(): void {
     clipboardWrite(settings.secret);
     showToast(t("secretCopied"), "success", 1800);
   });
-  document.getElementById("btn-open-repo")?.addEventListener("click", () => invoke("open_url", { url: "https://github.com/Jalaveyan/Whispera" }).catch(() => { }));
+  document.getElementById("btn-open-repo")?.addEventListener("click", () => invoke("open_url", { url: "https://github.com/nekoskin/Whisp" }).catch(() => { }));
   document.getElementById("btn-open-config")?.addEventListener("click", () => invoke("open_config_dir").catch(() => { }));
   document.getElementById("btn-check-updates")?.addEventListener("click", async () => {
     const btn = document.getElementById("btn-check-updates") as HTMLButtonElement;

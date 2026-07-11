@@ -302,7 +302,13 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         let settings = get_app_settings(app.clone())?;
         let rules_json = build_android_rules_json(&settings);
         let conn_key = settings.conn_key.clone();
-        let vpn_dns = settings.vpn_dns.clone();
+        let vpn_dns = settings
+            .custom_dns
+            .iter()
+            .map(|s| s.trim())
+            .find(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| settings.vpn_dns.clone());
         let ipv6 = settings.ipv6;
         let hwid = settings.hwid;
         let tls_fingerprint = settings.tls_fingerprint.clone();
@@ -846,6 +852,18 @@ fn validate_external_url(url: &str) -> Result<(), String> {
         return Err("url scheme not allowed".into());
     }
     Ok(())
+}
+
+#[tauri::command]
+fn read_clipboard_text() -> String {
+    #[cfg(target_os = "android")]
+    {
+        return whisp_vpn_android::service_intent::read_clipboard().unwrap_or_default();
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        String::new()
+    }
 }
 
 #[tauri::command]
@@ -1715,7 +1733,7 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
         .map_err(|e| e.to_string())?;
 
     let resp = client
-        .get("https://api.github.com/repos/Jalaveyan/Whisp/releases/latest")
+        .get("https://api.github.com/repos/nekoskin/Whisp/releases/latest")
         .send()
         .await
         .map_err(|e| format!("GitHub API unavailable: {}", e))?;
@@ -1921,6 +1939,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            read_clipboard_text,
             list_processes,
             get_app_settings,
             save_app_setting,

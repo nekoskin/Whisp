@@ -298,9 +298,20 @@ class WhispVpnService : VpnService() {
             return
         }
         Log.i(TAG, "stopVpn")
+        // go-client + sing-box run in-process in this ":vpn" process. The graceful
+        // Goclient.stop()/lc.Stop() can block the main thread (module teardown),
+        // so the hard-kill MUST run on its own thread — otherwise it never fires
+        // and the VPN stays up (process alive → key icon never clears). SIGKILL
+        // the whole ":vpn" process — the exact semantics of the old forked
+        // process.destroy(). UI is a separate process, untouched. The ~450ms lets
+        // onStartCommand return START_NOT_STICKY (else Android respawns :vpn) and
+        // Singbox.stop() release the TUN; process death closes the fd regardless.
+        Thread({
+            try { Thread.sleep(450) } catch (_: Throwable) {}
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }, "vpn-hardkill").apply { isDaemon = true }.start()
         unregisterNetworkCallback()
         try { Singbox.stop() } catch (_: Throwable) {}
-        try { Goclient.stop() } catch (_: Throwable) {}
         try { tunInterface?.close() } catch (_: Throwable) {}
         tunInterface = null
         try { stopForegroundCompat() } catch (_: Throwable) {}
