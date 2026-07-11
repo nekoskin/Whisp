@@ -87,7 +87,7 @@ const i18n: Record<Lang, Record<string, string>> = {
   ru: {
     home: "Главная", profiles: "Профили", routing: "Маршруты", logs: "Журнал", settings: "Настройки",
     disconnected: "Отключено", connected: "Подключено",
-    keyPlaceholder: "Вставьте ключ...", connect: "Connect", disconnect: "Disconnect",
+    keyPlaceholder: "Вставьте ключ...", noKeySelected: "Нет ключа", connect: "Connect", disconnect: "Disconnect",
     ipInfo: "IP ИНФОРМАЦИЯ", ipAddress: "IP Адрес", location: "Местоположение", provider: "Провайдер",
     system: "СИСТЕМА", os: "ОС", uptime: "Время работы", version: "Версия", admin: "Админ",
     activeConns: "Активные соединения", connectToSee: "Подключитесь чтобы увидеть соединения",
@@ -271,7 +271,7 @@ const i18n: Record<Lang, Record<string, string>> = {
   en: {
     home: "Home", profiles: "Profiles", routing: "Routing", logs: "Logs", settings: "Settings",
     disconnected: "Disconnected", connected: "Connected",
-    keyPlaceholder: "Paste key...", connect: "Connect", disconnect: "Disconnect",
+    keyPlaceholder: "Paste key...", noKeySelected: "No key", connect: "Connect", disconnect: "Disconnect",
     ipInfo: "IP INFORMATION", ipAddress: "IP Address", location: "Location", provider: "Provider",
     system: "SYSTEM", os: "OS", uptime: "Uptime", version: "Version", admin: "Admin",
     activeConns: "Active connections", connectToSee: "Connect to see connections",
@@ -290,7 +290,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     hwid: "HWID :", autostart: "Autostart :", authTip: "Auth tip :",
     config: "Config :", open: "Open", update: "Update :",
     openRepo: "Open repo", checkUpdates: "Check updates",
-    installed: "Installed & up to date",
+    installed: "Latest version installed",
     profileName: "Profile name", profileKey: "Connection key",
     save: "Save", cancel: "Cancel",
     mihomo: "MIHOMO", whisp: "WHISP",
@@ -455,7 +455,7 @@ const i18n: Record<Lang, Record<string, string>> = {
   zh: {
     home: "主页", profiles: "配置", routing: "路由", logs: "日志", settings: "设置",
     disconnected: "已断开", connected: "已连接",
-    keyPlaceholder: "粘贴密钥...", connect: "连接", disconnect: "断开",
+    keyPlaceholder: "粘贴密钥...", noKeySelected: "无密钥", connect: "连接", disconnect: "断开",
     ipInfo: "IP信息", ipAddress: "IP地址", location: "位置", provider: "运营商",
     system: "系统", os: "操作系统", uptime: "运行时间", version: "版本", admin: "管理员",
     activeConns: "活跃连接", connectToSee: "连接后查看连接",
@@ -639,7 +639,7 @@ const i18n: Record<Lang, Record<string, string>> = {
   fa: {
     home: "خانه", profiles: "پروفایل‌ها", routing: "مسیریابی", logs: "گزارش", settings: "تنظیمات",
     disconnected: "قطع شده", connected: "متصل",
-    keyPlaceholder: "کلید را وارد کنید...", connect: "اتصال", disconnect: "قطع",
+    keyPlaceholder: "کلید را وارد کنید...", noKeySelected: "بدون کلید", connect: "اتصال", disconnect: "قطع",
     ipInfo: "اطلاعات IP", ipAddress: "آدرس IP", location: "موقعیت", provider: "ارائه‌دهنده",
     system: "سیستم", os: "سیستم‌عامل", uptime: "مدت اجرا", version: "نسخه", admin: "مدیر",
     activeConns: "اتصالات فعال", connectToSee: "برای مشاهده متصل شوید",
@@ -855,7 +855,30 @@ let settings: AppSettings = {
 
 let profiles: Profile[] = [];
 let subscriptions: Subscription[] = [];
+let activeRef = "";
 let pingResults: Map<string, number | "pinging" | "timeout"> = new Map();
+
+function refKey(ref: string): string | undefined {
+  if (ref.startsWith("p:")) return profiles.find(p => p.id === ref.slice(2))?.key;
+  if (ref.startsWith("s:")) {
+    const [, sid, idx] = ref.split(":");
+    return subscriptions.find(s => s.id === sid)?.keys[Number(idx)];
+  }
+  return undefined;
+}
+
+function normalizeActiveRef(): void {
+  const k = settings.conn_key;
+  if (!k) { activeRef = ""; return; }
+  if (activeRef && refKey(activeRef) === k) return;
+  const p = profiles.find(p => p.key === k);
+  if (p) { activeRef = "p:" + p.id; return; }
+  for (const s of subscriptions) {
+    const i = (s.keys || []).indexOf(k);
+    if (i >= 0) { activeRef = "s:" + s.id + ":" + i; return; }
+  }
+  activeRef = "";
+}
 let subUpdateAvailable: Set<string> = new Set();
 let subAutoCheckTimer: ReturnType<typeof setInterval> | null = null;
 let routingRules: RoutingRule[] = [];
@@ -906,7 +929,13 @@ function genSecret(): string {
   return Array.from({ length: 16 }, () => c[Math.floor(Math.random() * c.length)]).join("");
 }
 
-function loadProfiles(): void { try { const r = localStorage.getItem("whisp_profiles"); if (r) profiles = JSON.parse(r); } catch {/**/ } }
+function loadProfiles(): void {
+  try { const r = localStorage.getItem("whisp_profiles"); if (r) profiles = JSON.parse(r); } catch {/**/ }
+  const seen = new Set<string>();
+  const before = profiles.length;
+  profiles = profiles.filter(p => !!p?.key && !seen.has(p.key) && !!seen.add(p.key));
+  if (profiles.length !== before) saveProfiles();
+}
 function saveProfiles(): void { localStorage.setItem("whisp_profiles", JSON.stringify(profiles)); }
 
 async function loadSubscriptions(): Promise<void> {
@@ -1028,7 +1057,7 @@ async function doDisconnect(): Promise<void> {
 // connect), live-reconnects with the new key instead of just storing it —
 // otherwise the change would silently do nothing until the user manually
 // disconnects and reconnects themselves.
-async function switchToKey(newKey: string): Promise<void> {
+async function switchToKey(newKey: string, ref = ""): Promise<void> {
   if (isConnecting) {
     showToast(t("pleaseWait"), "info", 2000);
     return;
@@ -1036,6 +1065,7 @@ async function switchToKey(newKey: string): Promise<void> {
   const wasActive = isConnected;
   const isSameKey = settings.conn_key === newKey;
   settings.conn_key = newKey;
+  activeRef = ref;
   persistSettings();
   currentPage = "home";
   renderNav();
@@ -1284,18 +1314,36 @@ function tickUptime(): void {
   if (el2) el2.textContent = isConnected && connectTime ? formatDuration(Date.now() - connectTime) : "—";
 }
 
+function hasUsableKey(): boolean {
+  const k = settings.conn_key;
+  if (!k) return false;
+  return profiles.some(p => p.key === k) ||
+    subscriptions.some(s => (s.keys || []).includes(k));
+}
+
 function renderHome(): string {
+  if (!isConnected) {
+    const before = settings.conn_key;
+    if (settings.conn_key && !hasUsableKey()) settings.conn_key = "";
+    if (!settings.conn_key) {
+      const first = profiles[0]?.key ?? subscriptions.find(s => (s.keys || []).length > 0)?.keys[0];
+      if (first) settings.conn_key = first;
+    }
+    if (settings.conn_key !== before) persistSettings();
+  }
+  normalizeActiveRef();
   const profileName = profiles.find(p => p.key === settings.conn_key)?.name;
   const serverHost = getServerHost();
   const uptimeStr = isConnected && connectTime ? formatDuration(Date.now() - connectTime) : "";
   const dis = isConnecting;
+  const noKey = !isConnected && !hasUsableKey();
 
   const powerBlock = `
     <div class="power-wrap">
-      <button class="btn-power${isConnected ? " connected" : ""}${dis ? " connecting" : ""}" id="btn-connect"${dis ? " disabled" : ""}>${ICONS.power}</button>
+      <button class="btn-power${isConnected ? " connected" : ""}${dis ? " connecting" : ""}${noKey ? " nokey" : ""}" id="btn-connect"${dis || noKey ? " disabled" : ""}>${ICONS.power}</button>
     </div>
     <div class="power-status">
-      <div class="status-text">${dis ? t("connecting") : isConnected ? t("connected") : t("disconnected")}</div>
+      <div class="status-text">${dis ? t("connecting") : isConnected ? t("connected") : noKey ? t("noKeySelected") : t("disconnected")}</div>
       ${isConnected ? `<div class="status-server">${profileName ? esc(profileName) + " · " : ""}${serverHost ? esc(serverHost) + " · " : ""}<span id="status-uptime">${uptimeStr}</span></div>` : ""}
     </div>`;
 
@@ -1325,7 +1373,7 @@ function renderHome(): string {
 function bindHomeEvents(): void {
   document.getElementById("btn-connect")?.addEventListener("click", async () => {
     if (isConnecting) return;
-    if (!isConnected && !settings.conn_key) {
+    if (!isConnected && !hasUsableKey()) {
       showToast(t("keyPlaceholder"), "error", 2500);
       return;
     }
@@ -1345,7 +1393,7 @@ function renderProfileList(): string {
   return profiles.length === 0
     ? ""
     : profiles.map(p => {
-        const isActive = isConnected && settings.conn_key === p.key;
+        const isActive = isConnected && activeRef === "p:" + p.id;
         return `
         <div class="profile-card${isActive ? " key-active" : ""}">
           <div class="profile-info"><span>${ICONS.user}</span><span>${esc(p.name)}</span>${isActive ? `<span class="badge-on" style="font-size:10px;padding:1px 6px;flex-shrink:0">${t("active")}</span>` : ""}</div>
@@ -1373,7 +1421,7 @@ function renderSubList(): string {
             : pr === "timeout" ? `<span class="ping-val timeout">${t("pingTimeout")}</span>`
             : pr !== undefined ? `<span class="ping-val ok">${pr}${t("pingMs")}</span>`
             : "";
-          const keyIsActive = isConnected && settings.conn_key === k;
+          const keyIsActive = isConnected && activeRef === "s:" + s.id + ":" + i;
           return `
           <div class="sub-key-row${keyIsActive ? " key-active" : ""}">
             <span class="sub-key-val" title="${esc(k)}">${esc(k.length > 50 ? k.slice(0, 50) + "…" : k)}</span>
@@ -1444,7 +1492,8 @@ function bindProfileEvents(): void {
     if (text && text.trim()) {
       handlePastedOrScannedText(text.trim());
     } else {
-      showToast(t("clipboardReadFailed"), "error", 2500);
+      showToast(t("clipboardReadFailed"), "info", 2000);
+      showProfileModal();
     }
   });
   document.getElementById("btn-add-key-qr")?.addEventListener("click", async (e) => {
@@ -1510,7 +1559,7 @@ function bindProfileEvents(): void {
   document.querySelectorAll<HTMLElement>(".btn-use-profile").forEach(el => {
     el.addEventListener("click", () => {
       const p = profiles.find(x => x.id === el.dataset.id);
-      if (p) switchToKey(p.key);
+      if (p) switchToKey(p.key, "p:" + p.id);
     });
   });
   document.querySelectorAll<HTMLElement>(".btn-profile-menu").forEach(el => {
@@ -1668,7 +1717,7 @@ function bindProfileEvents(): void {
     el.addEventListener("click", () => {
       const sub = subscriptions.find(s => s.id === el.dataset.sub);
       const idx = parseInt(el.dataset.idx ?? "0", 10);
-      if (sub && sub.keys[idx]) switchToKey(sub.keys[idx]);
+      if (sub && sub.keys[idx]) switchToKey(sub.keys[idx], "s:" + sub.id + ":" + idx);
     });
   });
 }
@@ -1752,7 +1801,7 @@ function showImportJsonModal(): void {
       let importedSubs = 0;
       if (Array.isArray(parsed.profiles)) {
         parsed.profiles.forEach((p, i) => {
-          if (p?.name && p?.key) {
+          if (p?.name && p?.key && !profiles.some(x => x.key === p.key)) {
             profiles.push({ id: (Date.now() + i).toString(), name: p.name, key: p.key });
             importedProfiles++;
           }
@@ -2158,7 +2207,7 @@ function renderProcessList(procs: { name: string; label: string; pid: number }[]
 let _logPollTimer: ReturnType<typeof setInterval> | null = null;
 
 function startLogPolling(): void {
-  if (_logPollTimer !== null || !isAndroid) return;
+  if (_logPollTimer !== null) return;
   _logPollTimer = setInterval(async () => {
     try {
       const lines = await invoke<string[]>("get_vpn_log");
@@ -2289,7 +2338,7 @@ function renderSettings(): string {
       </div>
       <div class="setting-row" style="align-items:flex-start">
         <span class="setting-label">${t("socksAuth")}</span>
-        <div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px">
+        <div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px;flex:1;min-width:240px">
           <input type="text" id="set-socks-user" value="${esc(settings.socks_user || '')}" placeholder="${t("socksUser")}" autocomplete="off" style="width:100%;box-sizing:border-box;text-align:left"/>
           <div style="display:flex;gap:4px;align-items:center">
             <input type="password" id="set-socks-pass" value="${esc(settings.socks_pass || '')}" placeholder="${t("socksPass")}" autocomplete="new-password" style="flex:1;box-sizing:border-box;text-align:left"/>
@@ -2301,10 +2350,9 @@ function renderSettings(): string {
       </div>
     </div>
     <div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link">${t("installed")}</span></div>
+      <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link" id="whisp-update-status">${t("installed")}</span></div>
       <div class="setting-row"><span class="setting-label">${t("hwid")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-hwid" ${settings.hwid ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><span class="setting-label">${t("autostart")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-autostart" ${settings.auto_connect ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row"><span class="setting-label">${t("authTip")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-authtip" ${settings.auth_tip ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><span class="setting-label">${t("update")}</span><div class="setting-value"><button class="btn-sm" id="btn-open-repo">${t("openRepo")}</button></div></div>
     </div>
     <div class="settings-section">
@@ -2329,7 +2377,7 @@ function renderSettings(): string {
     <div class="settings-section">
       <div class="settings-section-title">${t("mihomo")}</div>
       <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/></div></div>
-      <div class="setting-row"><span class="setting-label">${t("bindAddr")}</span><div class="setting-value"><input type="text" id="set-bind" value="${settings.socks_addr}"/><span class="edit-icon">✎</span></div></div>
+      <div class="setting-row"><span class="setting-label">${t("bindAddr")}</span><div class="setting-value"><input type="text" id="set-bind" value="${settings.socks_addr}"/></div></div>
       <div class="setting-row" style="align-items:center">
         <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
           <span class="setting-label">${t("allowLan")}</span>
@@ -2341,12 +2389,6 @@ function renderSettings(): string {
         <button class="pill-btn ${!settings.routing_mode || settings.routing_mode === "rule" ? "active" : ""}" data-rmode="rule">Rule</button>
         <button class="pill-btn ${settings.routing_mode === "global" ? "active" : ""}" data-rmode="global">Global</button>
         <button class="pill-btn ${settings.routing_mode === "direct" ? "active" : ""}" data-rmode="direct">Direct</button>
-      </div></div></div>
-      <div class="setting-row"><span class="setting-label">${t("logLevel")}</span><div class="setting-value"><div class="pill-group">
-        <button class="pill-btn ${!settings.log_level || settings.log_level === "info" ? "active" : ""}" data-loglevel="info">Info</button>
-        <button class="pill-btn ${settings.log_level === "debug" ? "active" : ""}" data-loglevel="debug">Debug</button>
-        <button class="pill-btn ${settings.log_level === "warning" ? "active" : ""}" data-loglevel="warning">Warning</button>
-        <button class="pill-btn ${settings.log_level === "silent" ? "active" : ""}" data-loglevel="silent">Silent</button>
       </div></div></div>
       <div class="setting-row"><span class="setting-label">${t("tunStack")}</span><div class="setting-value"><div class="pill-group">
         <button class="pill-btn ${settings.tun_stack === "Mixed" ? "active" : ""}" data-tun="Mixed">Mixed</button>
@@ -2378,7 +2420,7 @@ function renderSettings(): string {
       <div class="setting-row"><span class="setting-label">${t("secretLabel")}</span><div class="setting-value"><span class="secret-value">${settings.secret}</span><button class="btn-sm" id="btn-copy-secret">${t("copy")}</button></div></div>
       <div class="setting-row" style="align-items:flex-start">
         <span class="setting-label">${t("socksAuth")}</span>
-        <div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px">
+        <div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px;flex:1;min-width:240px">
           <input type="text" id="set-socks-user" value="${esc(settings.socks_user || '')}" placeholder="${t("socksUser")}" autocomplete="off" style="width:100%;box-sizing:border-box;text-align:left"/>
           <div style="display:flex;gap:4px;align-items:center">
             <input type="password" id="set-socks-pass" value="${esc(settings.socks_pass || '')}" placeholder="${t("socksPass")}" autocomplete="new-password" style="flex:1;box-sizing:border-box;text-align:left"/>
@@ -2398,10 +2440,9 @@ function renderSettings(): string {
       </div></div>
     </div>
     <div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link">${t("installed")}</span></div>
+      <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link" id="whisp-update-status">${t("installed")}</span></div>
       <div class="setting-row"><span class="setting-label">${t("hwid")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-hwid" ${settings.hwid ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><span class="setting-label">${t("autostart")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-autostart" ${settings.auto_connect ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row"><span class="setting-label">${t("authTip")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-authtip" ${settings.auth_tip ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><span class="setting-label">${t("config")}</span><div class="setting-value"><button class="btn-sm" id="btn-open-config">${t("open")}</button></div></div>
       <div class="setting-row"><span class="setting-label">${t("update")}</span><div class="setting-value"><button class="btn-sm" id="btn-open-repo">${t("openRepo")}</button></div></div>
     </div>
@@ -2443,7 +2484,6 @@ function bindSettingsEvents(): void {
   });
   document.querySelectorAll<HTMLElement>(".pill-btn[data-tun]").forEach(el => el.addEventListener("click", () => { settings.tun_stack = el.dataset.tun || "Mixed"; persistSettings(); renderPage(); }));
   document.querySelectorAll<HTMLElement>(".pill-btn[data-rmode]").forEach(el => el.addEventListener("click", () => { settings.routing_mode = el.dataset.rmode || "rule"; persistSettings(); renderPage(); }));
-  document.querySelectorAll<HTMLElement>(".pill-btn[data-loglevel]").forEach(el => el.addEventListener("click", () => { settings.log_level = el.dataset.loglevel || "info"; persistSettings(); renderPage(); }));
   document.querySelectorAll<HTMLElement>(".pill-btn[data-theme]").forEach(el => el.addEventListener("click", () => { settings.theme = el.dataset.theme || "dark"; persistSettings(); renderPage(); }));
   document.querySelectorAll<HTMLElement>(".pill-btn[data-dnsmode]").forEach(el => el.addEventListener("click", () => {
     settings.dns_mode = el.dataset.dnsmode || "udp";
@@ -2504,7 +2544,7 @@ function bindSettingsEvents(): void {
     persistSettings();
     if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
   });
-  const toggles: [string, keyof AppSettings][] = [["set-dns", "dns_redirect"], ["set-ipv6", "ipv6"], ["set-hwid", "hwid"], ["set-autostart", "auto_connect"], ["set-authtip", "auth_tip"], ["set-bypass-ru", "bypass_ru"]];
+  const toggles: [string, keyof AppSettings][] = [["set-dns", "dns_redirect"], ["set-ipv6", "ipv6"], ["set-hwid", "hwid"], ["set-autostart", "auto_connect"], ["set-bypass-ru", "bypass_ru"]];
   toggles.forEach(([id, key]) => { (document.getElementById(id) as HTMLInputElement)?.addEventListener("change", function () { (settings as any)[key] = this.checked; persistSettings(); }); });
   (document.getElementById("set-allow-lan") as HTMLInputElement)?.addEventListener("change", function () {
     settings.allow_lan = this.checked;
@@ -2517,6 +2557,20 @@ function bindSettingsEvents(): void {
   });
   document.getElementById("btn-open-repo")?.addEventListener("click", () => invoke("open_url", { url: "https://github.com/nekoskin/Whisp" }).catch(() => { }));
   document.getElementById("btn-open-config")?.addEventListener("click", () => invoke("open_config_dir").catch(() => { }));
+  (async () => {
+    const el = document.getElementById("whisp-update-status");
+    if (!el) return;
+    try {
+      const info = await invoke<{ tag: string; is_newer: boolean; html_url: string }>("check_for_updates");
+      if (info.is_newer && info.tag) {
+        el.textContent = `${t("updateAvailableNew")}: ${info.tag}`;
+        el.style.cursor = "pointer";
+        el.onclick = () => { invoke("open_url", { url: info.html_url }).catch(() => { }); };
+      } else {
+        el.textContent = t("installed");
+      }
+    } catch { /* keep default label */ }
+  })();
   document.getElementById("btn-check-updates")?.addEventListener("click", async () => {
     const btn = document.getElementById("btn-check-updates") as HTMLButtonElement;
     const row = document.getElementById("update-result-row") as HTMLElement;
@@ -2560,7 +2614,7 @@ function bindSettingsEvents(): void {
           invoke("open_url", { url: info.html_url }).catch(() => {});
         });
       } else {
-        content.innerHTML = `<div style="font-size:13px;color:var(--md-primary)">${t("upToDate")}${info.tag ? ` (${esc(info.tag)})` : ""}</div>`;
+        content.innerHTML = `<div style="font-size:13px;color:var(--md-primary)">${t("installed")}${info.tag ? ` (${esc(info.tag)})` : ""}</div>`;
       }
     } catch (e) {
       row.style.display = "flex";
@@ -2587,6 +2641,13 @@ function showProfileModal(prefillKey?: string): void {
     const name = (document.getElementById("modal-name") as HTMLInputElement).value.trim();
     const key = (document.getElementById("modal-key") as HTMLTextAreaElement).value.trim();
     if (!name || !key) return;
+    const existing = profiles.find(p => p.key === key);
+    if (existing) {
+      settings.conn_key = key; persistSettings();
+      ov.remove(); renderPage();
+      showToast(existing.name, "info", 2000);
+      return;
+    }
     profiles.push({ id: Date.now().toString(), name, key });
     saveProfiles();
     if (!settings.conn_key) { settings.conn_key = key; persistSettings(); }
@@ -2602,6 +2663,13 @@ function classifyPastedText(text: string): { kind: "key" | "url" | "unknown"; va
 }
 
 function addKeyDirect(key: string): void {
+  const existing = profiles.find(p => p.key === key);
+  if (existing) {
+    settings.conn_key = key; persistSettings();
+    renderPage();
+    showToast(existing.name, "info", 2000);
+    return;
+  }
   const name = "Key-" + Math.random().toString(36).slice(2, 6).toUpperCase();
   profiles.push({ id: Date.now().toString(), name, key });
   saveProfiles();
@@ -2784,12 +2852,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   renderShell();
   fetchSysInfo();
   startSubAutoCheck();
-  if (isAndroid) {
-    try {
-      const hist = await invoke<string[]>("read_vpn_log_history");
-      hist.forEach(l => addLog(l));
-    } catch { /* ignore */ }
-  }
+  try {
+    const hist = await invoke<string[]>("read_vpn_log_history");
+    hist.forEach(l => addLog(l));
+  } catch { /* ignore */ }
   startLogPolling();
 
   // On Android autostart means "reconnect once after a phone reboot" — handled
