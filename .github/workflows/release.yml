@@ -365,6 +365,18 @@ jobs:
           mkdir -p ~/.gradle/init.d
           cp src-tauri/android-patch/singbox.gradle ~/.gradle/init.d/singbox.gradle
 
+      - name: Restore stable Android signing keystore
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            mkdir -p ~/.android
+            printf '%s' "$KS_B64" | base64 -d > ~/.android/debug.keystore
+            echo "Restored stable debug keystore ($(stat -c%s ~/.android/debug.keystore) bytes)"
+          else
+            echo "ANDROID_KEYSTORE_B64 not set — falling back to ephemeral debug keystore"
+          fi
+
       - name: Build Tauri Android APK (debug, auto-signed)
         id: tauri_build
         run: |
