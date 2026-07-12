@@ -105,7 +105,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     ipv6Label: "IPv6 :", secretLabel: "Secret :", copy: "Копировать",
     hwid: "HWID :", autostart: "Автозапуск :", authTip: "Совет по аутентификации :",
     config: "Конфиг :", open: "Открыть", update: "Обновить :",
-    openRepo: "Открыть репо", checkUpdates: "Проверить обновления",
+    openRepo: "Открыть репо", checkUpdates: "Проверить обновления", checking: "Проверка",
     installed: "Установлено в актуальной версии",
     profileName: "Имя профиля", profileKey: "Ключ подключения",
     save: "Сохранить", cancel: "Отмена",
@@ -289,7 +289,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     ipv6Label: "IPv6 :", secretLabel: "Secret :", copy: "Copy",
     hwid: "HWID :", autostart: "Autostart :", authTip: "Auth tip :",
     config: "Config :", open: "Open", update: "Update :",
-    openRepo: "Open repo", checkUpdates: "Check updates",
+    openRepo: "Open repo", checkUpdates: "Check updates", checking: "Checking",
     installed: "Latest version installed",
     profileName: "Profile name", profileKey: "Connection key",
     save: "Save", cancel: "Cancel",
@@ -473,7 +473,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     ipv6Label: "IPv6：", secretLabel: "密钥：", copy: "复制",
     hwid: "HWID：", autostart: "自动启动：", authTip: "认证提示：",
     config: "配置：", open: "打开", update: "更新：",
-    openRepo: "打开仓库", checkUpdates: "检查更新",
+    openRepo: "打开仓库", checkUpdates: "检查更新", checking: "检查中",
     installed: "已安装最新版本",
     profileName: "配置名称", profileKey: "连接密钥",
     save: "保存", cancel: "取消",
@@ -657,7 +657,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     ipv6Label: "IPv6:", secretLabel: "رمز:", copy: "کپی",
     hwid: "HWID:", autostart: "شروع خودکار:", authTip: "راهنمای احراز هویت:",
     config: "پیکربندی:", open: "باز کردن", update: "بروزرسانی:",
-    openRepo: "باز کردن مخزن", checkUpdates: "بررسی بروزرسانی",
+    openRepo: "باز کردن مخزن", checkUpdates: "بررسی بروزرسانی", checking: "در حال بررسی",
     installed: "نسخه به‌روز است",
     profileName: "نام پروفایل", profileKey: "کلید اتصال",
     save: "ذخیره", cancel: "لغو",
@@ -1021,7 +1021,6 @@ async function doConnect(): Promise<void> {
     localStorage.setItem("connectTime", String(connectTime));
     addLog("✓ " + msg);
     startLogPolling();
-    playConnectSound();
     showToast(t("vpnConnected"), "success", 4000);
     if (!isAndroid) osNotify("Whisp VPN", t("vpnConnected"));
   } catch (e) {
@@ -1042,7 +1041,6 @@ async function doDisconnect(): Promise<void> {
     connectTime = null;
     localStorage.removeItem("connectTime");
     addLog("○ " + msg);
-    playDisconnectSound();
     showToast(t("vpnDisconnected"), "info");
     if (!isAndroid) osNotify("Whisp VPN", t("vpnDisconnected"));
   } catch (e) {
@@ -2686,154 +2684,6 @@ function handlePastedOrScannedText(text: string): void {
 }
 
 function esc(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
-
-function playConnectSound(): void {
-  try {
-    const ctx = new AudioContext();
-    const now = ctx.currentTime;
-
-    // Trigger click
-    const trigOsc = ctx.createOscillator();
-    const trigGain = ctx.createGain();
-    trigOsc.connect(trigGain); trigGain.connect(ctx.destination);
-    trigOsc.type = "sawtooth";
-    trigOsc.frequency.setValueAtTime(90, now);
-    trigOsc.frequency.exponentialRampToValueAtTime(220, now + 0.12);
-    trigGain.gain.setValueAtTime(0.18, now);
-    trigGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-    trigOsc.start(now); trigOsc.stop(now + 0.15);
-
-    // Rising frequency sweep (capacitor whine)
-    const sweepOsc = ctx.createOscillator();
-    const sweepGain = ctx.createGain();
-    const sweepFilter = ctx.createBiquadFilter();
-    sweepOsc.connect(sweepFilter); sweepFilter.connect(sweepGain); sweepGain.connect(ctx.destination);
-    sweepOsc.type = "sawtooth";
-    sweepFilter.type = "bandpass";
-    sweepOsc.frequency.setValueAtTime(160, now + 0.05);
-    sweepOsc.frequency.exponentialRampToValueAtTime(4200, now + 0.75);
-    sweepFilter.frequency.setValueAtTime(400, now + 0.05);
-    sweepFilter.frequency.exponentialRampToValueAtTime(5000, now + 0.75);
-    sweepGain.gain.setValueAtTime(0.0, now);
-    sweepGain.gain.linearRampToValueAtTime(0.16, now + 0.22);
-    sweepGain.gain.exponentialRampToValueAtTime(0.001, now + 0.78);
-    sweepOsc.start(now + 0.05); sweepOsc.stop(now + 0.8);
-
-    // High shimmer harmonics
-    [1800, 2600, 3400].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.connect(g); g.connect(ctx.destination);
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(freq, now + 0.18);
-      osc.frequency.exponentialRampToValueAtTime(freq * 1.6, now + 0.95);
-      g.gain.setValueAtTime(0.0, now);
-      g.gain.linearRampToValueAtTime(0.038 - i * 0.008, now + 0.28 + i * 0.04);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.95 + i * 0.04);
-      osc.start(now + 0.18); osc.stop(now + 1.0 + i * 0.04);
-    });
-
-    // Noise whoosh — bandpass sweep up
-    const bufLen = Math.floor(ctx.sampleRate * 1.3);
-    const noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-    const nd = noiseBuf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) nd[i] = Math.random() * 2 - 1;
-    const noiseSrc = ctx.createBufferSource();
-    noiseSrc.buffer = noiseBuf;
-    const noiseFilter = ctx.createBiquadFilter();
-    const noiseGain = ctx.createGain();
-    noiseSrc.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(ctx.destination);
-    noiseFilter.type = "bandpass";
-    noiseFilter.Q.value = 2.5;
-    noiseFilter.frequency.setValueAtTime(350, now + 0.1);
-    noiseFilter.frequency.exponentialRampToValueAtTime(7000, now + 1.0);
-    noiseGain.gain.setValueAtTime(0.0, now);
-    noiseGain.gain.linearRampToValueAtTime(0.10, now + 0.25);
-    noiseGain.gain.setValueAtTime(0.10, now + 0.65);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 1.15);
-    noiseSrc.start(now + 0.1); noiseSrc.stop(now + 1.3);
-
-    // Digital glitch artifacts
-    for (let i = 0; i < 5; i++) {
-      const g = ctx.createOscillator();
-      const gv = ctx.createGain();
-      g.connect(gv); gv.connect(ctx.destination);
-      g.type = "square";
-      g.frequency.setValueAtTime(1800 + i * 900 + Math.random() * 500, now + 0.48 + i * 0.065);
-      gv.gain.setValueAtTime(0.025, now + 0.48 + i * 0.065);
-      gv.gain.exponentialRampToValueAtTime(0.001, now + 0.48 + i * 0.065 + 0.045);
-      g.start(now + 0.48 + i * 0.065); g.stop(now + 0.48 + i * 0.065 + 0.05);
-    }
-
-    setTimeout(() => ctx.close().catch(() => {}), 1600);
-  } catch { /**/ }
-}
-
-function playDisconnectSound(): void {
-  try {
-    const ctx = new AudioContext();
-    const now = ctx.currentTime;
-
-    // Falling sweep (de-cloak power-down)
-    const sweepOsc = ctx.createOscillator();
-    const sweepGain = ctx.createGain();
-    const sweepFilter = ctx.createBiquadFilter();
-    sweepOsc.connect(sweepFilter); sweepFilter.connect(sweepGain); sweepGain.connect(ctx.destination);
-    sweepOsc.type = "sawtooth";
-    sweepFilter.type = "bandpass";
-    sweepOsc.frequency.setValueAtTime(3800, now);
-    sweepOsc.frequency.exponentialRampToValueAtTime(120, now + 0.65);
-    sweepFilter.frequency.setValueAtTime(4500, now);
-    sweepFilter.frequency.exponentialRampToValueAtTime(200, now + 0.65);
-    sweepGain.gain.setValueAtTime(0.14, now);
-    sweepGain.gain.exponentialRampToValueAtTime(0.001, now + 0.68);
-    sweepOsc.start(now); sweepOsc.stop(now + 0.7);
-
-    // Noise whoosh — bandpass sweep down
-    const bufLen = Math.floor(ctx.sampleRate * 0.9);
-    const noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-    const nd = noiseBuf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) nd[i] = Math.random() * 2 - 1;
-    const noiseSrc = ctx.createBufferSource();
-    noiseSrc.buffer = noiseBuf;
-    const noiseFilter = ctx.createBiquadFilter();
-    const noiseGain = ctx.createGain();
-    noiseSrc.connect(noiseFilter); noiseFilter.connect(noiseGain); noiseGain.connect(ctx.destination);
-    noiseFilter.type = "bandpass";
-    noiseFilter.Q.value = 2.0;
-    noiseFilter.frequency.setValueAtTime(5500, now);
-    noiseFilter.frequency.exponentialRampToValueAtTime(280, now + 0.7);
-    noiseGain.gain.setValueAtTime(0.09, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
-    noiseSrc.start(now); noiseSrc.stop(now + 0.9);
-
-    // Shimmer fade-out
-    [3200, 2200].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.connect(g); g.connect(ctx.destination);
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(freq, now);
-      osc.frequency.exponentialRampToValueAtTime(freq * 0.4, now + 0.6);
-      g.gain.setValueAtTime(0.03, now);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.55 + i * 0.05);
-      osc.start(now); osc.stop(now + 0.6 + i * 0.05);
-    });
-
-    // Low thud at end
-    const thudOsc = ctx.createOscillator();
-    const thudGain = ctx.createGain();
-    thudOsc.connect(thudGain); thudGain.connect(ctx.destination);
-    thudOsc.type = "sine";
-    thudOsc.frequency.setValueAtTime(85, now + 0.55);
-    thudOsc.frequency.exponentialRampToValueAtTime(40, now + 0.75);
-    thudGain.gain.setValueAtTime(0.18, now + 0.55);
-    thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.78);
-    thudOsc.start(now + 0.55); thudOsc.stop(now + 0.8);
-
-    setTimeout(() => ctx.close().catch(() => {}), 1100);
-  } catch { /**/ }
-}
 
 /* ===================== INIT ===================== */
 window.addEventListener("DOMContentLoaded", async () => {
