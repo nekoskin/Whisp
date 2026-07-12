@@ -8,14 +8,16 @@ echo "== deps =="
 if command -v apt >/dev/null 2>&1; then
   sudo apt update
   sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-    librsvg2-dev libssl-dev build-essential curl wget file libcap2-bin
+    librsvg2-dev libssl-dev build-essential curl wget file libcap2-bin \
+    fonts-noto-core fonts-noto-cjk
   if ! command -v node >/dev/null 2>&1; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
     sudo apt install -y nodejs
   fi
 elif command -v pacman >/dev/null 2>&1; then
   sudo pacman -Sy --needed --noconfirm webkit2gtk-4.1 gtk3 \
-    librsvg openssl base-devel curl wget file libcap nodejs npm
+    librsvg openssl base-devel curl wget file libcap nodejs npm \
+    noto-fonts noto-fonts-cjk
   # tray dep lives in the AUR on Arch; skip if unavailable (tray is optional).
   sudo pacman -S --needed --noconfirm libayatana-appindicator 2>/dev/null \
     || echo "note: libayatana-appindicator not in official repos (AUR) — skipping"

@@ -324,9 +324,41 @@ impl MihomoManager {
             }
         }
 
+        #[cfg(unix)]
+        {
+            Command::new("pkill")
+                .args(["-9", "-x", "mihomo"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .output()
+                .ok();
+        }
+
         self.process = None;
         self.elevated = false;
         Ok(())
+    }
+
+    pub fn kill_all_by_name(&self) {
+        #[cfg(windows)]
+        {
+            Command::new("taskkill")
+                .args(["/F", "/IM", "mihomo.exe"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags_win(CREATE_NO_WINDOW)
+                .output()
+                .ok();
+        }
+        #[cfg(unix)]
+        {
+            Command::new("pkill")
+                .args(["-9", "-x", "mihomo"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .output()
+                .ok();
+        }
     }
 
     pub fn is_running(&mut self) -> bool {
@@ -448,6 +480,7 @@ pub struct MihomoRoutingRule {
 
 pub struct MihomoConfig<'a> {
     pub socks_addr: &'a str,
+    pub server_host: &'a str,
     pub mixed_port: u16,
     pub tun_stack: &'a str,
     pub dns_redirect: bool,
@@ -598,6 +631,18 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
         String::new()
     };
 
+    let server_ip_valid = cfg.server_host.parse::<std::net::Ipv4Addr>().is_ok();
+    let tun_exclude = if server_ip_valid {
+        format!("  route-exclude-address:\n    - {}/32\n", cfg.server_host)
+    } else {
+        String::new()
+    };
+    let server_direct_rule = if server_ip_valid {
+        format!("  - IP-CIDR,{}/32,DIRECT,no-resolve\n", cfg.server_host)
+    } else {
+        String::new()
+    };
+
     let allow_lan = cfg.allow_lan;
     let _ = cfg.log_level;
     let log_level = "info";
@@ -654,7 +699,7 @@ tun:
     - any:53
   auto-route: true
   auto-detect-interface: true
-
+{tun_exclude}
 proxies:
   - name: whisp-server
     type: socks5
@@ -666,7 +711,7 @@ proxy-groups:
 {proxy_group}
 
 rules:
-{ru_rules}{custom_rules}  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+{server_direct_rule}{ru_rules}{custom_rules}  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
   - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
   - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve

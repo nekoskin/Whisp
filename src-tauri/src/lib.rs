@@ -446,6 +446,7 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
 
     let mihomo_config = mihomo::generate_config(&mihomo::MihomoConfig {
         socks_addr: &socks_addr,
+        server_host: &server_host_from_key(&settings.conn_key),
         mixed_port: settings.mihomo_port,
         tun_stack: &settings.tun_stack,
         dns_redirect: settings.dns_redirect,
@@ -936,6 +937,7 @@ async fn save_routing_rules(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> R
     }
     let mihomo_config = mihomo::generate_config(&mihomo::MihomoConfig {
         socks_addr: &socks_addr,
+        server_host: &server_host_from_key(&settings.conn_key),
         mixed_port: settings.mihomo_port,
         tun_stack: &settings.tun_stack,
         dns_redirect: settings.dns_redirect,
@@ -991,6 +993,7 @@ async fn apply_tls_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
     }
     let mihomo_config = mihomo::generate_config(&mihomo::MihomoConfig {
         socks_addr: &socks_addr,
+        server_host: &server_host_from_key(&settings.conn_key),
         mixed_port: settings.mihomo_port,
         tun_stack: &settings.tun_stack,
         dns_redirect: settings.dns_redirect,
@@ -1156,6 +1159,7 @@ async fn save_blocklist(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> Resul
     }
     let mihomo_config = mihomo::generate_config(&mihomo::MihomoConfig {
         socks_addr: &socks_addr,
+        server_host: &server_host_from_key(&settings.conn_key),
         mixed_port: settings.mihomo_port,
         tun_stack: &settings.tun_stack,
         dns_redirect: settings.dns_redirect,
@@ -1195,6 +1199,7 @@ fn install_services(
     if !config_path.exists() {
         let stub = mihomo::generate_config(&mihomo::MihomoConfig {
             socks_addr: &settings.socks_addr,
+            server_host: &server_host_from_key(&settings.conn_key),
             mixed_port: settings.mihomo_port,
             tun_stack: &settings.tun_stack,
             dns_redirect: settings.dns_redirect,
@@ -1479,6 +1484,30 @@ async fn check_subscription_update(
     let mut result = sub.clone();
     result.updated = fresh.updated;
     Ok(result)
+}
+
+fn server_host_from_key(key: &str) -> String {
+    use base64::Engine as _;
+    let body = key.trim().strip_prefix("whispera://").unwrap_or(key.trim());
+    let b64 = body.split(['?', '#']).next().unwrap_or(body);
+    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            for field in ["whispera_addr", "server"] {
+                if let Some(addr) = v.get(field).and_then(|x| x.as_str()) {
+                    let host = addr.rsplit_once(':').map(|(h, _)| h).unwrap_or(addr);
+                    if !host.is_empty() {
+                        return host.to_string();
+                    }
+                }
+            }
+        }
+    }
+    if let Some((h, _)) = b64.rsplit_once(':') {
+        if !h.is_empty() {
+            return h.to_string();
+        }
+    }
+    String::new()
 }
 
 #[tauri::command]
@@ -1911,6 +1940,17 @@ pub fn run() {
         })
         .setup(|app| {
             let _ = &app;
+            #[cfg(not(target_os = "android"))]
+            {
+                let state: tauri::State<AppState> = app.state();
+                if let Ok(gc) = state.go_client.lock() {
+                    gc.kill_all_by_name();
+                }
+                if let Ok(m) = state.mihomo.lock() {
+                    m.kill_all_by_name();
+                }
+                drop(state);
+            }
             #[cfg(target_os = "android")]
             {
                 app.handle().plugin(tauri_plugin_barcode_scanner::init())?;
@@ -1941,9 +1981,25 @@ pub fn run() {
                 api.prevent_close();
                 let app = window.app_handle().clone();
                 std::thread::spawn(move || {
-                    let state: tauri::State<AppState> = app.state();
-                    let _ = state.mihomo.try_lock().map(|mut m| m.stop().ok());
-                    let _ = state.go_client.try_lock().map(|mut gc| gc.stop().ok());
+                    // Force-exit fallback so a slow/blocking child stop (e.g. an
+                    // elevated taskkill on Windows) can't wedge the window close.
+                    std::thread::spawn(|| {
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        std::process::exit(0);
+                    });
+                    // Stop both sidecars in parallel instead of serially.
+                    let m_app = app.clone();
+                    let m = std::thread::spawn(move || {
+                        let state: tauri::State<AppState> = m_app.state();
+                        let _ = state.mihomo.try_lock().map(|mut m| m.stop().ok());
+                    });
+                    let g_app = app.clone();
+                    let g = std::thread::spawn(move || {
+                        let state: tauri::State<AppState> = g_app.state();
+                        let _ = state.go_client.try_lock().map(|mut gc| gc.stop().ok());
+                    });
+                    let _ = m.join();
+                    let _ = g.join();
                     std::process::exit(0);
                 });
             }

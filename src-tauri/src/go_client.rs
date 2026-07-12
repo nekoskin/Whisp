@@ -230,6 +230,7 @@ impl GoClientManager {
         }
 
         let log_path = std::env::temp_dir().join("whispera-go-client.log");
+        cmd.arg("-log-file").arg(&log_path);
         let log_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -276,6 +277,13 @@ impl GoClientManager {
             Command::new("taskkill")
                 .args(["/F", "/IM", "whispera-go-client.exe"])
                 .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .ok();
+        }
+        #[cfg(unix)]
+        {
+            Command::new("pkill")
+                .args(["-9", "-f", "whispera-go-client"])
                 .output()
                 .ok();
         }
