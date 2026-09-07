@@ -887,9 +887,100 @@ body {
   background: rgba(26, 122, 84, 0.08);
 }
 
+/* Chosen for the next connection — distinct from the green "traffic is
+   flowing through this one" state so both can be told apart at a glance. */
+.profile-card.key-selected {
+  border-color: #4a90d9;
+}
+
+.sub-key-row.key-selected {
+  background: rgba(74, 144, 217, 0.14);
+  border-radius: var(--s-sm);
+}
+
+/* Login, password and Save keep to one line like every other setting row; the
+   eye rides inside the password field instead of taking a control slot. */
+.setting-value.socks-auth {
+  gap: 6px;
+  position: relative;
+  top: 7px;
+}
+
+.setting-value:has(.pill-btn[data-pingmode]) {
+  position: relative;
+  top: 10px;
+}
+
+.setting-value:has(#btn-open-config) {
+  position: relative;
+  top: 7px;
+}
+.setting-value.socks-auth input[type="text"],
+.setting-value.socks-auth input[type="password"] {
+  flex: 0 1 132px;
+  width: 132px;
+  min-width: 96px;
+  box-sizing: border-box;
+  text-align: left;
+}
+.field-with-icon {
+  position: relative;
+  display: flex;
+  flex: 0 1 132px;
+  min-width: 96px;
+}
+.setting-value .field-with-icon input[type="password"] { flex: 1 1 auto; width: 100%; padding-right: 30px; }
+.field-with-icon .btn-icon {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface-var);
+  border-radius: var(--s-full);
+  cursor: pointer;
+  transition: all var(--tr);
+}
+.btn-icon:hover { background: var(--md-surface-high); color: var(--md-primary); }
+.btn-icon.on { color: var(--md-primary); }
+
+.socks-auth-url {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.socks-auth-url code {
+  font-family: 'Roboto Mono', 'Consolas', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sub-key-pick { cursor: pointer; }
+.sub-key-pick:hover { background: var(--md-surface-3); border-radius: var(--s-sm); }
 .sub-key-row.key-active {
   background: rgba(26, 122, 84, 0.08);
   border-radius: var(--s-sm);
+}
+
+/* The tint has to reach the card edges, so it bleeds into the list padding. */
+.sub-key-row.key-active,
+.sub-key-row.key-selected {
+  padding-left: 8px;
+  padding-right: 8px;
+  margin-left: -8px;
+  margin-right: -8px;
 }
 
 .profile-card:hover {
@@ -963,11 +1054,14 @@ button.spinning svg {
 .sub-key-row {
   display: flex;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   gap: 6px;
   padding: 3px 0;
 }
 .sub-key-val {
   flex: 1;
+  min-width: 0;
   font-family: 'Roboto Mono', monospace;
   font-size: 10.5px;
   color: var(--md-on-surface-var);
@@ -977,6 +1071,8 @@ button.spinning svg {
 }
 .sub-keys {
   padding: 6px 8px 2px;
+  min-width: 0;
+  max-width: 100%;
   border-top: 1px solid var(--md-outline-var);
   display: flex;
   flex-direction: column;
@@ -1136,6 +1232,11 @@ button.spinning svg {
   white-space: nowrap;
 }
 .log-line { padding: 1px 0; }
+
+.log-box, .log-line {
+  user-select: text;
+  -webkit-user-select: text;
+}
 .log-error { color: #f87171; }
 .log-warn { color: #fbbf24; }
 .log-info { color: #a5b4fc; }
@@ -1144,7 +1245,7 @@ button.spinning svg {
 /* ══════════════════════════════════════════════════════════════
    SETTINGS
 ══════════════════════════════════════════════════════════════ */
-.settings-section { margin-bottom: 24px; }
+.settings-section { margin-bottom: 16px; }
 
 /* M3 Label-small as section header */
 .settings-section-title {
@@ -1182,38 +1283,53 @@ button.spinning svg {
 
 .settings-link:hover { text-decoration: underline; }
 
-/* Every row aligns the same way — a hint under the label must not shift the
-   control next to it, or rows with and without hints read as two designs. */
-.setting-label-group {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  flex: 1;
-  min-width: 0;
-}
+/* A settings row is a two-column form: label (with an optional hint under it)
+   on the left, controls on the right, always on the label's line. The grid
+   does the aligning, so no row needs its own offsets.
 
+       <div class="setting-row">
+         <span class="setting-label">...</span>
+         <span class="setting-hint">...</span>   <- optional
+         <div class="setting-value">...</div>
+       </div>
+*/
 .setting-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 3px;
   padding: 10px 0;
   border-bottom: 1px solid var(--md-outline-var);
-  gap: 6px 8px;
 }
 
 .setting-row:last-child { border-bottom: none; }
 
 /* M3 Body-medium */
 .setting-label {
+  grid-column: 1;
   font-size: 13px;
   color: var(--md-on-surface);
   font-weight: 400;
-  flex: 1 0 auto;
-  min-width: 0;
+  min-height: 26px;
+  display: flex;
+  align-items: center;
 }
 
+.setting-hint {
+  grid-column: 1;
+  font-size: 11px;
+  font-weight: 400;
+  opacity: .5;
+}
+
+.setting-row:has(.setting-hint) .setting-value { grid-row: 1 / span 2; }
+
 .setting-value {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1377,6 +1493,12 @@ button.spinning svg {
 
 /* ── M3 Text Button (small) ─────────────────────────────── */
 .btn-sm {
+  /* Centre the caption inside the button, so an 11px button label lines up
+     with the 13px row label opposite it. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
   padding: 5px 14px;
   font-size: 11px;
   font-family: var(--f);
@@ -1390,6 +1512,7 @@ button.spinning svg {
   white-space: nowrap;
   letter-spacing: .3px;
 }
+
 
 .btn-sm:hover {
   background: var(--md-secondary-cont);
@@ -2229,9 +2352,29 @@ button.spinning svg {
   }
 
   /* ── Setting rows: лейбл + value на одной строке wrap ── */
+  /* Too little width for two columns: fall back to flex so a control that
+     does not fit next to its label wraps onto its own line by itself. */
   .setting-row {
+    display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 4px;
+  }
+  .setting-label { flex: 1 1 auto; }
+  .setting-hint { flex: 1 0 100%; order: 3; }
+  .setting-value { flex: 0 1 auto; margin-left: auto; }
+
+  .setting-value.socks-auth {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+  }
+  .setting-value.socks-auth input[type="text"],
+  .setting-value.socks-auth input[type="password"],
+  .socks-auth .field-with-icon {
+    flex: 1 1 0;
+    width: 0;
+    min-width: 0;
   }
 }
 

@@ -24,6 +24,8 @@ const ICONS = {
   kebab: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>`,
   clipboard: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>`,
   qr: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="14" y2="21"/><line x1="21" y1="14" x2="21" y2="21"/><line x1="17.5" y1="14" x2="17.5" y2="17.5"/><line x1="14" y1="17.5" x2="21" y2="17.5"/></svg>`,
+  eye: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  eyeOff: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
   code: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
 };
 
@@ -48,7 +50,6 @@ interface AppSettings {
   secret: string;
   custom_dns?: string[];
   vpn_dns?: string;
-  spoof_ips?: string;
   multi_bridges?: MultiBridgeEntry[];
   tls_fingerprint?: string;
   bypass_ru?: boolean;
@@ -60,6 +61,8 @@ interface AppSettings {
   allow_lan?: boolean;
   log_level?: string;
   routing_mode?: string;
+
+  external_link?: string;
   dns_mode?: string;
   dns_strategy?: string;
   mtu?: number;
@@ -108,7 +111,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     mixedPort: "Смешанный порт :", bindAddr: "Привязать адрес :", tunStack: "Tun Stack :", shareProxy: "Общий доступ к прокси",
     theme: "Тема :", dark: "Тёмная", auto: "Белая", dnsRedirect: "DNS перенаправление :",
     ipv6Label: "IPv6 :", secretLabel: "Secret :", copy: "Копировать",
-    hwid: "HWID :", autostart: "Автозапуск :", authTip: "Совет по аутентификации :",
+    hwid: "HWID :", autostart: "Автозапуск :", externalLink: "Внешний профиль :", externalHint: "Ссылка vless:// trojan:// ss:// — туннель ведёт mihomo, наш клиент не запускается. Пусто = свой протокол", authTip: "Совет по аутентификации :",
     config: "Конфиг :", open: "Открыть", update: "Обновить :",
     openRepo: "Открыть репо", checkUpdates: "Проверить обновления", checking: "Проверка",
     installed: "Установлено в актуальной версии",
@@ -124,18 +127,16 @@ const i18n: Record<Lang, Record<string, string>> = {
     addSite: "Добавить сайт", addApp: "Выбрать приложение", domain: "Домен", app: "Приложение",
     routeDirect: "Напрямую", routeProxy: "Прокси", noRules: "Правила не добавлены",
     domainHint: "Например: steampowered.com",
-    discordVpn: "Прокси", discordDirect: "Напрямую",
-    discordDesc: "Прокси — приложение запускается; Напрямую — голос работает",
     blocklist: "Блок-лист", blocklistTitle: "Блок-лист", blocklistDesc: "Заблокированные домены и приложения — трафик полностью блокируется",
     blockDomain: "Заблокировать домен", blockApp: "Заблокировать приложение", blockKeyword: "По ключевому слову", blockIp: "Заблокировать IP/CIDR",
     noBlocked: "Список пуст", blocked: "Заблокирован", domainBlockHint: "Например: tiktok.com",
     keywordHint: "Например: tracker", ipHint: "Например: 1.2.3.0/24",
     subscriptions: "Подписки", addSubscription: "Добавить подписку",
-    subName: "Название", subUrl: "URL подписки", subUrlHint: "https://server/sub/TOKEN",
+    subName: "Название", subUrl: "URL подписки", keyJson: "Показать JSON", keyJsonTitle: "Конфигурация ключа", keyJsonForeign: "Чужой протокол — только просмотр", keyJsonBad: "Не удалось разобрать ключ", keyJsonSaved: "Ключ обновлён", subUrlHint: "https://server/sub/TOKEN",
     noSubscriptions: "Нет подписок", subKeys: "ключей", subRefreshing: "Обновление...", subAdded: "Подписка добавлена",
     subRefresh: "Обновить", subDelete: "Удалить", subLastUpdated: "Обновлено",
     subSelectKey: "Выбрать ключ", subRename: "Переименовать", more: "Ещё",
-    pingKey: "Пинг", pingAll: "Пинг всех", pingMs: "мс", pingTimeout: "timeout", pingError: "ошибка", pingRunning: "...",
+    pingWhileOn: "Замер доступен только при отключённом туннеле", pingKey: "Пинг", pingAll: "Пинг всех", pingMs: "мс", pingTimeout: "timeout", pingError: "ошибка", pingRunning: "...",
     loading: "Загрузка…",
     copied: "Скопировано",
     vpnConnected: "Подключено",
@@ -252,8 +253,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     bypassRu: "Обходить .ru / .su напрямую",
     bypassRuHint: "GEOIP Россия + домены .ru/.su идут напрямую, минуя VPN",
     advanced: "Расширенные",
-    spoofIpsHint: "Список локальных IP для ротации источника. Пусто = отключено",
-    ipSpoofing: "IP Spoofing",
     allowLan: "Разрешить LAN",
     allowLanHint: "Другие устройства в сети смогут использовать прокси",
     logLevel: "Уровень логов",
@@ -262,6 +261,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     socksUser: "Логин",
     socksPass: "Пароль",
     socksProxyUrl: "URL прокси",
+    socksAuthHint: "Пусто — порт открыт без пароля",
+    socksShow: "Показать пароль",
+    socksHide: "Скрыть пароль",
     socksSave: "Сохранить",
     reconnectRequired: "Переподключитесь для применения правила",
     logSearchPlaceholder: "Поиск в логах...",
@@ -302,7 +304,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     mixedPort: "Mixed port :", bindAddr: "Bind address :", tunStack: "Tun Stack :", shareProxy: "Share proxy",
     theme: "Theme :", dark: "Dark", auto: "Light", dnsRedirect: "DNS redirect :",
     ipv6Label: "IPv6 :", secretLabel: "Secret :", copy: "Copy",
-    hwid: "HWID :", autostart: "Autostart :", authTip: "Auth tip :",
+    hwid: "HWID :", autostart: "Autostart :", externalLink: "External profile :", externalHint: "A vless:// trojan:// ss:// link — mihomo carries the tunnel, our client stays off. Empty = own protocol", authTip: "Auth tip :",
     config: "Config :", open: "Open", update: "Update :",
     openRepo: "Open repo", checkUpdates: "Check updates", checking: "Checking",
     installed: "Latest version installed",
@@ -318,18 +320,16 @@ const i18n: Record<Lang, Record<string, string>> = {
     addSite: "Add site", addApp: "Browse app", domain: "Domain", app: "Application",
     routeDirect: "Direct", routeProxy: "Proxy", noRules: "No rules added",
     domainHint: "e.g. steampowered.com",
-    discordVpn: "Proxy", discordDirect: "Direct",
-    discordDesc: "Proxy — app connects; Direct — voice works",
     blocklist: "Blocklist", blocklistTitle: "Blocklist", blocklistDesc: "Blocked domains and apps — traffic is completely rejected",
     blockDomain: "Block domain", blockApp: "Block application", blockKeyword: "By keyword", blockIp: "Block IP/CIDR",
     noBlocked: "List is empty", blocked: "Blocked", domainBlockHint: "e.g. tiktok.com",
     keywordHint: "e.g. tracker", ipHint: "e.g. 1.2.3.0/24",
     subscriptions: "Subscriptions", addSubscription: "Add subscription",
-    subName: "Name", subUrl: "Subscription URL", subUrlHint: "https://server/sub/TOKEN",
+    subName: "Name", subUrl: "Subscription URL", keyJson: "Show JSON", keyJsonTitle: "Key configuration", keyJsonForeign: "Foreign protocol — view only", keyJsonBad: "Could not parse the key", keyJsonSaved: "Key updated", subUrlHint: "https://server/sub/TOKEN",
     noSubscriptions: "No subscriptions", subKeys: "keys", subRefreshing: "Refreshing...", subAdded: "Subscription added",
     subRefresh: "Refresh", subDelete: "Delete", subLastUpdated: "Updated",
     subSelectKey: "Use key", subRename: "Rename", more: "More",
-    pingKey: "Ping", pingAll: "Ping all", pingMs: "ms", pingTimeout: "timeout", pingError: "error", pingRunning: "...",
+    pingWhileOn: "Measurement works only while disconnected", pingKey: "Ping", pingAll: "Ping all", pingMs: "ms", pingTimeout: "timeout", pingError: "error", pingRunning: "...",
     loading: "Loading…",
     copied: "Copied",
     vpnConnected: "Connected",
@@ -446,8 +446,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     bypassRu: "Bypass .ru / .su direct",
     bypassRuHint: "GEOIP Russia + .ru/.su domains go direct, bypassing VPN",
     advanced: "Advanced",
-    spoofIpsHint: "Local IPs for source rotation. Empty = disabled",
-    ipSpoofing: "IP Spoofing",
     allowLan: "Allow LAN",
     allowLanHint: "Other devices on the network can use this proxy",
     logLevel: "Log Level",
@@ -456,6 +454,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     socksUser: "Username",
     socksPass: "Password",
     socksProxyUrl: "Proxy URL",
+    socksAuthHint: "Empty means the port is open without a password",
+    socksShow: "Show password",
+    socksHide: "Hide password",
     socksSave: "Save",
     reconnectRequired: "Reconnect to apply the rule",
     logSearchPlaceholder: "Search logs...",
@@ -496,7 +497,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     mixedPort: "混合端口：", bindAddr: "绑定地址：", tunStack: "Tun堆栈：", shareProxy: "共享代理",
     theme: "主题：", dark: "深色", auto: "浅色", dnsRedirect: "DNS重定向：",
     ipv6Label: "IPv6：", secretLabel: "密钥：", copy: "复制",
-    hwid: "HWID：", autostart: "自动启动：", authTip: "认证提示：",
+    hwid: "HWID：", autostart: "自动启动：", externalLink: "外部配置：", externalHint: "vless:// trojan:// ss:// 链接 — 由 mihomo 承载隧道，本客户端不启动。留空 = 使用自有协议", authTip: "认证提示：",
     config: "配置：", open: "打开", update: "更新：",
     openRepo: "打开仓库", checkUpdates: "检查更新", checking: "检查中",
     installed: "已安装最新版本",
@@ -512,18 +513,16 @@ const i18n: Record<Lang, Record<string, string>> = {
     addSite: "添加网站", addApp: "选择应用", domain: "域名", app: "应用",
     routeDirect: "直连", routeProxy: "Proxy", noRules: "无规则",
     domainHint: "例如：steampowered.com",
-    discordVpn: "Proxy", discordDirect: "直连",
-    discordDesc: "代理 — 应用连接；直连 — 语音正常",
     blocklist: "黑名单", blocklistTitle: "黑名单", blocklistDesc: "已拦截域名和应用",
     blockDomain: "拦截域名", blockApp: "拦截应用", blockKeyword: "按关键词", blockIp: "拦截IP/CIDR",
     noBlocked: "列表为空", blocked: "已拦截", domainBlockHint: "例如：tiktok.com",
     keywordHint: "例如：tracker", ipHint: "例如：1.2.3.0/24",
     subscriptions: "订阅", addSubscription: "添加订阅",
-    subName: "名称", subUrl: "订阅URL", subUrlHint: "https://server/sub/TOKEN",
+    subName: "名称", subUrl: "订阅URL", keyJson: "查看 JSON", keyJsonTitle: "密钥配置", keyJsonForeign: "外部协议 — 仅查看", keyJsonBad: "无法解析密钥", keyJsonSaved: "密钥已更新", subUrlHint: "https://server/sub/TOKEN",
     noSubscriptions: "无订阅", subKeys: "密钥", subRefreshing: "更新中...", subAdded: "订阅已添加",
     subRefresh: "刷新", subDelete: "删除", subLastUpdated: "已更新",
     subSelectKey: "使用密钥", subRename: "重命名", more: "更多",
-    pingKey: "延迟", pingAll: "全部延迟", pingMs: "毫秒", pingTimeout: "超时", pingError: "错误", pingRunning: "...",
+    pingWhileOn: "仅在断开连接时可测量", pingKey: "延迟", pingAll: "全部延迟", pingMs: "毫秒", pingTimeout: "超时", pingError: "错误", pingRunning: "...",
     loading: "加载中…",
     copied: "已复制",
     vpnConnected: "已连接",
@@ -640,8 +639,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     bypassRu: "直连 .ru / .su 域名",
     bypassRuHint: "俄罗斯IP + .ru/.su域名直连，不走VPN",
     advanced: "高级",
-    spoofIpsHint: "用于源轮换的本地IP列表。留空=禁用",
-    ipSpoofing: "IP欺骗",
     allowLan: "允许 LAN",
     allowLanHint: "局域网其他设备可使用此代理",
     logLevel: "日志级别",
@@ -650,6 +647,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     socksUser: "用户名",
     socksPass: "密码",
     socksProxyUrl: "代理 URL",
+    socksAuthHint: "留空则端口无需密码",
+    socksShow: "显示密码",
+    socksHide: "隐藏密码",
     socksSave: "保存",
     reconnectRequired: "重连以应用规则",
     logSearchPlaceholder: "搜索日志...",
@@ -690,7 +690,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     mixedPort: "پورت ترکیبی:", bindAddr: "آدرس bind:", tunStack: "Tun Stack:", shareProxy: "اشتراک پراکسی",
     theme: "پوسته:", dark: "تیره", auto: "روشن", dnsRedirect: "هدایت DNS:",
     ipv6Label: "IPv6:", secretLabel: "رمز:", copy: "کپی",
-    hwid: "HWID:", autostart: "شروع خودکار:", authTip: "راهنمای احراز هویت:",
+    hwid: "HWID:", autostart: "شروع خودکار:", externalLink: "پروفایل خارجی:", externalHint: "لینک vless:// trojan:// ss:// — تونل با mihomo، کلاینت ما اجرا نمی‌شود. خالی = پروتکل خودی", authTip: "راهنمای احراز هویت:",
     config: "پیکربندی:", open: "باز کردن", update: "بروزرسانی:",
     openRepo: "باز کردن مخزن", checkUpdates: "بررسی بروزرسانی", checking: "در حال بررسی",
     installed: "نسخه به‌روز است",
@@ -706,18 +706,16 @@ const i18n: Record<Lang, Record<string, string>> = {
     addSite: "افزودن سایت", addApp: "انتخاب برنامه", domain: "دامنه", app: "برنامه",
     routeDirect: "مستقیم", routeProxy: "Proxy", noRules: "قانونی اضافه نشده",
     domainHint: "مثلاً: steampowered.com",
-    discordVpn: "Proxy", discordDirect: "مستقیم",
-    discordDesc: "پراکسی — برنامه اتصال می‌یابد؛ مستقیم — صدا کار می‌کند",
     blocklist: "لیست سیاه", blocklistTitle: "لیست سیاه", blocklistDesc: "دامنه‌ها و برنامه‌های مسدود شده",
     blockDomain: "مسدود کردن دامنه", blockApp: "مسدود کردن برنامه", blockKeyword: "بر اساس کلیدواژه", blockIp: "مسدود کردن IP/CIDR",
     noBlocked: "لیست خالی است", blocked: "مسدود شده", domainBlockHint: "مثلاً: tiktok.com",
     keywordHint: "مثلاً: tracker", ipHint: "مثلاً: 1.2.3.0/24",
     subscriptions: "اشتراک‌ها", addSubscription: "افزودن اشتراک",
-    subName: "نام", subUrl: "URL اشتراک", subUrlHint: "https://server/sub/TOKEN",
+    subName: "نام", subUrl: "URL اشتراک", keyJson: "نمایش JSON", keyJsonTitle: "پیکربندی کلید", keyJsonForeign: "پروتکل خارجی — فقط مشاهده", keyJsonBad: "کلید قابل تجزیه نیست", keyJsonSaved: "کلید به‌روزرسانی شد", subUrlHint: "https://server/sub/TOKEN",
     noSubscriptions: "اشتراکی وجود ندارد", subKeys: "کلیدها", subRefreshing: "در حال بروزرسانی...", subAdded: "اشتراک اضافه شد",
     subRefresh: "بروزرسانی", subDelete: "حذف", subLastUpdated: "بروزرسانی شده",
     subSelectKey: "استفاده از کلید", subRename: "تغییر نام", more: "بیشتر",
-    pingKey: "پینگ", pingAll: "پینگ همه", pingMs: "میلی‌ثانیه", pingTimeout: "تایم‌اوت", pingError: "خطا", pingRunning: "...",
+    pingWhileOn: "اندازه‌گیری فقط در حالت قطع", pingKey: "پینگ", pingAll: "پینگ همه", pingMs: "میلی‌ثانیه", pingTimeout: "تایم‌اوت", pingError: "خطا", pingRunning: "...",
     loading: "در حال بارگذاری…",
     copied: "کپی شد",
     vpnConnected: "متصل شد",
@@ -834,8 +832,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     bypassRu: "دور زدن .ru / .su مستقیم",
     bypassRuHint: "دامنه‌های روسی و GEOIP Russia مستقیم، بدون VPN",
     advanced: "پیشرفته",
-    spoofIpsHint: "لیست IP‌های محلی برای چرخش منبع. خالی = غیرفعال",
-    ipSpoofing: "جعل IP",
     allowLan: "اجازه LAN",
     allowLanHint: "سایر دستگاه‌های شبکه می‌توانند از این پروکسی استفاده کنند",
     logLevel: "سطح لاگ",
@@ -844,6 +840,9 @@ const i18n: Record<Lang, Record<string, string>> = {
     socksUser: "نام کاربری",
     socksPass: "رمز عبور",
     socksProxyUrl: "آدرس پروکسی",
+    socksAuthHint: "خالی یعنی پورت بدون رمز باز است",
+    socksShow: "نمایش رمز",
+    socksHide: "پنهان کردن رمز",
     socksSave: "ذخیره",
     reconnectRequired: "برای اعمال قانون دوباره متصل شوید",
     logSearchPlaceholder: "جستجو در گزارش‌ها...",
@@ -913,8 +912,12 @@ function refKey(ref: string): string | undefined {
   return undefined;
 }
 
+function activeKeyValue(): string {
+  return (settings.external_link || settings.conn_key || "").trim();
+}
+
 function normalizeActiveRef(): void {
-  const k = settings.conn_key;
+  const k = activeKeyValue();
   if (!k) { activeRef = ""; return; }
   if (activeRef && refKey(activeRef) === k) return;
   const p = profiles.find(p => p.key === k);
@@ -938,7 +941,12 @@ let sysInfo = { os: "—", uptime: "—", version: "v0.1.4", admin: false };
 function t(key: string): string { return i18n[lang][key] || key; }
 
 function getServerHost(): string {
-  const key = settings.conn_key.trim();
+  const key = activeKeyValue();
+  if (FOREIGN_LINK.test(key)) {
+    const hostport = key.split("://")[1]?.split(/[?#]/)[0] ?? "";
+    const after = hostport.includes("@") ? hostport.split("@").pop() ?? "" : hostport;
+    return after.split(":")[0] ?? "";
+  }
   if (!key) return "";
   if (key.startsWith("whispera://")) {
     // Try base64-JSON format first
@@ -1107,8 +1115,14 @@ async function switchToKey(newKey: string, ref = ""): Promise<void> {
     return;
   }
   const wasActive = isConnected;
-  const isSameKey = settings.conn_key === newKey;
-  settings.conn_key = newKey;
+  const foreign = /^(vless|vmess|trojan|ss):\/\//.test(newKey);
+  const isSameKey = foreign ? settings.external_link === newKey : settings.conn_key === newKey;
+  if (foreign) {
+    settings.external_link = newKey;
+  } else {
+    settings.external_link = "";
+    settings.conn_key = newKey;
+  }
   activeRef = ref;
   persistSettings();
   currentPage = "home";
@@ -1162,19 +1176,42 @@ function updateSysDOM(): void {
   if (adm) { adm.textContent = sysInfo.admin ? "ON" : "OFF"; adm.className = "info-value " + (sysInfo.admin ? "badge-on" : "badge-off"); }
 }
 
-function _refreshLogBox(): void {
-  const box = document.getElementById("log-box");
-  if (!box) return;
-  const filtered = logLines.filter(l => {
-    if (logFilter !== "all" && logLineLevel(l) !== logFilter) return false;
-    if (logSearch && !l.toLowerCase().includes(logSearch.toLowerCase())) return false;
-    return true;
-  });
-  const colorized = filtered.map(l => {
+function tailOf(lines: string[]): string[] {
+  return lines.length > LOG_RENDER_LINES ? lines.slice(lines.length - LOG_RENDER_LINES) : lines;
+}
+
+function colorize(lines: string[]): string {
+  return lines.map(l => {
     const lvl = logLineLevel(l);
     const cls = "log-line" + (lvl ? ` log-${lvl}` : "");
     return `<div class="${cls}">${esc(l)}</div>`;
   }).join("");
+}
+
+function filteredLogLines(): string[] {
+  return logLines.filter(l => {
+    if (logFilter !== "all" && logLineLevel(l) !== logFilter) return false;
+    if (logSearch && !l.toLowerCase().includes(logSearch.toLowerCase())) return false;
+    return true;
+  });
+}
+
+let _logRefreshPending = false;
+
+function _scheduleLogRefresh(): void {
+  if (_logRefreshPending) return;
+  _logRefreshPending = true;
+  requestAnimationFrame(() => {
+    _logRefreshPending = false;
+    _refreshLogBox();
+  });
+}
+
+function _refreshLogBox(): void {
+  const box = document.getElementById("log-box");
+  if (!box) return;
+  const filtered = filteredLogLines();
+  const colorized = colorize(tailOf(filtered));
   box.innerHTML = colorized || `<div class="log-line log-info">${t("logReady")}</div>`;
   box.scrollTop = box.scrollHeight;
   const cnt = document.querySelector(".log-count");
@@ -1182,14 +1219,23 @@ function _refreshLogBox(): void {
 }
 
 const LOG_RETENTION_MS = 60 * 60 * 1000;
-const LOG_MAX_LINES = 5000;
+// The window keeps a short tail; the full history lives in the log file.
+const LOG_MAX_LINES = 140;
+const LOG_RENDER_LINES = 140;
+
+const GO_LOG_TS = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})/;
 
 function addLog(line: string): void {
-  const now = Date.now();
-  const ts = new Date().toLocaleTimeString();
-  logLines.push("[" + ts + "] " + line);
+  const m = GO_LOG_TS.exec(line);
+  const now = m
+    ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime()
+    : Date.now();
+  const text = m
+    ? "[" + m[4] + ":" + m[5] + ":" + m[6] + "]" + line.slice(m[0].length)
+    : "[" + new Date(now).toLocaleTimeString() + "] " + line;
+  logLines.push(text);
   logTimes.push(now);
-  const cutoff = now - LOG_RETENTION_MS;
+  const cutoff = Date.now() - LOG_RETENTION_MS;
   let drop = 0;
   while (drop < logTimes.length && logTimes[drop] < cutoff) drop++;
   if (logLines.length - drop > LOG_MAX_LINES) drop = logLines.length - LOG_MAX_LINES;
@@ -1197,7 +1243,7 @@ function addLog(line: string): void {
     logLines.splice(0, drop);
     logTimes.splice(0, drop);
   }
-  _refreshLogBox();
+  _scheduleLogRefresh();
 }
 
 // go-client's console encoder pads short level names to a fixed width inside
@@ -1310,7 +1356,12 @@ function renderPage(): void {
     case "logs":
       main.innerHTML = renderLogs();
       bindLogEvents();
-      document.getElementById("btn-clear-logs")?.addEventListener("click", () => {
+      document.getElementById("btn-clear-logs")?.addEventListener("click", async () => {
+        try {
+          await invoke("clear_vpn_log");
+        } catch (e) {
+          console.error("clear_vpn_log", e);
+        }
         logLines = [];
         logTimes = [];
         logSearch = "";
@@ -1366,7 +1417,7 @@ function tickUptime(): void {
 }
 
 function hasUsableKey(): boolean {
-  const k = settings.conn_key;
+  const k = activeKeyValue();
   if (!k) return false;
   return profiles.some(p => p.key === k) ||
     subscriptions.some(s => (s.keys || []).includes(k));
@@ -1383,7 +1434,7 @@ function renderHome(): string {
     if (settings.conn_key !== before) persistSettings();
   }
   normalizeActiveRef();
-  const profileName = profiles.find(p => p.key === settings.conn_key)?.name;
+  const profileName = profiles.find(p => p.key === activeKeyValue())?.name;
   const serverHost = getServerHost();
   const uptimeStr = isConnected && connectTime ? formatDuration(Date.now() - connectTime) : "";
   const dis = isConnecting;
@@ -1462,9 +1513,10 @@ function renderProfileList(): string {
   return profiles.length === 0
     ? ""
     : profiles.map(p => {
-        const isActive = isConnected && activeRef === "p:" + p.id;
+        const isSelected = activeRef === "p:" + p.id;
+        const isActive = isConnected && isSelected;
         return `
-        <div class="profile-card${isActive ? " key-active" : ""}">
+        <div class="profile-card${isActive ? " key-active" : isSelected ? " key-selected" : ""}">
           <div class="profile-info"><span>${ICONS.user}</span><span>${esc(p.name)}</span>${isActive ? `<span class="badge-on" style="font-size:10px;padding:1px 6px;flex-shrink:0">${t("active")}</span>` : ""}</div>
           <div class="profile-actions">
             ${pingLabel(pingResults.get("p:" + p.id))}
@@ -1472,6 +1524,7 @@ function renderProfileList(): string {
             <div class="key-menu-wrap">
               <button class="btn-profile-menu" data-id="${p.id}" title="${t("more")}">${ICONS.kebab}</button>
               <div class="key-menu" data-profile="${p.id}" hidden>
+                <button class="km-item btn-ping-profile" data-id="${p.id}" data-key="${esc(p.key)}">${ICONS.ping}<span>${t("pingKey")}</span></button>
                 <button class="km-item btn-copy-profile" data-key="${esc(p.key)}">${ICONS.copy}<span>${t("copy")}</span></button>
                 <button class="km-item km-danger btn-del-profile" data-id="${p.id}">${ICONS.x}<span>${t("subDelete")}</span></button>
               </div>
@@ -1481,23 +1534,26 @@ function renderProfileList(): string {
       }).join("");
 }
 
+const expandedSubs = new Set<string>();
+
 function renderSubList(): string {
   return subscriptions.length === 0
     ? ""
     : subscriptions.map(s => {
         const keyRows = s.keys.map((k, i) => {
           const rowPing = pingLabel(pingResults.get(`${s.id}:${i}`));
-          const keyIsActive = isConnected && activeRef === "s:" + s.id + ":" + i;
+          const keyIsSelected = activeRef === "s:" + s.id + ":" + i;
+          const keyIsActive = isConnected && keyIsSelected;
           return `
-          <div class="sub-key-row${keyIsActive ? " key-active" : ""}">
+          <div class="sub-key-row sub-key-pick${keyIsActive ? " key-active" : keyIsSelected ? " key-selected" : ""}" data-sub="${s.id}" data-idx="${i}" title="${t("subSelectKey")}">
             <span class="sub-key-val" title="${esc(k)}">${esc(k.length > 50 ? k.slice(0, 50) + "…" : k)}</span>
             ${keyIsActive ? `<span class="badge-on" style="font-size:10px;padding:1px 6px;flex-shrink:0">${t("active")}</span>` : ""}
             ${rowPing}
-            <button class="btn-use-sub-key" data-sub="${s.id}" data-idx="${i}" title="${t("subSelectKey")}">${ICONS.play}</button>
             <div class="key-menu-wrap">
               <button class="btn-key-menu" data-sub="${s.id}" data-idx="${i}" title="${t("more")}">${ICONS.kebab}</button>
               <div class="key-menu" data-sub="${s.id}" data-idx="${i}" hidden>
                 <button class="km-item btn-ping-key" data-sub="${s.id}" data-idx="${i}" data-key="${esc(k)}">${ICONS.ping}<span>${t("pingKey")}</span></button>
+                <button class="km-item btn-json-key" data-sub="${s.id}" data-idx="${i}" data-key="${esc(k)}">${ICONS.pencil}<span>${t("keyJson")}</span></button>
                 <button class="km-item btn-copy-key" data-key="${esc(k)}">${ICONS.copy}<span>${t("copy")}</span></button>
                 <button class="km-item km-danger btn-del-key" data-sub="${s.id}" data-idx="${i}">${ICONS.x}<span>${t("subDelete")}</span></button>
               </div>
@@ -1507,8 +1563,7 @@ function renderSubList(): string {
         return `
           <div class="profile-card sub-card">
             <div class="profile-info sub-collapse-hdr" data-sub-id="${s.id}" style="cursor:pointer">
-              <span class="sub-collapse-arrow" data-sub-id="${s.id}" style="opacity:.4;font-size:11px;flex-shrink:0">▶</span>
-              <span>${ICONS.link}</span>
+              <span class="sub-collapse-arrow" data-sub-id="${s.id}" style="opacity:.4;font-size:11px;flex-shrink:0">${expandedSubs.has(s.id) ? "▼" : "▶"}</span>
               <span class="sub-name" title="${esc(s.name || s.url)}">${esc(s.name || s.url)}</span>
             </div>
             <div class="profile-actions">
@@ -1517,7 +1572,7 @@ function renderSubList(): string {
               <button class="btn-refresh-sub" data-id="${s.id}" title="${t("subRefresh")}">${subUpdateAvailable.has(s.id) ? '<span class="sub-update-dot"></span>' : ""}${ICONS.refresh}</button>
               <button class="btn-del-sub" data-id="${s.id}" title="${t("subDelete")}">${ICONS.x}</button>
             </div>
-            ${s.keys.length > 0 ? `<div class="sub-keys" data-sub-id="${s.id}" style="display:none">${keyRows}</div>` : ""}
+            ${s.keys.length > 0 ? `<div class="sub-keys" data-sub-id="${s.id}" style="display:${expandedSubs.has(s.id) ? "block" : "none"}">${keyRows}</div>` : ""}
           </div>`;
       }).join("");
 }
@@ -1657,6 +1712,27 @@ function bindProfileEvents(): void {
       if (menu) menu.hidden = isOpen;
     });
   });
+  document.querySelectorAll<HTMLElement>(".btn-ping-profile").forEach(el => {
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (isConnected) {
+        showToast(t("pingWhileOn"), "info", 3500);
+        return;
+      }
+      const key = el.dataset.key!;
+      const mapKey = "p:" + el.dataset.id!;
+      document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+      pingResults.set(mapKey, "pinging");
+      renderPage();
+      try {
+        const ms = await invoke<number>("ping_key", { key, mode: settings.ping_mode || "tcp" });
+        pingResults.set(mapKey, ms);
+      } catch (err) {
+        pingResults.set(mapKey, pingFailure(err));
+      }
+      renderPage();
+    });
+  });
   document.querySelectorAll<HTMLElement>(".btn-copy-profile").forEach(el => {
     el.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1680,6 +1756,11 @@ function bindProfileEvents(): void {
       if (!body) return;
       const open = body.style.display !== "none";
       body.style.display = open ? "none" : "block";
+      if (open) {
+        expandedSubs.delete(id);
+      } else {
+        expandedSubs.add(id);
+      }
       if (arrow) arrow.textContent = open ? "▶" : "▼";
     });
   });
@@ -1695,6 +1776,24 @@ function bindProfileEvents(): void {
       if (menu) menu.hidden = isOpen;
     });
   });
+  document.querySelectorAll<HTMLElement>(".btn-json-key").forEach(el => {
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
+      const subId = el.dataset.sub!;
+      const idx = parseInt(el.dataset.idx ?? "0", 10);
+      showKeyJson(el.dataset.key ?? "", async (updated) => {
+        const sub = subscriptions.find(s => s.id === subId);
+        if (!sub) return;
+        sub.keys[idx] = updated;
+        try {
+          await invoke("import_subscriptions", { entries: subscriptions });
+        } catch { /* kept in memory either way */ }
+        renderPage();
+      });
+    });
+  });
+
   document.querySelectorAll<HTMLElement>(".btn-copy-key").forEach(el => {
     el.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1721,6 +1820,10 @@ function bindProfileEvents(): void {
   document.querySelectorAll<HTMLElement>(".btn-ping-key").forEach(el => {
     el.addEventListener("click", async (e) => {
       e.stopPropagation();
+      if (isConnected) {
+        showToast(t("pingWhileOn"), "info", 3500);
+        return;
+      }
       const subId = el.dataset.sub!;
       const idx = parseInt(el.dataset.idx ?? "0", 10);
       const key = el.dataset.key!;
@@ -1740,6 +1843,10 @@ function bindProfileEvents(): void {
 
   document.querySelectorAll<HTMLElement>(".btn-ping-all-sub").forEach(el => {
     el.addEventListener("click", async () => {
+      if (isConnected) {
+        showToast(t("pingWhileOn"), "info", 3500);
+        return;
+      }
       const subId = el.dataset.id!;
       const sub = subscriptions.find(s => s.id === subId);
       if (!sub) return;
@@ -1758,11 +1865,11 @@ function bindProfileEvents(): void {
   });
 
   document.querySelectorAll<HTMLElement>(".btn-rename-sub").forEach(el => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", async () => {
       const subId = el.dataset.id!;
       const sub = subscriptions.find(s => s.id === subId);
       if (!sub) return;
-      const newName = prompt(t("subName"), sub.name || sub.url);
+      const newName = await askText(t("subName"), sub.name || sub.url);
       if (newName === null) return;
       invoke("rename_subscription", { id: subId, name: newName.trim() }).then(() => {
         sub.name = newName.trim();
@@ -1798,11 +1905,126 @@ function bindProfileEvents(): void {
       }
     });
   });
-  document.querySelectorAll<HTMLElement>(".btn-use-sub-key").forEach(el => {
-    el.addEventListener("click", () => {
+  document.querySelectorAll<HTMLElement>(".sub-key-pick").forEach(el => {
+    el.addEventListener("click", (e) => {
+      // The kebab, its menu and the ping badge keep their own behaviour.
+      if ((e.target as HTMLElement).closest(".key-menu-wrap, .sub-key-ping")) return;
       const sub = subscriptions.find(s => s.id === el.dataset.sub);
       const idx = parseInt(el.dataset.idx ?? "0", 10);
       if (sub && sub.keys[idx]) switchToKey(sub.keys[idx], "s:" + sub.id + ":" + idx);
+    });
+  });
+}
+
+const FOREIGN_LINK = /^(vless|vmess|trojan|ss):\/\//;
+
+function b64ToUtf8(b64: string): string {
+  const bin = atob(b64.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function utf8ToB64(s: string): string {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+}
+
+function keyAsJson(key: string): { text: string; editable: boolean } | null {
+  const k = key.trim();
+  if (FOREIGN_LINK.test(k)) {
+    const [scheme, rest] = k.split("://");
+    const noTag = rest.split("#")[0];
+    const [body, query = ""] = noTag.split("?");
+    const [userinfo, hostport = ""] = body.includes("@") ? body.split("@") : ["", body];
+    const [host, port] = hostport.split(":");
+    const params: Record<string, string> = {};
+    query.split("&").filter(Boolean).forEach(p => {
+      const [a, b = ""] = p.split("=");
+      params[a] = decodeURIComponent(b);
+    });
+    return {
+      text: JSON.stringify({ scheme, id: userinfo, server: host, port: Number(port) || 0, params }, null, 2),
+      editable: false,
+    };
+  }
+  try {
+    const b64 = k.replace(/^whispera:\/\//, "").replace(/^wpn:\/\//, "").split(/[?#]/)[0];
+    return { text: JSON.stringify(JSON.parse(b64ToUtf8(b64)), null, 2), editable: true };
+  } catch {
+    return null;
+  }
+}
+
+function showKeyJson(key: string, onSave?: (k: string) => void): void {
+  const parsed = keyAsJson(key);
+  if (!parsed) {
+    showToast(t("keyJsonBad"), "error", 3000);
+    return;
+  }
+  const ov = document.createElement("div");
+  ov.className = "modal-overlay";
+  ov.innerHTML = `
+    <div class="modal" style="max-width:640px">
+      <h3>${t("keyJsonTitle")}</h3>
+      ${parsed.editable ? "" : `<div style="font-size:11px;opacity:.6;margin-bottom:6px">${t("keyJsonForeign")}</div>`}
+      <textarea id="key-json-area" spellcheck="false" ${parsed.editable ? "" : "readonly"}
+        style="width:100%;box-sizing:border-box;height:340px;font-family:monospace;font-size:11px;resize:vertical">${esc(parsed.text)}</textarea>
+      <div class="modal-actions">
+        <button class="btn-sm" id="key-json-copy">${t("copy")}</button>
+        <button class="btn-sm" id="key-json-close">${t("cancel")}</button>
+        ${parsed.editable && onSave ? `<button class="btn-sm btn-primary" id="key-json-save">${t("save")}</button>` : ""}
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+
+  const area = ov.querySelector<HTMLTextAreaElement>("#key-json-area")!;
+  const close = () => ov.remove();
+  ov.addEventListener("click", e => { if (e.target === ov) close(); });
+  ov.querySelector("#key-json-close")?.addEventListener("click", close);
+  ov.querySelector("#key-json-copy")?.addEventListener("click", () => {
+    clipboardWrite(area.value);
+    showToast(t("copied"), "success", 1500);
+  });
+  ov.querySelector("#key-json-save")?.addEventListener("click", () => {
+    let rebuilt: string;
+    try {
+      rebuilt = "whispera://" + utf8ToB64(JSON.stringify(JSON.parse(area.value)));
+    } catch {
+      showToast(t("keyJsonBad"), "error", 3000);
+      return;
+    }
+    onSave?.(rebuilt);
+    showToast(t("keyJsonSaved"), "success", 2500);
+    close();
+  });
+}
+
+function askText(title: string, initial: string): Promise<string | null> {
+  return new Promise(resolve => {
+    const ov = document.createElement("div");
+    ov.className = "modal-overlay";
+    ov.innerHTML = `
+      <div class="modal" style="max-width:420px">
+        <h3>${esc(title)}</h3>
+        <input id="ask-text-input" value="${esc(initial)}" style="width:100%;box-sizing:border-box"/>
+        <div class="modal-actions">
+          <button class="btn-sm" id="ask-text-cancel">${t("cancel")}</button>
+          <button class="btn-sm btn-primary" id="ask-text-ok">${t("save")}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    const input = ov.querySelector<HTMLInputElement>("#ask-text-input")!;
+    input.focus();
+    input.select();
+    const done = (v: string | null) => { ov.remove(); resolve(v); };
+    ov.addEventListener("click", e => { if (e.target === ov) done(null); });
+    ov.querySelector("#ask-text-cancel")?.addEventListener("click", () => done(null));
+    ov.querySelector("#ask-text-ok")?.addEventListener("click", () => done(input.value.trim()));
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") done(input.value.trim());
+      if (e.key === "Escape") done(null);
     });
   });
 }
@@ -1918,49 +2140,10 @@ async function importJsonText(raw: string): Promise<void> {
   }
 }
 
-const DISCORD_RULE_ID = "discord-builtin";
-const DISCORD_UPDATE_RULE_ID = "discord-update-builtin";
-const DISCORD_PROCESS_VALUE = isAndroid ? "com.discord" : "Discord.exe";
-
-function getDiscordRule(): RoutingRule | undefined {
-  return routingRules.find(r =>
-    r.id === DISCORD_RULE_ID ||
-    (r.kind === "process" && r.value.toLowerCase() === DISCORD_PROCESS_VALUE.toLowerCase())
-  );
-}
-
-async function setDiscordMode(action: "PROXY" | "DIRECT"): Promise<void> {
-  const main = getDiscordRule();
-  if (main) {
-    main.action = action;
-    main.value = DISCORD_PROCESS_VALUE;
-  } else {
-    routingRules.push({ id: DISCORD_RULE_ID, kind: "process", value: DISCORD_PROCESS_VALUE, action });
-  }
-  if (!isAndroid) {
-    const upd = routingRules.find(r => r.id === DISCORD_UPDATE_RULE_ID ||
-      (r.kind === "process" && r.value.toLowerCase() === "update.exe"));
-    if (upd) {
-      upd.action = action;
-    } else {
-      routingRules.push({ id: DISCORD_UPDATE_RULE_ID, kind: "process", value: "Update.exe", action });
-    }
-  }
-  await persistRoutingRules();
-  if (isAndroid) showToast(t("reconnectRequired"), "info", 3500);
-}
-
 function renderRouting(): string {
-  const discordRule = getDiscordRule();
-  const discordAction = discordRule?.action ?? "PROXY";
-  const discordIds = new Set([DISCORD_RULE_ID, DISCORD_UPDATE_RULE_ID]);
-  const discordProcs = new Set(isAndroid ? ["com.discord"] : ["discord.exe", "update.exe"]);
-
   // Unified rules list: routing + blocklist together
   const allRules: Array<{ r: RoutingRule; src: "routing" | "block" }> = [
-    ...routingRules
-      .filter(r => !discordIds.has(r.id) && !(r.kind === "process" && discordProcs.has(r.value.toLowerCase())))
-      .map(r => ({ r, src: "routing" as const })),
+    ...routingRules.map(r => ({ r, src: "routing" as const })),
     ...blocklistRules.map(r => ({ r, src: "block" as const })),
   ];
 
@@ -1985,22 +2168,10 @@ function renderRouting(): string {
           <button class="btn-del-rule" data-id="${r.id}" data-src="${src}">${ICONS.x}</button>
         </div>`).join("");
 
-  const discordIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.025.016.048.036.063a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>`;
-
   return `
     <div class="page-header">
       <h2 class="page-title">${t("routingTitle")}</h2>
     </div>
-
-    ${isAndroid ? "" : `<div class="card" style="margin-bottom:10px">
-      <div class="card-header" style="padding-bottom:8px">
-        <span class="card-title" style="display:flex;align-items:center;gap:6px;color:#5865F2">${discordIcon} Discord</span>
-        <div class="pill-group" id="discord-mode-pills">
-          <button class="pill-btn${discordAction === "PROXY" ? " active" : ""}" data-act="PROXY">${t("ruleViaVpn")}</button>
-          <button class="pill-btn${discordAction === "DIRECT" ? " active" : ""}" data-act="DIRECT">${t("ruleDirect2")}</button>
-        </div>
-      </div>
-    </div>`}
 
     <div class="card" style="margin-bottom:10px">
       <div class="card-header" style="padding-bottom:6px">
@@ -2085,16 +2256,6 @@ function renderRouting(): string {
 let _selectedExe = "";
 
 function bindRoutingEvents(): void {
-  // Discord mode pills
-  document.querySelectorAll<HTMLElement>("#discord-mode-pills .pill-btn").forEach(el => {
-    el.addEventListener("click", async () => {
-      const action = el.dataset.act as "PROXY" | "DIRECT";
-      document.querySelectorAll("#discord-mode-pills .pill-btn").forEach(b => b.classList.remove("active"));
-      el.classList.add("active");
-      await setDiscordMode(action);
-    });
-  });
-
   // Rule type bar
   let _ruleType = "domain";
   document.querySelectorAll<HTMLElement>("#rule-type-bar .rule-type-btn").forEach(el => {
@@ -2313,16 +2474,8 @@ let logFilter = "all";
 let logSearch = "";
 
 function renderLogs(): string {
-  const filtered = logLines.filter(line => {
-    if (logFilter !== "all" && logLineLevel(line) !== logFilter) return false;
-    if (logSearch && !line.toLowerCase().includes(logSearch.toLowerCase())) return false;
-    return true;
-  });
-  const colorized = filtered.map(line => {
-    const lvl = logLineLevel(line);
-    const cls = "log-line" + (lvl ? ` log-${lvl}` : "");
-    return `<div class="${cls}">${esc(line)}</div>`;
-  }).join("");
+  const filtered = filteredLogLines();
+  const colorized = colorize(tailOf(filtered));
   const txt = colorized || `<div class="log-line log-info">${t("logReady")}</div>`;
   return `
     <div class="page-header">
@@ -2357,255 +2510,142 @@ function bindLogEvents(): void {
   }));
 }
 
-function renderSettings(): string {
-  const vpnDnsVal = settings.vpn_dns || "1.1.1.1";
-  const vpnDnsPills = [
-    ["1.1.1.1", "1.1.1.1"],
-    ["8.8.8.8", "8.8.8.8"],
-    ["77.88.8.8", "Yandex"],
-    ["system", t("isp")],
-  ].map(([v, l]) =>
-    `<button class="pill-btn${vpnDnsVal === v || (v === "1.1.1.1" && !settings.vpn_dns) ? " active" : ""}" data-vpndns="${v}">${l}</button>`
-  ).join("");
-
-  if (isAndroid) {
-    return `<div class="page-header"><h2 class="page-title">${t("settings")}</h2></div>
-    <div class="settings-section">
-      <div class="settings-section-title">sing-box</div>
-      <div class="setting-row"><span class="setting-label">${t("vpnDns")}</span><div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px">
-        <div class="pill-group" style="flex-wrap:wrap;gap:4px">${vpnDnsPills}</div>
-        <input type="text" id="set-vpn-dns" value="${esc(vpnDnsVal)}" placeholder="1.1.1.1" style="width:100%;box-sizing:border-box;text-align:left"/>
-        <span style="font-size:11px;opacity:.5">${t("vpnDnsHint")}</span>
-      </div></div>
-      <div class="setting-row"><span class="setting-label">${t("dnsMode")}</span><div class="setting-value"><div class="pill-group">
-        <button class="pill-btn ${settings.dns_mode === "udp" ? "active" : ""}" data-dnsmode="udp">UDP</button>
-        <button class="pill-btn ${!settings.dns_mode || settings.dns_mode === "tcp" ? "active" : ""}" data-dnsmode="tcp">TCP</button>
-        <button class="pill-btn ${settings.dns_mode === "doh" ? "active" : ""}" data-dnsmode="doh">DoH</button>
-      </div></div></div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("dnsStrategy")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("dnsStrategyHint")}</span>
-        </div>
-        <div class="setting-value"><div class="pill-group">
-          <button class="pill-btn ${!settings.dns_strategy || settings.dns_strategy === "fakeip" ? "active" : ""}" data-dnsstrategy="fakeip">${t("dnsFakeip")}</button>
-          <button class="pill-btn ${settings.dns_strategy === "local" ? "active" : ""}" data-dnsstrategy="local">${t("dnsLocal")}</button>
-        </div></div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("mtuLabel")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("mtuHint")}</span>
-        </div>
-        <div class="setting-value"><input type="number" id="set-mtu" min="576" max="9000" value="${settings.mtu ?? 1500}" style="width:80px;box-sizing:border-box;text-align:right"/></div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("tlsFragment")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("tlsFragmentHint")}</span>
-        </div>
-        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-tls-fragment" ${settings.tls_fragment ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
-      </div>
-      <div class="setting-row"><span class="setting-label">${t("ipv6Label")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ipv6" ${settings.ipv6 ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("tunStackLabel")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("tunStackHint")}</span>
-        </div>
-        <div class="setting-value"><div class="pill-group">
-          <button class="pill-btn ${!settings.tun_stack_android || settings.tun_stack_android === "gvisor" ? "active" : ""}" data-tunstack="gvisor">gVisor</button>
-          <button class="pill-btn ${settings.tun_stack_android === "system" ? "active" : ""}" data-tunstack="system">System</button>
-          <button class="pill-btn ${settings.tun_stack_android === "mixed" ? "active" : ""}" data-tunstack="mixed">Mixed</button>
-        </div></div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("quicLabel")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("quicHint")}</span>
-        </div>
-        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-quic" ${settings.quic ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("killSwitchLabel")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${vpnLockdown ? t("killSwitchOn") : t("killSwitchOff")}</span>
-        </div>
-        <div class="setting-value">
-          <span class="ping-val ${vpnLockdown ? "ok" : "timeout"}">${vpnLockdown ? "ON" : "OFF"}</span>
-          <button class="btn-sm" id="btn-open-vpn-settings">${t("killSwitchOpen")}</button>
-        </div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("pingModeLabel")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("pingModeHint")}</span>
-        </div>
-        <div class="setting-value"><div class="pill-group">
-          <button class="pill-btn ${!settings.ping_mode || settings.ping_mode === "tcp" ? "active" : ""}" data-pingmode="tcp">TCP</button>
-          <button class="pill-btn ${settings.ping_mode === "get" ? "active" : ""}" data-pingmode="get">GET</button>
-          <button class="pill-btn ${settings.ping_mode === "head" ? "active" : ""}" data-pingmode="head">HEAD</button>
-          <button class="pill-btn ${settings.ping_mode === "icmp" ? "active" : ""}" data-pingmode="icmp">ICMP</button>
-        </div></div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("bypassRu")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("bypassRuHint")}</span>
-        </div>
-        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-bypass-ru" ${settings.bypass_ru !== false ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
-      </div>
-      <div class="setting-row"><span class="setting-label">${t("theme")}</span><div class="setting-value"><div class="pill-group">
-        <button class="pill-btn ${settings.theme === "dark" ? "active" : ""}" data-theme="dark">${t("dark")}</button>
-        <button class="pill-btn ${settings.theme === "auto" ? "active" : ""}" data-theme="auto">${t("auto")}</button>
-      </div></div></div>
-    </div>
-    <div class="settings-section">
-      <div class="settings-section-title">${t("shareProxy")}</div>
-      <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/></div></div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("allowLan")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("allowLanHint")}</span>
-        </div>
-        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-allow-lan" ${settings.allow_lan ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
-      </div>
-      <div class="setting-row">
+function socksAuthRow(): string {
+  const user = settings.socks_user || "";
+  const pass = settings.socks_pass || "";
+  const url = `socks5://${esc(user)}:${esc(pass)}@127.0.0.1:${settings.mihomo_port}`;
+  const hint = user || pass
+    ? `<span class="setting-hint socks-auth-url"><code id="socks-proxy-url" title="${url}">${url}</code><button class="btn-icon" id="btn-copy-socks-url" title="${t("copy")}">${ICONS.copy}</button></span>`
+    : `<span class="setting-hint">${t("socksAuthHint")}</span>`;
+  return `<div class="setting-row">
         <span class="setting-label">${t("socksAuth")}</span>
-        <div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px;flex:1;min-width:240px">
-          <input type="text" id="set-socks-user" value="${esc(settings.socks_user || '')}" placeholder="${t("socksUser")}" autocomplete="off" style="width:100%;box-sizing:border-box;text-align:left"/>
-          <div style="display:flex;gap:4px;align-items:center">
-            <input type="password" id="set-socks-pass" value="${esc(settings.socks_pass || '')}" placeholder="${t("socksPass")}" autocomplete="new-password" style="flex:1;box-sizing:border-box;text-align:left"/>
-            <button class="btn-sm" id="btn-toggle-socks-pass" style="flex-shrink:0">👁</button>
+        <div class="setting-value socks-auth">
+          <input type="text" id="set-socks-user" value="${esc(user)}" placeholder="${t("socksUser")}" autocomplete="off"/>
+          <div class="field-with-icon">
+            <input type="password" id="set-socks-pass" value="${esc(pass)}" placeholder="${t("socksPass")}" autocomplete="new-password"/>
+            <button class="btn-icon" id="btn-toggle-socks-pass" title="${t("socksShow")}">${ICONS.eye}</button>
           </div>
-          ${(settings.socks_user || settings.socks_pass) ? `<div style="font-size:11px;opacity:.5;word-break:break-all;display:flex;align-items:center;gap:4px"><span id="socks-proxy-url">socks5://${esc(settings.socks_user||'')}:${esc(settings.socks_pass||'')}@127.0.0.1:${settings.mihomo_port}</span><button class="btn-sm" id="btn-copy-socks-url" style="flex-shrink:0">${t("copy")}</button></div>` : ''}
-          <button class="btn-sm" id="btn-save-socks-auth" style="align-self:flex-end">${t("socksSave")}</button>
+          <button class="btn-sm" id="btn-save-socks-auth">${t("socksSave")}</button>
         </div>
-      </div>
-    </div>
-    <div class="settings-section">
+        ${hint}
+      </div>`;
+}
+
+function row(label: string, value: string, hint = "", valueAttrs = ""): string {
+  return `<div class="setting-row"><span class="setting-label">${label}</span>`
+    + (hint ? `<span class="setting-hint">${hint}</span>` : "")
+    + (value ? `<div class="setting-value"${valueAttrs}>${value}</div>` : "")
+    + `</div>`;
+}
+
+function toggleBox(id: string, on: boolean): string {
+  return `<label class="toggle"><input type="checkbox" id="${id}"${on ? " checked" : ""}/><span class="toggle-slider"></span></label>`;
+}
+
+function pills(attr: string, active: string, opts: [string, string][], attrs = ""): string {
+  return `<div class="pill-group"${attrs}>`
+    + opts.map(([v, l]) => `<button class="pill-btn${v === active ? " active" : ""}" ${attr}="${v}">${l}</button>`).join("")
+    + `</div>`;
+}
+
+function textField(id: string, value: string, placeholder: string): string {
+  return `<input type="text" id="${id}" value="${esc(value)}" placeholder="${placeholder}" style="width:100%;box-sizing:border-box;text-align:left"/>`;
+}
+
+function whispSection(extraRows: string): string {
+  return `<div class="settings-section">
       <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link" id="whisp-update-status">${t("installed")}</span></div>
-      <div class="setting-row"><span class="setting-label">${t("hwid")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-hwid" ${settings.hwid ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row"><span class="setting-label">${t("autostart")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-autostart" ${settings.auto_connect ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row"><span class="setting-label">${t("update")}</span><div class="setting-value"><button class="btn-sm" id="btn-open-repo">${t("openRepo")}</button></div></div>
-    </div>
-    <div class="settings-section">
+      ${row(t("hwid"), toggleBox("set-hwid", !!settings.hwid))}
+      ${row(t("autostart"), toggleBox("set-autostart", !!settings.auto_connect))}
+      ${row(t("update"), `<button class="btn-sm" id="btn-open-repo">${t("openRepo")}</button>`)}
+      ${extraRows}
+    </div>`;
+}
+
+function updatesSection(): string {
+  return `<div class="settings-section">
       <div class="settings-section-title">${t("checkUpdates")}</div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("currentVersion")}</span>
-          <span style="font-size:11px;opacity:.5">${sysInfo.version}</span>
-        </div>
-      </div>
+      ${row(t("currentVersion"), "", sysInfo.version)}
       <div class="setting-row" id="update-result-row" style="display:none;flex-direction:column;align-items:flex-start;gap:6px">
         <div id="update-result-content"></div>
       </div>
       <div class="setting-row">
         <button class="btn-sm" id="btn-check-updates" style="width:100%">${t("checkUpdates")}</button>
       </div>
+    </div>`;
+}
+
+const COLUMN_VALUE = ` style="flex-direction:column;align-items:stretch;gap:6px"`;
+
+function renderSettings(): string {
+  const vpnDnsVal = settings.vpn_dns || "1.1.1.1";
+  const vpnDnsPills = pills("data-vpndns", vpnDnsVal, [
+    ["1.1.1.1", "1.1.1.1"],
+    ["8.8.8.8", "8.8.8.8"],
+    ["77.88.8.8", "Yandex"],
+    ["system", t("isp")],
+  ], ` style="flex-wrap:wrap;gap:4px"`);
+  const themePills = pills("data-theme", settings.theme || "", [["dark", t("dark")], ["auto", t("auto")]]);
+  const pingPills = pills("data-pingmode", settings.ping_mode || "tcp", [["tcp", "TCP"], ["get", "GET"], ["head", "HEAD"], ["icmp", "ICMP"]]);
+
+  if (isAndroid) {
+    return `<div class="page-header"><h2 class="page-title">${t("settings")}</h2></div>
+    <div class="settings-section">
+      <div class="settings-section-title">sing-box</div>
+      ${row(t("vpnDns"), vpnDnsPills + textField("set-vpn-dns", vpnDnsVal, "1.1.1.1"), t("vpnDnsHint"), COLUMN_VALUE)}
+      ${row(t("dnsMode"), pills("data-dnsmode", settings.dns_mode || "tcp", [["udp", "UDP"], ["tcp", "TCP"], ["doh", "DoH"]]))}
+      ${row(t("dnsStrategy"), pills("data-dnsstrategy", settings.dns_strategy || "fakeip", [["fakeip", t("dnsFakeip")], ["local", t("dnsLocal")]]), t("dnsStrategyHint"))}
+      ${row(t("mtuLabel"), `<input type="number" id="set-mtu" min="576" max="9000" value="${settings.mtu ?? 1500}" style="width:80px;box-sizing:border-box;text-align:right"/>`, t("mtuHint"))}
+      ${row(t("tlsFragment"), toggleBox("set-tls-fragment", !!settings.tls_fragment), t("tlsFragmentHint"))}
+      ${row(t("ipv6Label"), toggleBox("set-ipv6", !!settings.ipv6))}
+      ${row(t("tunStackLabel"), pills("data-tunstack", settings.tun_stack_android || "gvisor", [["gvisor", "gVisor"], ["system", "System"], ["mixed", "Mixed"]]), t("tunStackHint"))}
+      ${row(t("quicLabel"), toggleBox("set-quic", !!settings.quic), t("quicHint"))}
+      ${row(t("killSwitchLabel"),
+          `<span class="ping-val ${vpnLockdown ? "ok" : "timeout"}">${vpnLockdown ? "ON" : "OFF"}</span>`
+          + `<button class="btn-sm" id="btn-open-vpn-settings">${t("killSwitchOpen")}</button>`,
+          vpnLockdown ? t("killSwitchOn") : t("killSwitchOff"))}
+      ${row(t("pingModeLabel"), pingPills, t("pingModeHint"))}
+      ${row(t("bypassRu"), toggleBox("set-bypass-ru", settings.bypass_ru !== false), t("bypassRuHint"))}
+      ${row(t("theme"), themePills)}
     </div>
+    <div class="settings-section">
+      <div class="settings-section-title">${t("shareProxy")}</div>
+      ${row(t("mixedPort"), `<input type="number" id="set-port" value="${settings.mihomo_port}"/>`)}
+      ${row(t("allowLan"), toggleBox("set-allow-lan", !!settings.allow_lan), t("allowLanHint"))}
+      ${socksAuthRow()}
+    </div>
+    ${whispSection(`${row(t("externalLink"), textField("set-external-link", settings.external_link || "", "vless://..."), t("externalHint"), ` style="flex:1;min-width:240px"`)}`)}
+    ${updatesSection()}
     `;
   }
 
   return `<div class="page-header"><h2 class="page-title">${t("settings")}</h2></div>
     <div class="settings-section">
       <div class="settings-section-title">${t("mihomo")}</div>
-      <div class="setting-row"><span class="setting-label">${t("mixedPort")}</span><div class="setting-value"><input type="number" id="set-port" value="${settings.mihomo_port}"/></div></div>
-      <div class="setting-row"><span class="setting-label">${t("bindAddr")}</span><div class="setting-value"><input type="text" id="set-bind" value="${settings.socks_addr}"/></div></div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("allowLan")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("allowLanHint")}</span>
-        </div>
-        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-allow-lan" ${settings.allow_lan ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
-      </div>
-      <div class="setting-row"><span class="setting-label">${t("routingMode")}</span><div class="setting-value"><div class="pill-group">
-        <button class="pill-btn ${!settings.routing_mode || settings.routing_mode === "rule" ? "active" : ""}" data-rmode="rule">Rule</button>
-        <button class="pill-btn ${settings.routing_mode === "global" ? "active" : ""}" data-rmode="global">Global</button>
-        <button class="pill-btn ${settings.routing_mode === "direct" ? "active" : ""}" data-rmode="direct">Direct</button>
-      </div></div></div>
-      <div class="setting-row"><span class="setting-label">${t("tunStack")}</span><div class="setting-value"><div class="pill-group">
-        <button class="pill-btn ${settings.tun_stack === "Mixed" ? "active" : ""}" data-tun="Mixed">Mixed</button>
-        <button class="pill-btn ${settings.tun_stack === "gVisor" ? "active" : ""}" data-tun="gVisor">gVisor</button>
-        <button class="pill-btn ${settings.tun_stack === "System" ? "active" : ""}" data-tun="System">System</button>
-      </div></div></div>
-      <div class="setting-row"><span class="setting-label">${t("theme")}</span><div class="setting-value"><div class="pill-group">
-        <button class="pill-btn ${settings.theme === "dark" ? "active" : ""}" data-theme="dark">${t("dark")}</button>
-        <button class="pill-btn ${settings.theme === "auto" ? "active" : ""}" data-theme="auto">${t("auto")}</button>
-      </div></div></div>
-      <div class="setting-row"><span class="setting-label">${t("dnsRedirect")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-dns" ${settings.dns_redirect ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row"><span class="setting-label">${t("dnsServers")}</span><div class="setting-value" style="flex-direction:column;align-items:stretch;gap:4px">
-        <input type="text" id="set-custom-dns" value="${esc((settings.custom_dns || []).join(", "))}" placeholder="77.88.8.8, 8.8.8.8" style="width:100%;box-sizing:border-box;text-align:left"/>
-        <span style="font-size:11px;opacity:.5">${t("dnsCommaSep")}</span>
-      </div></div>
-      <div class="setting-row"><span class="setting-label">${t("vpnDns")}</span><div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px">
-        <div class="pill-group" style="flex-wrap:wrap;gap:4px">${vpnDnsPills}</div>
-        <input type="text" id="set-vpn-dns" value="${esc(vpnDnsVal)}" placeholder="1.1.1.1:53" style="width:100%;box-sizing:border-box;text-align:left"/>
-        <span style="font-size:11px;opacity:.5">${t("vpnDnsHint")}</span>
-      </div></div>
-      <div class="setting-row"><span class="setting-label">${t("ipv6Label")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ipv6" ${settings.ipv6 ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("bypassRu")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("bypassRuHint")}</span>
-        </div>
-        <div class="setting-value"><label class="toggle"><input type="checkbox" id="set-bypass-ru" ${settings.bypass_ru !== false ? "checked" : ""}/><span class="toggle-slider"></span></label></div>
-      </div>
-      <div class="setting-row"><span class="setting-label">${t("secretLabel")}</span><div class="setting-value"><span class="secret-value">${settings.secret}</span><button class="btn-sm" id="btn-copy-secret">${t("copy")}</button></div></div>
-      <div class="setting-row">
-        <span class="setting-label">${t("socksAuth")}</span>
-        <div class="setting-value" style="flex-direction:column;align-items:stretch;gap:6px;flex:1;min-width:240px">
-          <input type="text" id="set-socks-user" value="${esc(settings.socks_user || '')}" placeholder="${t("socksUser")}" autocomplete="off" style="width:100%;box-sizing:border-box;text-align:left"/>
-          <div style="display:flex;gap:4px;align-items:center">
-            <input type="password" id="set-socks-pass" value="${esc(settings.socks_pass || '')}" placeholder="${t("socksPass")}" autocomplete="new-password" style="flex:1;box-sizing:border-box;text-align:left"/>
-            <button class="btn-sm" id="btn-toggle-socks-pass" style="flex-shrink:0">👁</button>
-          </div>
-          ${(settings.socks_user || settings.socks_pass) ? `<div style="font-size:11px;opacity:.5;word-break:break-all;display:flex;align-items:center;gap:4px"><span id="socks-proxy-url">socks5://${esc(settings.socks_user||'')}:${esc(settings.socks_pass||'')}@127.0.0.1:${settings.mihomo_port}</span><button class="btn-sm" id="btn-copy-socks-url" style="flex-shrink:0">${t("copy")}</button></div>` : ''}
-          <button class="btn-sm" id="btn-save-socks-auth" style="align-self:flex-end">${t("socksSave")}</button>
-        </div>
-      </div>
+      ${row(t("mixedPort"), `<input type="number" id="set-port" value="${settings.mihomo_port}"/>`)}
+      ${row(t("bindAddr"), `<input type="text" id="set-bind" value="${settings.socks_addr}"/>`)}
+      ${row(t("allowLan"), toggleBox("set-allow-lan", !!settings.allow_lan), t("allowLanHint"))}
+      ${row(t("routingMode"), pills("data-rmode", settings.routing_mode || "rule", [["rule", "Rule"], ["global", "Global"], ["direct", "Direct"]]))}
+      ${row(t("tunStack"), pills("data-tun", settings.tun_stack || "", [["Mixed", "Mixed"], ["gVisor", "gVisor"], ["System", "System"]]))}
+      ${row(t("theme"), themePills)}
+      ${row(t("dnsRedirect"), toggleBox("set-dns", !!settings.dns_redirect))}
+      ${row(t("dnsServers"),
+          textField("set-custom-dns", (settings.custom_dns || []).join(", "), "77.88.8.8, 8.8.8.8")
+          + `<span class="setting-hint">${t("dnsCommaSep")}</span>`,
+          "", ` style="flex-direction:column;align-items:stretch;gap:4px"`)}
+      ${row(t("vpnDns"), vpnDnsPills + textField("set-vpn-dns", vpnDnsVal, "1.1.1.1:53"), t("vpnDnsHint"), COLUMN_VALUE)}
+      ${row(t("ipv6Label"), toggleBox("set-ipv6", !!settings.ipv6))}
+      ${row(t("bypassRu"), toggleBox("set-bypass-ru", settings.bypass_ru !== false), t("bypassRuHint"))}
+      ${row(t("secretLabel"), `<span class="secret-value">${settings.secret}</span><button class="btn-sm" id="btn-copy-secret">${t("copy")}</button>`)}
+      ${socksAuthRow()}
     </div>
     <div class="settings-section">
       <div class="settings-section-title">${t("advanced")}</div>
-      <div class="setting-row"><span class="setting-label">${t("killSwitch")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-ks" ${settings.kill_switch ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("pingModeLabel")}</span>
-          <span style="font-size:11px;opacity:.5;font-weight:400">${t("pingModeHint")}</span>
-        </div>
-        <div class="setting-value"><div class="pill-group">
-          <button class="pill-btn ${!settings.ping_mode || settings.ping_mode === "tcp" ? "active" : ""}" data-pingmode="tcp">TCP</button>
-          <button class="pill-btn ${settings.ping_mode === "get" ? "active" : ""}" data-pingmode="get">GET</button>
-          <button class="pill-btn ${settings.ping_mode === "head" ? "active" : ""}" data-pingmode="head">HEAD</button>
-          <button class="pill-btn ${settings.ping_mode === "icmp" ? "active" : ""}" data-pingmode="icmp">ICMP</button>
-        </div></div>
-      </div>
-      <div class="setting-row"><span class="setting-label">${t("ipSpoofing")}</span><div class="setting-value" style="flex-direction:column;align-items:stretch;gap:4px">
-        <input type="text" id="set-spoof-ips" value="${esc(settings.spoof_ips || '')}" placeholder="192.168.1.10, 192.168.1.11" style="width:100%;box-sizing:border-box;text-align:left"/>
-        <span style="font-size:11px;opacity:.5">${t("spoofIpsHint")}</span>
-      </div></div>
+      ${row(t("killSwitch"), toggleBox("set-ks", !!settings.kill_switch))}
+      ${row(t("pingModeLabel"), pingPills, t("pingModeHint"))}
     </div>
-    <div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link" id="whisp-update-status">${t("installed")}</span></div>
-      <div class="setting-row"><span class="setting-label">${t("hwid")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-hwid" ${settings.hwid ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row"><span class="setting-label">${t("autostart")}</span><div class="setting-value"><label class="toggle"><input type="checkbox" id="set-autostart" ${settings.auto_connect ? "checked" : ""}/><span class="toggle-slider"></span></label></div></div>
-      <div class="setting-row"><span class="setting-label">${t("config")}</span><div class="setting-value"><button class="btn-sm" id="btn-open-config">${t("open")}</button></div></div>
-      <div class="setting-row"><span class="setting-label">${t("update")}</span><div class="setting-value"><button class="btn-sm" id="btn-open-repo">${t("openRepo")}</button></div></div>
-    </div>
-    <div class="settings-section">
-      <div class="settings-section-title">${t("checkUpdates")}</div>
-      <div class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">${t("currentVersion")}</span>
-          <span style="font-size:11px;opacity:.5">${sysInfo.version}</span>
-        </div>
-      </div>
-      <div class="setting-row" id="update-result-row" style="display:none;flex-direction:column;align-items:flex-start;gap:6px">
-        <div id="update-result-content"></div>
-      </div>
-      <div class="setting-row">
-        <button class="btn-sm" id="btn-check-updates" style="width:100%">${t("checkUpdates")}</button>
-      </div>
-    </div>
+    ${whispSection(`${row(t("config"), `<button class="btn-sm" id="btn-open-config">${t("open")}</button>`)}`)}
+    ${updatesSection()}
     `;
 }
 
@@ -2685,26 +2725,35 @@ function bindSettingsEvents(): void {
     settings.vpn_dns = this.value.trim();
     persistSettings();
   });
-  document.getElementById("btn-toggle-socks-pass")?.addEventListener("click", () => {
+  document.getElementById("btn-toggle-socks-pass")?.addEventListener("click", function () {
     const inp = document.getElementById("set-socks-pass") as HTMLInputElement | null;
-    if (inp) inp.type = inp.type === "password" ? "text" : "password";
+    if (!inp) return;
+    const show = inp.type === "password";
+    inp.type = show ? "text" : "password";
+    this.innerHTML = show ? ICONS.eyeOff : ICONS.eye;
+    this.title = show ? t("socksHide") : t("socksShow");
+    this.classList.toggle("on", show);
   });
-  document.getElementById("btn-save-socks-auth")?.addEventListener("click", () => {
-    const user = (document.getElementById("set-socks-user") as HTMLInputElement | null)?.value.trim() ?? "";
-    const pass = (document.getElementById("set-socks-pass") as HTMLInputElement | null)?.value ?? "";
-    settings.socks_user = user;
-    settings.socks_pass = pass;
+  const saveSocksAuth = () => {
+    settings.socks_user = (document.getElementById("set-socks-user") as HTMLInputElement | null)?.value.trim() ?? "";
+    settings.socks_pass = (document.getElementById("set-socks-pass") as HTMLInputElement | null)?.value ?? "";
     persistSettings();
     if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
     renderPage();
+  };
+  document.getElementById("btn-save-socks-auth")?.addEventListener("click", saveSocksAuth);
+  ["set-socks-user", "set-socks-pass"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter") saveSocksAuth();
+    });
   });
   document.getElementById("btn-copy-socks-url")?.addEventListener("click", () => {
     const url = (document.getElementById("socks-proxy-url") as HTMLElement | null)?.textContent ?? "";
     clipboardWrite(url);
   });
 
-  (document.getElementById("set-spoof-ips") as HTMLInputElement)?.addEventListener("change", function () {
-    settings.spoof_ips = this.value.trim();
+  (document.getElementById("set-external-link") as HTMLInputElement)?.addEventListener("change", function () {
+    settings.external_link = this.value.trim();
     persistSettings();
     if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
   });
