@@ -105,6 +105,22 @@ p.write_text(src, encoding="utf-8")
 PY
 fi
 
+# Rust зовёт методы WhispVpnService через JNI по имени (isActuallyRunning, isPrepared,
+# savePending), из Kotlin ссылок на них нет — R8 их вырезает. Классы gomobile нужны
+# по той же причине. Действует только в release: в debug minify выключен.
+PROGUARD="$GEN/app/proguard-rules.pro"
+if [ -f "$PROGUARD" ] && ! grep -q "class goclient" "$PROGUARD"; then
+  cat >> "$PROGUARD" <<'RULES'
+
+-keep class go.** { *; }
+-keep class goclient.** { *; }
+-keep class singbox.** { *; }
+-keep class com.whispera.whisp.** { *; }
+RULES
+  echo "[android-patch] proguard: keep-правила JNI добавлены"
+fi
+
+
 # Тот же CameraX 1.5.1 требует Android Gradle Plugin >= 8.6.0 — шаблон
 # tauri-cli генерирует более старый AGP в корневом build.gradle.kts.
 ROOT_GRADLE="$GEN/build.gradle.kts"
