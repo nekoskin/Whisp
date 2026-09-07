@@ -18,6 +18,39 @@ pub struct MihomoManager {
     use_service: bool,
 }
 
+/// How many mihomo processes the system currently has, ours included.
+/// A leftover from a crashed run keeps the ports, so a second one would come
+/// up useless and route nothing.
+fn running_instances() -> usize {
+    #[cfg(windows)]
+    {
+        let out = Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq mihomo.exe", "/NH"])
+            .creation_flags_win(CREATE_NO_WINDOW)
+            .output();
+        return match out {
+            Ok(o) => String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|l| l.to_lowercase().contains("mihomo.exe"))
+                .count(),
+            Err(_) => 0,
+        };
+    }
+    #[cfg(unix)]
+    {
+        let out = Command::new("pgrep").args(["-x", "mihomo"]).output();
+        return match out {
+            Ok(o) => String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count(),
+            Err(_) => 0,
+        };
+    }
+    #[allow(unreachable_code)]
+    0
+}
+
 impl MihomoManager {
     pub fn new(binary_path: PathBuf) -> Self {
         Self {
@@ -26,6 +59,87 @@ impl MihomoManager {
             elevated: false,
             use_service: false,
         }
+    }
+
+    #[cfg(windows)]
+    pub fn service_installed() -> bool {
+        service_exists(SERVICE_NAME)
+    }
+
+    #[cfg(windows)]
+    pub fn remove_persistent_service(&mut self) -> Result<(), String> {
+        let script = format!(
+            "sc.exe stop {name} | Out-Null; sc.exe delete {name} | Out-Null",
+            name = SERVICE_NAME
+        );
+        let status = Command::new("powershell")
+            .args([
+                "-WindowStyle",
+                "Hidden",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "Start-Process powershell -ArgumentList '-WindowStyle','Hidden','-NonInteractive','-Command','{}' -Verb RunAs -WindowStyle Hidden -Wait",
+                    script
+                ),
+            ])
+            .creation_flags_win(CREATE_NO_WINDOW)
+            .status()
+            .map_err(|e| format!("elevation failed: {}", e))?;
+        if !status.success() {
+            return Err("UAC elevation was denied".to_string());
+        }
+        self.use_service = false;
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn install_persistent_service(&self, config_path: &Path) -> Result<(), String> {
+        let bin = self.binary_path.to_string_lossy().to_string();
+        let home = config_path
+            .parent()
+            .unwrap_or(config_path)
+            .to_string_lossy()
+            .to_string();
+        let cfg = config_path.to_string_lossy().to_string();
+        let bin_path = format!("\\\"{}\\\" -d \\\"{}\\\" -f \\\"{}\\\"", bin, home, cfg);
+
+        let sid = current_user_sid()?;
+        let sddl = format!(
+            "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;RPWPCR;;;{})",
+            sid
+        );
+
+        let script = format!(
+            "sc.exe stop {name} | Out-Null;              sc.exe delete {name} | Out-Null;              Start-Sleep -Milliseconds 300;              sc.exe create {name} binPath= '{bin}' type= own start= demand DisplayName= '{disp}' error= ignore | Out-Null;              sc.exe sdset {name} '{sddl}' | Out-Null",
+            name = SERVICE_NAME,
+            bin = bin_path,
+            disp = SERVICE_DISPLAY,
+            sddl = sddl,
+        );
+
+        let status = Command::new("powershell")
+            .args([
+                "-WindowStyle",
+                "Hidden",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "Start-Process powershell -ArgumentList '-WindowStyle','Hidden','-NonInteractive','-Command',\"{}\" -Verb RunAs -WindowStyle Hidden -Wait",
+                    script.replace('"', "`\"")
+                ),
+            ])
+            .creation_flags_win(CREATE_NO_WINDOW)
+            .status()
+            .map_err(|e| format!("elevation failed: {}", e))?;
+
+        if !status.success() {
+            return Err("UAC elevation was denied".to_string());
+        }
+        if !service_exists(SERVICE_NAME) {
+            return Err("service was not created".to_string());
+        }
+        Ok(())
     }
 
     pub fn install_service(&self, config_path: &Path) -> Result<(), String> {
@@ -179,10 +293,24 @@ impl MihomoManager {
             self.stop()?;
         }
 
+        // A leftover instance holds the ports, so starting a second one would
+        // produce a process that routes nothing while the old config stays in
+        // charge. Better to fail loudly than to run two.
+        if running_instances() > 0 {
+            self.stop()?;
+            if running_instances() > 0 {
+                return Err(
+                    "another mihomo is already running and could not be stopped; \
+                     close it and try again"
+                        .to_string(),
+                );
+            }
+        }
+
         #[cfg(windows)]
         {
             if service_exists(SERVICE_NAME) {
-                if self.install_service(config_path).is_ok() && self.start_service().is_ok() {
+                if self.start_service().is_ok() {
                     return Ok(());
                 }
             }
@@ -200,6 +328,7 @@ impl MihomoManager {
             // root. If that is not possible (no pkexec/agent) we still start it
             // directly — mihomo comes up unprivileged and never hard-fails on
             // elevation; the mixed-port proxy works and TUN is best-effort.
+            self.ensure_writable_binary();
             if !is_admin() && !mihomo_has_caps(&self.binary_path) {
                 let _ = self.grant_caps();
             }
@@ -211,6 +340,43 @@ impl MihomoManager {
     }
 
     #[cfg(unix)]
+    #[cfg(unix)]
+    fn ensure_writable_binary(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let Some(dir) = self.binary_path.parent().map(|d| d.to_path_buf()) else {
+            return;
+        };
+        let probe = dir.join(".whisp-write-probe");
+        if std::fs::write(&probe, b"1").is_ok() {
+            let _ = std::fs::remove_file(&probe);
+            return;
+        }
+
+        let base = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+        let dst_dir = base.join("com.whispera.whisp").join("bin");
+        if std::fs::create_dir_all(&dst_dir).is_err() {
+            return;
+        }
+        let Some(name) = self.binary_path.file_name() else {
+            return;
+        };
+        let dst = dst_dir.join(name);
+
+        let same = match (std::fs::metadata(&dst), std::fs::metadata(&self.binary_path)) {
+            (Ok(a), Ok(b)) => a.len() == b.len(),
+            _ => false,
+        };
+        if !same && std::fs::copy(&self.binary_path, &dst).is_err() {
+            return;
+        }
+        let _ = std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o755));
+        self.binary_path = dst;
+    }
+
     fn grant_caps(&self) -> Result<(), String> {
         let status = Command::new("pkexec")
             .arg(find_tool("setcap"))
@@ -281,7 +447,6 @@ impl MihomoManager {
             return Err("UAC elevation was denied".to_string());
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(1000));
         self.process = None;
         self.elevated = true;
         self.use_service = false;
@@ -363,7 +528,7 @@ impl MihomoManager {
 
     pub fn is_running(&mut self) -> bool {
         if self.use_service {
-            return service_running(SERVICE_NAME);
+            return api_reachable();
         }
 
         if let Some(ref mut child) = self.process {
@@ -376,12 +541,7 @@ impl MihomoManager {
                 Err(_) => false,
             }
         } else if self.elevated {
-            Command::new("tasklist")
-                .args(["/FI", "IMAGENAME eq mihomo.exe", "/NH"])
-                .creation_flags_win(CREATE_NO_WINDOW)
-                .output()
-                .map(|o| String::from_utf8_lossy(&o.stdout).contains("mihomo.exe"))
-                .unwrap_or(false)
+            api_reachable()
         } else {
             false
         }
@@ -393,7 +553,6 @@ impl Drop for MihomoManager {
         self.stop().ok();
     }
 }
-
 
 #[cfg(windows)]
 fn is_admin() -> bool {
@@ -441,6 +600,24 @@ fn mihomo_has_caps(bin: &Path) -> bool {
 }
 
 #[cfg(windows)]
+#[cfg(windows)]
+fn current_user_sid() -> Result<String, String> {
+    let out = Command::new("powershell")
+        .args([
+            "-NonInteractive",
+            "-Command",
+            "[Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+        ])
+        .creation_flags_win(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("sid lookup: {}", e))?;
+    let sid = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if sid.is_empty() {
+        return Err("could not read the current user SID".to_string());
+    }
+    Ok(sid)
+}
+
 fn service_exists(name: &str) -> bool {
     Command::new("sc")
         .args(["query", name])
@@ -448,6 +625,13 @@ fn service_exists(name: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+fn api_reachable() -> bool {
+    let Ok(addr) = "127.0.0.1:9090".parse::<std::net::SocketAddr>() else {
+        return false;
+    };
+    std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(120)).is_ok()
 }
 
 fn service_running(name: &str) -> bool {
@@ -471,6 +655,162 @@ impl CommandExtWin for Command {
     }
 }
 
+pub fn external_proxy_yaml(link: &str, name: &str) -> Option<String> {
+    let link = link.trim();
+    let (scheme, rest) = link.split_once("://")?;
+    let (rest, _tag) = match rest.split_once('#') {
+        Some((r, t)) => (r, t),
+        None => (rest, ""),
+    };
+    let (body, query) = match rest.split_once('?') {
+        Some((b, q)) => (b, q),
+        None => (rest, ""),
+    };
+    let opts = query_map(query);
+
+    match scheme.to_ascii_lowercase().as_str() {
+        "vless" => {
+            let (uuid, hostport) = body.split_once('@')?;
+            let (host, port) = split_host_port(hostport)?;
+            let mut y = format!(
+                "  - name: {name}\n    type: vless\n    server: {host}\n    port: {port}\n    uuid: {uuid}\n    udp: true\n"
+            );
+            let network = opts.get("type").map(String::as_str).unwrap_or("tcp");
+            y.push_str(&format!("    network: {}\n", if network.is_empty() { "tcp" } else { network }));
+            let security = opts.get("security").map(String::as_str).unwrap_or("");
+            if security == "tls" || security == "reality" {
+                y.push_str("    tls: true\n");
+            }
+            if let Some(sni) = opts.get("sni").filter(|v| !v.is_empty()) {
+                y.push_str(&format!("    servername: {sni}\n"));
+            }
+            if let Some(fp) = opts.get("fp").filter(|v| !v.is_empty()) {
+                y.push_str(&format!("    client-fingerprint: {fp}\n"));
+            }
+            if let Some(flow) = opts.get("flow").filter(|v| !v.is_empty()) {
+                y.push_str(&format!("    flow: {flow}\n"));
+            }
+            if security == "reality" {
+                let pbk = opts.get("pbk").filter(|v| !v.is_empty())?;
+                y.push_str("    reality-opts:\n");
+                y.push_str(&format!("      public-key: {pbk}\n"));
+                if let Some(sid) = opts.get("sid").filter(|v| !v.is_empty()) {
+                    y.push_str(&format!("      short-id: \"{sid}\"\n"));
+                }
+            }
+            Some(y)
+        }
+        "hysteria2" | "hy2" => {
+            let (password, hostport) = body.split_once('@')?;
+            let (host, port) = split_host_port(hostport)?;
+            let mut y = format!(
+                "  - name: {name}\n    type: hysteria2\n    server: {host}\n    port: {port}\n    password: \"{password}\"\n"
+            );
+            if let Some(sni) = opts.get("sni").filter(|v| !v.is_empty()) {
+                y.push_str(&format!("    sni: {sni}\n"));
+            }
+            if opts.get("insecure").map(String::as_str) == Some("1") {
+                y.push_str("    skip-cert-verify: true\n");
+            }
+            if let Some(obfs) = opts.get("obfs").filter(|v| !v.is_empty()) {
+                y.push_str(&format!("    obfs: {obfs}\n"));
+                if let Some(pw) = opts.get("obfs-password").filter(|v| !v.is_empty()) {
+                    y.push_str(&format!("    obfs-password: {pw}\n"));
+                }
+            }
+            Some(y)
+        }
+        "trojan" => {
+            let (password, hostport) = body.split_once('@')?;
+            let (host, port) = split_host_port(hostport)?;
+            let mut y = format!(
+                "  - name: {name}\n    type: trojan\n    server: {host}\n    port: {port}\n    password: \"{password}\"\n    udp: true\n"
+            );
+            if let Some(sni) = opts.get("sni").filter(|v| !v.is_empty()) {
+                y.push_str(&format!("    sni: {sni}\n"));
+            }
+            if let Some(fp) = opts.get("fp").filter(|v| !v.is_empty()) {
+                y.push_str(&format!("    client-fingerprint: {fp}\n"));
+            }
+            Some(y)
+        }
+        "ss" => {
+            let (userinfo, hostport) = body.split_once('@')?;
+            let decoded = decode_b64(userinfo).unwrap_or_else(|| userinfo.to_string());
+            let (cipher, password) = decoded.split_once(':')?;
+            let (host, port) = split_host_port(hostport)?;
+            Some(format!(
+                "  - name: {name}\n    type: ss\n    server: {host}\n    port: {port}\n    cipher: {cipher}\n    password: \"{password}\"\n    udp: true\n"
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn query_map(q: &str) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    for pair in q.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        out.insert(k.to_ascii_lowercase(), percent_decode(v));
+    }
+    out
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn split_host_port(s: &str) -> Option<(String, u16)> {
+    let (h, p) = s.rsplit_once(':')?;
+    let host = h.trim_matches(|c| c == '[' || c == ']').to_string();
+    if host.is_empty() {
+        return None;
+    }
+    Some((host, p.parse().ok()?))
+}
+
+fn decode_b64(s: &str) -> Option<String> {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let clean: Vec<u8> = s
+        .bytes()
+        .map(|c| match c {
+            b'-' => b'+',
+            b'_' => b'/',
+            other => other,
+        })
+        .filter(|c| *c != b'=' && !c.is_ascii_whitespace())
+        .collect();
+    let mut bits = 0u32;
+    let mut n = 0;
+    let mut out = Vec::new();
+    for c in clean {
+        let v = T.iter().position(|t| *t == c)? as u32;
+        bits = (bits << 6) | v;
+        n += 6;
+        if n >= 8 {
+            n -= 8;
+            out.push((bits >> n) as u8);
+        }
+    }
+    String::from_utf8(out).ok()
+}
 
 pub struct MihomoRoutingRule {
     pub kind: String,
@@ -488,26 +828,34 @@ pub struct MihomoConfig<'a> {
     pub routing_rules: &'a [MihomoRoutingRule],
     pub extra_socks_addrs: &'a [String],
     pub custom_dns: &'a [String],
-    pub tls_fingerprint: &'a str,
     pub socks_user: &'a str,
     pub socks_pass: &'a str,
     pub allow_lan: bool,
     pub log_level: &'a str,
     pub routing_mode: &'a str,
+    pub bypass_ru: bool,
+    pub external_link: &'a str,
 }
 
-fn map_fingerprint(fp: &str) -> &str {
-    match fp {
-        "chrome" | "chrome_120" | "chrome_115" => "chrome",
-        "firefox" | "firefox_120" => "firefox",
-        "safari" => "safari",
-        "ios" => "ios",
-        "android" => "android",
-        "edge" => "edge",
-        "random" => "random",
-        _ => "chrome",
+
+fn valid_nameserver(s: &str) -> bool {
+    let s = s.trim();
+    if s.is_empty() {
+        return false;
     }
+    if s == "system" || s.contains("://") {
+        return true;
+    }
+    if s.parse::<std::net::IpAddr>().is_ok() || s.parse::<std::net::SocketAddr>().is_ok() {
+        return true;
+    }
+    let host = match s.rsplit_once(':') {
+        Some((h, port)) if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => h,
+        _ => s,
+    };
+    host.len() > 3 && host.contains('.') && !host.starts_with('.') && !host.ends_with('.')
 }
+
 
 pub fn generate_config(cfg: &MihomoConfig) -> String {
     let parts: Vec<&str> = cfg.socks_addr.splitn(2, ':').collect();
@@ -522,10 +870,19 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
     let port = cfg.mixed_port;
     let tun_stack = cfg.tun_stack.to_lowercase();
     let ipv6 = cfg.ipv6;
-    let nameservers: String = if cfg.custom_dns.is_empty() {
+    let picked: Vec<&String> = cfg
+        .custom_dns
+        .iter()
+        .filter(|s| valid_nameserver(s))
+        .collect();
+    let nameservers: String = if picked.is_empty() {
         "    - 77.88.8.8\n    - 77.88.8.1\n    - 8.8.8.8\n    - 1.1.1.1".to_string()
     } else {
-        cfg.custom_dns.iter().map(|s| format!("    - {}", s)).collect::<Vec<_>>().join("\n")
+        picked
+            .iter()
+            .map(|s| format!("    - {}", s.trim()))
+            .collect::<Vec<_>>()
+            .join("\n")
     };
 
     // Build extra proxy entries and the proxy-group YAML.
@@ -534,7 +891,12 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
     for (i, addr) in cfg.extra_socks_addrs.iter().enumerate() {
         let parts: Vec<&str> = addr.splitn(2, ':').collect();
         let h = parts.first().copied().unwrap_or("127.0.0.1");
-        let p: u16 = parts.get(1).copied().unwrap_or("10900").parse().unwrap_or(10900);
+        let p: u16 = parts
+            .get(1)
+            .copied()
+            .unwrap_or("10900")
+            .parse()
+            .unwrap_or(10900);
         let name = format!("whisp-extra-{}", i);
         extra_proxies.push_str(&format!(
             "  - name: {name}\n    type: socks5\n    server: {h}\n    port: {p}\n    udp: true\n"
@@ -543,7 +905,8 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
     }
 
     let proxy_group = if all_proxy_names.len() > 1 {
-        let names_yaml: String = all_proxy_names.iter()
+        let names_yaml: String = all_proxy_names
+            .iter()
             .map(|n| format!("      - {}\n", n))
             .collect();
         format!(
@@ -559,22 +922,13 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
         let action = &rule.action;
         match rule.kind.as_str() {
             "domain" => {
-                custom_rules.push_str(&format!(
-                    "  - DOMAIN-SUFFIX,{},{}\n",
-                    rule.value, action
-                ));
+                custom_rules.push_str(&format!("  - DOMAIN-SUFFIX,{},{}\n", rule.value, action));
             }
             "domain-keyword" => {
-                custom_rules.push_str(&format!(
-                    "  - DOMAIN-KEYWORD,{},{}\n",
-                    rule.value, action
-                ));
+                custom_rules.push_str(&format!("  - DOMAIN-KEYWORD,{},{}\n", rule.value, action));
             }
             "domain-full" => {
-                custom_rules.push_str(&format!(
-                    "  - DOMAIN,{},{}\n",
-                    rule.value, action
-                ));
+                custom_rules.push_str(&format!("  - DOMAIN,{},{}\n", rule.value, action));
             }
             "process" => {
                 let exe_name = std::path::Path::new(&rule.value)
@@ -600,26 +954,38 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
         }
     }
 
-    let fp = map_fingerprint(cfg.tls_fingerprint);
-    let fp_line = if cfg.tls_fingerprint.is_empty() || cfg.tls_fingerprint == "chrome" {
-        String::new()
+
+    let primary_proxy = external_proxy_yaml(cfg.external_link, "whisp-server").unwrap_or_else(|| {
+        // Reached only when there is no external profile at all: an unparsable one
+        // is refused earlier, so a broken link can never quietly become our tunnel.
+        format!(
+            "  - name: whisp-server\n    type: socks5\n    server: {}\n    port: {}\n    udp: true\n",
+            server, server_port
+        )
+    });
+
+    let ru_rules = if cfg.bypass_ru {
+        "  - DOMAIN-SUFFIX,ru,DIRECT\n  - DOMAIN-SUFFIX,su,DIRECT\n  - DOMAIN-SUFFIX,рф,DIRECT\n  - GEOIP,RU,DIRECT,no-resolve\n"
     } else {
-        format!("global-client-fingerprint: {fp}\n")
+        ""
     };
 
     // DNS redirect: если включён — принудительно резолвим все домены через прокси
     // и отключаем fake-ip (переходим на redir-host). Так DNS-запросы уходят в тоннель,
     // а не к системному резолверу, и клиент видит реальные IP.
     // Без флага — старое поведение (fake-ip, быстрее, но DNS виден провайдеру).
-    let (dns_enhanced_mode, dns_proxy_policy) = if cfg.dns_redirect {
-        ("redir-host", "\n  proxy-server-nameserver:\n    - 1.1.1.1\n    - 8.8.8.8\n  nameserver-policy:\n    \"geosite:cn,!geolocation-!cn\": [ system ]\n    \"+.*\": [ 1.1.1.1, 8.8.8.8 ]")
+    let dns_enhanced_mode = if cfg.dns_redirect { "redir-host" } else { "fake-ip" };
+    let dns_proxy_policy = if cfg.dns_redirect {
+        format!("  proxy-server-nameserver:\n{}\n", nameservers)
     } else {
-        ("fake-ip", "")
+        String::new()
     };
-    let _ = dns_proxy_policy; // пока только enhanced-mode меняем — policy требует geosite файлов
 
     let auth_block = if !cfg.socks_user.is_empty() && !cfg.socks_pass.is_empty() {
-        format!("authentication:\n  - \"{}:{}\"\n", cfg.socks_user, cfg.socks_pass)
+        format!(
+            "authentication:\n  - \"{}:{}\"\n",
+            cfg.socks_user, cfg.socks_pass
+        )
     } else {
         String::new()
     };
@@ -639,7 +1005,10 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
     let allow_lan = cfg.allow_lan;
     let _ = cfg.log_level;
     let log_level = "info";
-    let routing_mode = match cfg.routing_mode { "global" | "direct" => cfg.routing_mode, _ => "rule" };
+    let routing_mode = match cfg.routing_mode {
+        "global" | "direct" => cfg.routing_mode,
+        _ => "rule",
+    };
 
     format!(
         r#"mixed-port: {port}
@@ -647,7 +1016,7 @@ allow-lan: {allow_lan}
 {auth_block}
 ipv6: {ipv6}
 mode: {routing_mode}
-{fp_line}log-level: {log_level}
+log-level: {log_level}
 external-controller: 127.0.0.1:9090
 find-process-mode: strict
 
@@ -665,7 +1034,7 @@ sniffer:
 dns:
   enable: true
   listen: 0.0.0.0:1053
-  enhanced-mode: {dns_enhanced_mode}
+{dns_proxy_policy}  enhanced-mode: {dns_enhanced_mode}
   fake-ip-range: 198.18.0.1/16
   fake-ip-filter:
     - "*.ru"
@@ -694,17 +1063,12 @@ tun:
   auto-detect-interface: true
 {tun_exclude}
 proxies:
-  - name: whisp-server
-    type: socks5
-    server: {server}
-    port: {server_port}
-    udp: true
-{extra_proxies}
+{primary_proxy}{extra_proxies}
 proxy-groups:
 {proxy_group}
 
 rules:
-{server_direct_rule}{custom_rules}  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+{server_direct_rule}{custom_rules}{ru_rules}  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
   - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
   - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
@@ -712,4 +1076,75 @@ rules:
   - MATCH,PROXY
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::external_proxy_yaml;
+
+    #[test]
+    fn vless_reality_link_becomes_a_proxy() {
+        let link = "vless://11111111-2222-3333-4444-555555555555@example.com:443\
+?type=tcp&security=reality&pbk=abcPUBKEY&sid=01ab&fp=chrome&sni=www.example.org\
+&flow=xtls-rprx-vision#my%20node";
+        let y = external_proxy_yaml(link, "whisp-server").expect("must parse");
+
+        for needle in [
+            "name: whisp-server",
+            "type: vless",
+            "server: example.com",
+            "port: 443",
+            "uuid: 11111111-2222-3333-4444-555555555555",
+            "tls: true",
+            "servername: www.example.org",
+            "client-fingerprint: chrome",
+            "flow: xtls-rprx-vision",
+            "public-key: abcPUBKEY",
+            "short-id: \"01ab\"",
+        ] {
+            assert!(y.contains(needle), "missing {needle} in:\n{y}");
+        }
+    }
+
+    #[test]
+    fn trojan_link_becomes_a_proxy() {
+        let y = external_proxy_yaml("trojan://pass@example.com:8443?sni=cdn.example.org", "p")
+            .expect("must parse");
+        assert!(y.contains("type: trojan"), "{y}");
+        assert!(y.contains("password: \"pass\""), "{y}");
+        assert!(y.contains("sni: cdn.example.org"), "{y}");
+    }
+
+    #[test]
+    fn shadowsocks_link_decodes_userinfo() {
+        // base64 of "aes-256-gcm:secret"
+        let y = external_proxy_yaml("ss://YWVzLTI1Ni1nY206c2VjcmV0@example.com:8388", "p")
+            .expect("must parse");
+        assert!(y.contains("cipher: aes-256-gcm"), "{y}");
+        assert!(y.contains("password: \"secret\""), "{y}");
+    }
+
+    #[test]
+    fn unknown_scheme_is_rejected() {
+        assert!(external_proxy_yaml("https://example.com", "p").is_none());
+        assert!(external_proxy_yaml("", "p").is_none());
+    }
+}
+
+#[cfg(test)]
+mod hysteria_tests {
+    use super::external_proxy_yaml;
+
+    #[test]
+    fn hysteria2_link_becomes_a_proxy() {
+        let y = external_proxy_yaml(
+            "hysteria2://secret@example.com:8443?sni=cdn.example.org&insecure=1",
+            "whisp-server",
+        )
+        .expect("must parse");
+        assert!(y.contains("type: hysteria2"), "{y}");
+        assert!(y.contains("password: \"secret\""), "{y}");
+        assert!(y.contains("sni: cdn.example.org"), "{y}");
+        assert!(y.contains("skip-cert-verify: true"), "{y}");
+    }
 }
