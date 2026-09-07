@@ -34,7 +34,12 @@ pub fn list_user_packages() -> Result<Vec<InstalledApp>, String> {
 
     // PackageManager pm = context.getPackageManager();
     let pm = env
-        .call_method(&context, "getPackageManager", "()Landroid/content/pm/PackageManager;", &[])
+        .call_method(
+            &context,
+            "getPackageManager",
+            "()Landroid/content/pm/PackageManager;",
+            &[],
+        )
         .and_then(|v| v.l())
         .map_err(|e| format!("getPackageManager: {}", e))?;
 
@@ -46,7 +51,11 @@ pub fn list_user_packages() -> Result<Vec<InstalledApp>, String> {
         .new_string("android.intent.action.MAIN")
         .map_err(|e| format!("new_string action: {}", e))?;
     let intent = env
-        .new_object(&intent_class, "(Ljava/lang/String;)V", &[JValue::Object(&action)])
+        .new_object(
+            &intent_class,
+            "(Ljava/lang/String;)V",
+            &[JValue::Object(&action)],
+        )
         .map_err(|e| format!("new Intent: {}", e))?;
 
     // intent.addCategory("android.intent.category.LAUNCHER");
@@ -88,7 +97,11 @@ pub fn list_user_packages() -> Result<Vec<InstalledApp>, String> {
 
         // ResolveInfo.activityInfo (ActivityInfo extends ComponentInfo extends PackageItemInfo)
         let activity_info = env
-            .get_field(&resolve_info, "activityInfo", "Landroid/content/pm/ActivityInfo;")
+            .get_field(
+                &resolve_info,
+                "activityInfo",
+                "Landroid/content/pm/ActivityInfo;",
+            )
             .and_then(|v| v.l())
             .map_err(|e| format!("activityInfo[{}]: {}", i, e))?;
 
@@ -108,7 +121,11 @@ pub fn list_user_packages() -> Result<Vec<InstalledApp>, String> {
 
         // ComponentInfo.applicationInfo
         let app_info = env
-            .get_field(&activity_info, "applicationInfo", "Landroid/content/pm/ApplicationInfo;")
+            .get_field(
+                &activity_info,
+                "applicationInfo",
+                "Landroid/content/pm/ApplicationInfo;",
+            )
             .and_then(|v| v.l())
             .map_err(|e| format!("applicationInfo[{}]: {}", i, e))?;
 
@@ -131,7 +148,10 @@ pub fn list_user_packages() -> Result<Vec<InstalledApp>, String> {
             .map_err(|e| format!("label get_string[{}]: {}", i, e))?
             .into();
 
-        out.push(InstalledApp { package: pkg, label });
+        out.push(InstalledApp {
+            package: pkg,
+            label,
+        });
     }
 
     out.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));

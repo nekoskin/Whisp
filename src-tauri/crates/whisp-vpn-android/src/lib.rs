@@ -27,14 +27,19 @@ const LOG_MAX: usize = 500;
 #[cfg(target_os = "android")]
 pub fn push_log(line: String) {
     if let Ok(mut buf) = LOG_BUFFER.lock() {
-        if buf.len() >= LOG_MAX { buf.pop_front(); }
+        if buf.len() >= LOG_MAX {
+            buf.pop_front();
+        }
         buf.push_back(line);
     }
 }
 
 #[cfg(target_os = "android")]
 pub fn drain_log() -> Vec<String> {
-    LOG_BUFFER.lock().map(|mut b| b.drain(..).collect()).unwrap_or_default()
+    LOG_BUFFER
+        .lock()
+        .map(|mut b| b.drain(..).collect())
+        .unwrap_or_default()
 }
 
 #[cfg(all(target_os = "android", feature = "jni-bindings"))]

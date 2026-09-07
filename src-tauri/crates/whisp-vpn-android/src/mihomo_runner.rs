@@ -44,7 +44,9 @@ pub fn spawn_mihomo(
     fs::write(&cfg_path, &cfg).map_err(|e| format!("write config.json: {}", e))?;
 
     let mut cmd = Command::new(bin_path);
-    cmd.arg("run").arg("-c").arg(&cfg_path)
+    cmd.arg("run")
+        .arg("-c")
+        .arg(&cfg_path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -53,7 +55,9 @@ pub fn spawn_mihomo(
     unsafe {
         cmd.pre_exec(move || {
             let flags = libc::fcntl(preserve_fd, libc::F_GETFD);
-            if flags < 0 { return Err(std::io::Error::last_os_error()); }
+            if flags < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
             if libc::fcntl(preserve_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -62,8 +66,12 @@ pub fn spawn_mihomo(
     }
 
     let mut child = cmd.spawn().map_err(|e| format!("spawn sing-box: {}", e))?;
-    if let Some(s) = child.stdout.take() { drain_subprocess(s, "singbox") }
-    if let Some(s) = child.stderr.take() { drain_subprocess(s, "singbox") }
+    if let Some(s) = child.stdout.take() {
+        drain_subprocess(s, "singbox")
+    }
+    if let Some(s) = child.stderr.take() {
+        drain_subprocess(s, "singbox")
+    }
     Ok(MihomoChild { child, work_dir })
 }
 
@@ -73,7 +81,9 @@ fn drain_subprocess<R: std::io::Read + Send + 'static>(src: R, tag: &'static str
         let reader = std::io::BufReader::new(src);
         for line in reader.lines() {
             if let Ok(l) = line {
-                if l.trim().is_empty() { continue; }
+                if l.trim().is_empty() {
+                    continue;
+                }
                 let msg = format!("[{}] {}", tag, l);
                 eprintln!("{}", msg);
                 crate::push_log(msg);
@@ -81,7 +91,6 @@ fn drain_subprocess<R: std::io::Read + Send + 'static>(src: R, tag: &'static str
         }
     });
 }
-
 
 fn generate_config(tun_fd: RawFd, socks_upstream: Option<&str>, tun_stack: &str) -> String {
     let stack = match tun_stack.to_lowercase().as_str() {

@@ -18,13 +18,30 @@ pub enum RoutingAction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum RoutingRule {
-    DomainSuffix { suffix: String, action: RoutingAction },
-    DomainKeyword { keyword: String, action: RoutingAction },
-    DomainExact { domain: String, action: RoutingAction },
-    IpCidr { cidr: String, action: RoutingAction },
+    DomainSuffix {
+        suffix: String,
+        action: RoutingAction,
+    },
+    DomainKeyword {
+        keyword: String,
+        action: RoutingAction,
+    },
+    DomainExact {
+        domain: String,
+        action: RoutingAction,
+    },
+    IpCidr {
+        cidr: String,
+        action: RoutingAction,
+    },
     /// Android: pkg = com.example.app. Desktop: process exe name.
-    ProcessName { name: String, action: RoutingAction },
-    Fallback { action: RoutingAction },
+    ProcessName {
+        name: String,
+        action: RoutingAction,
+    },
+    Fallback {
+        action: RoutingAction,
+    },
 }
 
 pub struct RulesEngine {
@@ -91,22 +108,28 @@ mod tests {
     #[test]
     fn domain_suffix_matches() {
         let mut e = RulesEngine::new();
-        e.load_from_json(r#"[
+        e.load_from_json(
+            r#"[
             {"kind":"domain-suffix","suffix":"vk.com","action":"DIRECT"},
             {"kind":"fallback","action":"PROXY"}
-        ]"#).unwrap();
+        ]"#,
+        )
+        .unwrap();
         assert_eq!(e.evaluate_domain("login.vk.com"), RoutingAction::Direct);
-        assert_eq!(e.evaluate_domain("google.com"),   RoutingAction::Proxy);
+        assert_eq!(e.evaluate_domain("google.com"), RoutingAction::Proxy);
     }
 
     #[test]
     fn order_matters() {
         // Более специфичное правило должно идти раньше.
         let mut e = RulesEngine::new();
-        e.load_from_json(r#"[
+        e.load_from_json(
+            r#"[
             {"kind":"domain-exact","domain":"m.vk.com","action":"PROXY"},
             {"kind":"domain-suffix","suffix":"vk.com","action":"DIRECT"}
-        ]"#).unwrap();
+        ]"#,
+        )
+        .unwrap();
         assert_eq!(e.evaluate_domain("m.vk.com"), RoutingAction::Proxy);
         assert_eq!(e.evaluate_domain("login.vk.com"), RoutingAction::Direct);
     }

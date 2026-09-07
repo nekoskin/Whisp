@@ -95,15 +95,30 @@ pub extern "system" fn Java_com_whispera_whisp_WhispVpnNative_nativeStart(
 ) -> jlong {
     let mihomo_path: String = match env.get_string(&mihomo_path) {
         Ok(s) => s.into(),
-        Err(e) => { eprintln!("[whisp-vpn-android] mihomo_path: {}", e); return 0; }
+        Err(e) => {
+            eprintln!("[whisp-vpn-android] mihomo_path: {}", e);
+            return 0;
+        }
     };
-    let go_client_path: String =
-        env.get_string(&go_client_path).map(Into::into).unwrap_or_default();
-    let rules_str: String = env.get_string(&rules_json).map(Into::into).unwrap_or_default();
-    let conn_key: String = env.get_string(&conn_key).map(Into::into).unwrap_or_default();
+    let go_client_path: String = env
+        .get_string(&go_client_path)
+        .map(Into::into)
+        .unwrap_or_default();
+    let rules_str: String = env
+        .get_string(&rules_json)
+        .map(Into::into)
+        .unwrap_or_default();
+    let conn_key: String = env
+        .get_string(&conn_key)
+        .map(Into::into)
+        .unwrap_or_default();
 
     let mihomo_path = PathBuf::from(mihomo_path);
-    let mut session = VpnSession { _core: VpnCore::new(), mihomo: None, go_client: None };
+    let mut session = VpnSession {
+        _core: VpnCore::new(),
+        mihomo: None,
+        go_client: None,
+    };
     if !rules_str.trim().is_empty() && rules_str.trim() != "[]" {
         let _ = session._core.load_rules_json(&rules_str);
     }
@@ -121,7 +136,9 @@ pub extern "system" fn Java_com_whispera_whisp_WhispVpnNative_nativeStart(
                     have_upstream = true;
                     eprintln!("[whisp-vpn-android] go-client SOCKS5 ready");
                 } else {
-                    eprintln!("[whisp-vpn-android] go-client SOCKS5 not ready in 5s, fallback DIRECT");
+                    eprintln!(
+                        "[whisp-vpn-android] go-client SOCKS5 not ready in 5s, fallback DIRECT"
+                    );
                 }
             }
             Err(e) => eprintln!("[whisp-vpn-android] spawn_go_client: {}", e),
@@ -134,7 +151,11 @@ pub extern "system" fn Java_com_whispera_whisp_WhispVpnNative_nativeStart(
     //    иначе MATCH,DIRECT (transparent passthrough, тоннель есть но без
     //    прокси-сервера).
     let rules: Vec<crate::RoutingRule> = session._core.rules().rules().to_vec();
-    let upstream = if have_upstream { Some(socks_addr) } else { None };
+    let upstream = if have_upstream {
+        Some(socks_addr)
+    } else {
+        None
+    };
     let mihomo = match spawn_mihomo(
         &mihomo_path,
         tun_fd as std::os::unix::io::RawFd,
@@ -145,7 +166,9 @@ pub extern "system" fn Java_com_whispera_whisp_WhispVpnNative_nativeStart(
         Ok(c) => c,
         Err(e) => {
             eprintln!("[whisp-vpn-android] spawn_mihomo: {}", e);
-            if let Some(mut g) = session.go_client.take() { g.kill(); }
+            if let Some(mut g) = session.go_client.take() {
+                g.kill();
+            }
             return 0;
         }
     };
@@ -163,8 +186,12 @@ pub extern "system" fn Java_com_whispera_whisp_WhispVpnNative_nativeStop(
         return 0;
     }
     let mut session = unsafe { Box::from_raw(handle as *mut VpnSession) };
-    if let Some(mut m) = session.mihomo.take() { m.kill(); }
-    if let Some(mut g) = session.go_client.take() { g.kill(); }
+    if let Some(mut m) = session.mihomo.take() {
+        m.kill();
+    }
+    if let Some(mut g) = session.go_client.take() {
+        g.kill();
+    }
     eprintln!("[whisp-vpn-android] nativeStop done");
     1
 }
@@ -179,6 +206,10 @@ pub extern "system" fn Java_com_whispera_whisp_WhispVpnNative_nativeFree(
         return;
     }
     let mut session = unsafe { Box::from_raw(handle as *mut VpnSession) };
-    if let Some(mut m) = session.mihomo.take() { m.kill(); }
-    if let Some(mut g) = session.go_client.take() { g.kill(); }
+    if let Some(mut m) = session.mihomo.take() {
+        m.kill();
+    }
+    if let Some(mut g) = session.go_client.take() {
+        g.kill();
+    }
 }
