@@ -202,7 +202,7 @@ jobs:
           BIN=src-tauri/target/${{ matrix.triple }}/release
           OUT=whisp-linux-x86_64
           mkdir -p "$OUT"
-          cp "$BIN/whisp" "$OUT/"
+          cp "$BIN/Whisp" "$OUT/" 2>/dev/null || cp "$BIN/whisp" "$OUT/"
           cp "$BIN/mihomo" "$OUT/" 2>/dev/null || cp src-tauri/binaries/mihomo-${{ matrix.triple }} "$OUT/mihomo"
           cp "$BIN/whispera-go-client" "$OUT/" 2>/dev/null || cp src-tauri/binaries/whispera-go-client-${{ matrix.triple }} "$OUT/whispera-go-client"
           chmod +x "$OUT"/*
@@ -346,8 +346,13 @@ jobs:
         run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
           MOBILE_VER="v0.0.0-20250813145510-f12310a0cfd9"
-          go install golang.org/x/mobile/cmd/gomobile@${MOBILE_VER}
-          go install golang.org/x/mobile/cmd/gobind@${MOBILE_VER}
+          for attempt in 1 2 3; do
+            go install golang.org/x/mobile/cmd/gomobile@${MOBILE_VER} \
+              && go install golang.org/x/mobile/cmd/gobind@${MOBILE_VER} && break
+            echo "module proxy failed (attempt $attempt), retrying"
+            sleep 15
+          done
+          command -v gomobile >/dev/null || { echo "gomobile could not be installed"; exit 1; }
           mkdir -p src-tauri/gen/android/app/libs
           cd go-android
           go mod download github.com/sagernet/sing-box || true
