@@ -1,4 +1,3 @@
-
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -29,13 +28,18 @@ fn sidecar_sha256(path: &std::path::Path) -> Option<String> {
 #[cfg(not(target_os = "android"))]
 fn verify_sidecar(path: &std::path::Path) -> Result<(), String> {
     let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-    let expected = SIDECAR_HASHES.iter().find(|(n, _)| *n == name).map(|(_, h)| *h);
+    let expected = SIDECAR_HASHES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, h)| *h);
     let Some(expected) = expected else {
-        eprintln!("[sidecar] no baked hash for {} (skipping verification)", name);
+        eprintln!(
+            "[sidecar] no baked hash for {} (skipping verification)",
+            name
+        );
         return Ok(());
     };
-    let actual = sidecar_sha256(path)
-        .ok_or_else(|| format!("sidecar {} not found", name))?;
+    let actual = sidecar_sha256(path).ok_or_else(|| format!("sidecar {} not found", name))?;
     if !actual.eq_ignore_ascii_case(expected) {
         return Err(format!(
             "sidecar {} hash mismatch (expected {}, got {})",
@@ -45,7 +49,6 @@ fn verify_sidecar(path: &std::path::Path) -> Result<(), String> {
     eprintln!("[sidecar] {} hash OK", name);
     Ok(())
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RoutingRule {
@@ -77,16 +80,29 @@ fn build_client_rules_json(settings: &AppSettings) -> String {
             "domain-keyword" => ("keyword", r.value.clone()),
             "domain-exact" => ("domain", r.value.clone()),
             "ip-cidr" => {
-                let v = if r.value.contains('/') { r.value.clone() } else { format!("{}/32", r.value) };
+                let v = if r.value.contains('/') {
+                    r.value.clone()
+                } else {
+                    format!("{}/32", r.value)
+                };
                 ("cidr", v)
             }
             "process-name" => ("name", r.value.clone()),
             _ => ("suffix", r.value.clone()),
         };
         let mut obj = serde_json::Map::new();
-        obj.insert("kind".to_string(), serde_json::Value::String(kind.to_string()));
-        obj.insert(val_field.0.to_string(), serde_json::Value::String(val_field.1));
-        obj.insert("action".to_string(), serde_json::Value::String(mapped.to_string()));
+        obj.insert(
+            "kind".to_string(),
+            serde_json::Value::String(kind.to_string()),
+        );
+        obj.insert(
+            val_field.0.to_string(),
+            serde_json::Value::String(val_field.1),
+        );
+        obj.insert(
+            "action".to_string(),
+            serde_json::Value::String(mapped.to_string()),
+        );
         dst.push(serde_json::Value::Object(obj));
     };
     if settings.bypass_ru {
@@ -140,11 +156,11 @@ struct AppSettings {
     #[serde(default)]
     vpn_dns: String,
     #[serde(default)]
-    spoof_ips: String,
-    #[serde(default)]
     multi_bridges: Vec<serde_json::Value>,
     #[serde(default)]
     tls_fingerprint: String,
+    #[serde(default)]
+    external_link: String,
     #[serde(default = "default_true")]
     bypass_ru: bool,
     #[serde(default)]
@@ -216,9 +232,9 @@ impl Default for AppSettings {
             blocklist: Vec::new(),
             custom_dns: Vec::new(),
             vpn_dns: String::new(),
-            spoof_ips: String::new(),
             multi_bridges: Vec::new(),
             tls_fingerprint: String::new(),
+            external_link: String::new(),
             bypass_ru: true,
             quic: false,
             ping_mode: "tcp".to_string(),
@@ -241,6 +257,7 @@ struct AppState {
     mihomo: Mutex<MihomoManager>,
     go_client: Mutex<GoClientManager>,
     android_proxy: Mutex<Option<String>>,
+    external_engine: std::sync::atomic::AtomicBool,
 }
 
 fn settings_path(app: &tauri::AppHandle) -> PathBuf {
@@ -281,11 +298,18 @@ fn save_app_setting(app: tauri::AppHandle, mut settings: AppSettings) -> Result<
             if let Ok(existing) = serde_json::from_str::<AppSettings>(&raw) {
                 settings.routing_rules = existing.routing_rules;
                 settings.blocklist = existing.blocklist;
-                if settings.custom_dns.is_empty() { settings.custom_dns = existing.custom_dns; }
-                if settings.vpn_dns.is_empty() { settings.vpn_dns = existing.vpn_dns; }
-                if settings.spoof_ips.is_empty() { settings.spoof_ips = existing.spoof_ips; }
-                if settings.multi_bridges.is_empty() { settings.multi_bridges = existing.multi_bridges; }
-                if settings.tls_fingerprint.is_empty() { settings.tls_fingerprint = existing.tls_fingerprint; }
+                if settings.custom_dns.is_empty() {
+                    settings.custom_dns = existing.custom_dns;
+                }
+                if settings.vpn_dns.is_empty() {
+                    settings.vpn_dns = existing.vpn_dns;
+                }
+                if settings.multi_bridges.is_empty() {
+                    settings.multi_bridges = existing.multi_bridges;
+                }
+                if settings.tls_fingerprint.is_empty() {
+                    settings.tls_fingerprint = existing.tls_fingerprint;
+                }
             }
         }
     }
@@ -314,7 +338,10 @@ fn patch_app_settings(app: tauri::AppHandle, patch: serde_json::Value) -> Result
 }
 
 #[tauri::command]
-async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<String, String> {
+async fn connect(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
         let settings = get_app_settings(app.clone())?;
@@ -361,9 +388,23 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         if !prepared {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 whisp_vpn_android::service_intent::save_pending_start(
-                    &rules_json, &conn_key, &vpn_dns, ipv6, hwid, &tls_fingerprint,
-                    mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode,
-                    &dns_strategy, mtu, tls_fragment, auto_connect, &tun_stack, quic,
+                    &rules_json,
+                    &conn_key,
+                    &vpn_dns,
+                    ipv6,
+                    hwid,
+                    &tls_fingerprint,
+                    mixed_port,
+                    allow_lan,
+                    &socks_user,
+                    &socks_pass,
+                    &dns_mode,
+                    &dns_strategy,
+                    mtu,
+                    tls_fragment,
+                    auto_connect,
+                    &tun_stack,
+                    quic,
                 )
             }));
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
@@ -374,16 +415,40 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
 
         let res = tokio::task::spawn_blocking(move || {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                whisp_vpn_android::service_intent::start_vpn_service(&rules_json, &conn_key, &vpn_dns, ipv6, hwid, &tls_fingerprint, mixed_port, allow_lan, &socks_user, &socks_pass, &dns_mode, &dns_strategy, mtu, tls_fragment, auto_connect, &tun_stack, quic)
+                whisp_vpn_android::service_intent::start_vpn_service(
+                    &rules_json,
+                    &conn_key,
+                    &vpn_dns,
+                    ipv6,
+                    hwid,
+                    &tls_fingerprint,
+                    mixed_port,
+                    allow_lan,
+                    &socks_user,
+                    &socks_pass,
+                    &dns_mode,
+                    &dns_strategy,
+                    mtu,
+                    tls_fragment,
+                    auto_connect,
+                    &tun_stack,
+                    quic,
+                )
             }))
-        }).await.map_err(|e| format!("spawn_blocking: {}", e))?;
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking: {}", e))?;
         match res {
             Ok(Ok(())) => return Ok("Android VPN starting".to_string()),
             Ok(Err(e)) => return Err(format!("start_vpn_service: {}", e)),
             Err(p) => {
-                let msg = if let Some(s) = p.downcast_ref::<&str>() { *s }
-                          else if let Some(s) = p.downcast_ref::<String>() { s.as_str() }
-                          else { "unknown panic" };
+                let msg = if let Some(s) = p.downcast_ref::<&str>() {
+                    *s
+                } else if let Some(s) = p.downcast_ref::<String>() {
+                    s.as_str()
+                } else {
+                    "unknown panic"
+                };
                 return Err(format!("panic in start_vpn_service: {}", msg));
             }
         }
@@ -403,20 +468,41 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
     };
 
     let mut gc = state.go_client.lock().map_err(|e| e.to_string())?;
-    eprintln!("[connect] starting go-client, socks={}, key_len={}", socks_addr, settings.conn_key.len());
-    gc.start(&GoClientConfig {
-        conn_key: &settings.conn_key,
-        server_addr: "",
-        socks_addr: &socks_addr,
-        kill_switch: settings.kill_switch,
-        transport: "",
-        vpn_dns: &settings.vpn_dns,
-        spoof_ips: &settings.spoof_ips,
-        hwid: settings.hwid,
-        tls_fingerprint: &settings.tls_fingerprint,
-        split_rules: &build_client_rules_json(&settings),
-    }).map_err(|e| { eprintln!("[connect] go-client start FAILED: {}", e); e })?;
-    eprintln!("[connect] go-client started OK");
+    // With an external profile the routing engine dials the remote itself,
+    // so our own tunnel process is not started at all.
+    let external = !settings.external_link.trim().is_empty();
+    if external && mihomo::external_proxy_yaml(&settings.external_link, "whisp-server").is_none() {
+        return Err("external profile could not be parsed: fix or clear it in settings".into());
+    }
+    state
+        .external_engine
+        .store(external, std::sync::atomic::Ordering::Relaxed);
+    if external {
+        gc.stop().ok();
+        eprintln!("[connect] external profile active, go-client not started");
+    } else {
+        eprintln!(
+            "[connect] starting go-client, socks={}, key_len={}",
+            socks_addr,
+            settings.conn_key.len()
+        );
+        gc.start(&GoClientConfig {
+            conn_key: &settings.conn_key,
+            server_addr: "",
+            socks_addr: &socks_addr,
+            kill_switch: settings.kill_switch,
+            transport: "",
+            vpn_dns: &settings.vpn_dns,
+            hwid: settings.hwid,
+            tls_fingerprint: &settings.tls_fingerprint,
+            split_rules: &build_client_rules_json(&settings),
+        })
+        .map_err(|e| {
+            eprintln!("[connect] go-client start FAILED: {}", e);
+            e
+        })?;
+        eprintln!("[connect] go-client started OK");
+    }
 
     if !settings.multi_bridges.is_empty() {
         let bridges_clone = settings.multi_bridges.clone();
@@ -427,7 +513,12 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
                 .unwrap_or_default();
             let deadline = tokio::time::Instant::now() + Duration::from_millis(2000);
             loop {
-                if client.get("http://127.0.0.1:10801/status").send().await.is_ok() {
+                if client
+                    .get("http://127.0.0.1:10801/status")
+                    .send()
+                    .await
+                    .is_ok()
+                {
                     break;
                 }
                 if tokio::time::Instant::now() >= deadline {
@@ -475,12 +566,13 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
         routing_rules: &routing_rules,
         extra_socks_addrs: &[],
         custom_dns: &settings.custom_dns,
-        tls_fingerprint: &settings.tls_fingerprint,
         socks_user: &settings.socks_user,
         socks_pass: &settings.socks_pass,
         allow_lan: settings.allow_lan,
         log_level: &settings.log_level,
         routing_mode: &settings.routing_mode,
+        bypass_ru: settings.bypass_ru,
+        external_link: &settings.external_link,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
@@ -494,10 +586,12 @@ async fn connect(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Re
 }
 
 #[tauri::command]
-fn disconnect(state: tauri::State<AppState>) -> Result<String, String> {
+async fn disconnect(state: tauri::State<'_, AppState>) -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
-        if let Ok(mut p) = state.android_proxy.lock() { *p = None; }
+        if let Ok(mut p) = state.android_proxy.lock() {
+            *p = None;
+        }
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
             whisp_vpn_android::service_intent::stop_vpn_service,
         ));
@@ -520,6 +614,8 @@ fn disconnect(state: tauri::State<AppState>) -> Result<String, String> {
     }
 }
 
+static LAST_STATUS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[tauri::command]
 fn get_status(state: tauri::State<AppState>) -> Result<bool, String> {
     #[cfg(target_os = "android")]
@@ -527,14 +623,31 @@ fn get_status(state: tauri::State<AppState>) -> Result<bool, String> {
         let _ = state;
         let active = whisp_vpn_android::service_intent::is_vpn_active()
             || whisp_vpn_android::service_intent::is_vpn_service_running();
-        if active { whisp_vpn_android::service_intent::set_vpn_active(true); }
+        if active {
+            whisp_vpn_android::service_intent::set_vpn_active(true);
+        }
         return Ok(active);
     }
     #[allow(unreachable_code)]
     {
-        let mut mihomo = state.mihomo.lock().map_err(|e| e.to_string())?;
-        let mut gc = state.go_client.lock().map_err(|e| e.to_string())?;
-        Ok(mihomo.is_running() && gc.is_running())
+        // Connect and disconnect hold these locks, sometimes across a UAC
+        // prompt. This command runs on the UI thread, so it reports the last
+        // known answer instead of waiting for them.
+        let last = std::sync::atomic::Ordering::Relaxed;
+        let Ok(mut mihomo) = state.mihomo.try_lock() else {
+            return Ok(LAST_STATUS.load(last));
+        };
+        if state.external_engine.load(last) {
+            let up = mihomo.is_running();
+            LAST_STATUS.store(up, last);
+            return Ok(up);
+        }
+        let Ok(mut gc) = state.go_client.try_lock() else {
+            return Ok(LAST_STATUS.load(last));
+        };
+        let up = mihomo.is_running() && gc.is_running();
+        LAST_STATUS.store(up, last);
+        Ok(up)
     }
 }
 
@@ -545,7 +658,12 @@ fn control_base(port: u16) -> String {
 }
 
 fn conn_url(id: &str, action: &str) -> String {
-    format!("{}/connections/{}/{}", control_base(control_port_for_id(id)), raw_id(id), action)
+    format!(
+        "{}/connections/{}/{}",
+        control_base(control_port_for_id(id)),
+        raw_id(id),
+        action
+    )
 }
 
 fn control_port_for_id(_id: &str) -> u16 {
@@ -565,7 +683,8 @@ async fn get_connections() -> Result<serde_json::Value, String> {
 
     let all: Vec<serde_json::Value> = match client
         .get(format!("{}/connections", control_base(CONTROL_PORT_MAIN)))
-        .send().await
+        .send()
+        .await
     {
         Ok(r) => r.json::<Vec<serde_json::Value>>().await.unwrap_or_default(),
         Err(_) => vec![],
@@ -576,44 +695,68 @@ async fn get_connections() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 async fn close_connection(id: String) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    client.post(conn_url(&id, "close"))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+    client
+        .post(conn_url(&id, "close"))
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn toggle_connection(id: String, enabled: bool) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    client.post(conn_url(&id, "toggle"))
+    client
+        .post(conn_url(&id, "toggle"))
         .json(&serde_json::json!({"enabled": enabled}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn toggle_obfuscation(id: String, enabled: bool) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    client.post(conn_url(&id, "obfuscation"))
+    client
+        .post(conn_url(&id, "obfuscation"))
         .json(&serde_json::json!({"enabled": enabled}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn switch_transport(id: String, transport: String) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    let resp = client.post(conn_url(&id, "transport"))
+    let resp = client
+        .post(conn_url(&id, "transport"))
         .json(&serde_json::json!({"transport": transport}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("transport switch failed ({}): {}", status.as_u16(), body.trim()));
+        return Err(format!(
+            "transport switch failed ({}): {}",
+            status.as_u16(),
+            body.trim()
+        ));
     }
     Ok(true)
 }
@@ -624,9 +767,14 @@ async fn get_agent_stats() -> Result<serde_json::Value, String> {
         .timeout(Duration::from_secs(2))
         .build()
         .map_err(|e| e.to_string())?;
-    let resp = client.get(format!("{}/agent", &control_base(CONTROL_PORT_MAIN)))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
-    resp.json::<serde_json::Value>().await.map_err(|e| e.to_string())
+    let resp = client
+        .get(format!("{}/agent", &control_base(CONTROL_PORT_MAIN)))
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -635,18 +783,33 @@ async fn agent_recommend() -> Result<serde_json::Value, String> {
         .timeout(Duration::from_secs(2))
         .build()
         .map_err(|e| e.to_string())?;
-    let resp = client.get(format!("{}/agent/recommend", &control_base(CONTROL_PORT_MAIN)))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
-    resp.json::<serde_json::Value>().await.map_err(|e| e.to_string())
+    let resp = client
+        .get(format!(
+            "{}/agent/recommend",
+            &control_base(CONTROL_PORT_MAIN)
+        ))
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn agent_report(transport: String, server: String, success: bool, latency_ms: u64, error: Option<String>) -> Result<bool, String> {
+async fn agent_report(
+    transport: String,
+    server: String,
+    success: bool,
+    latency_ms: u64,
+    error: Option<String>,
+) -> Result<bool, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .map_err(|e| e.to_string())?;
-    client.post(format!("{}/agent/report", &control_base(CONTROL_PORT_MAIN)))
+    client
+        .post(format!("{}/agent/report", &control_base(CONTROL_PORT_MAIN)))
         .json(&serde_json::json!({
             "transport": transport,
             "server": server,
@@ -654,87 +817,129 @@ async fn agent_report(transport: String, server: String, success: bool, latency_
             "latency": latency_ms * 1_000_000,
             "error": error.unwrap_or_default(),
         }))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn set_connection_speed(id: String, rate_limit_kb: i64) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    client.post(conn_url(&id, "speed"))
+    client
+        .post(conn_url(&id, "speed"))
         .json(&serde_json::json!({"rate_limit_kb": rate_limit_kb}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn set_connection_sni(id: String, sni: String) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    client.post(conn_url(&id, "sni"))
+    client
+        .post(conn_url(&id, "sni"))
         .json(&serde_json::json!({"sni": sni}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn set_connection_bridge(id: String, bridge: String) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    client.post(conn_url(&id, "bridge"))
+    client
+        .post(conn_url(&id, "bridge"))
         .json(&serde_json::json!({"bridge": bridge}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn duplicate_connection(id: String) -> Result<String, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    let resp = client.post(conn_url(&id, "duplicate"))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+    let resp = client
+        .post(conn_url(&id, "duplicate"))
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     Ok(v["id"].as_str().unwrap_or("").to_string())
 }
 
 #[tauri::command]
 async fn change_connection_port(id: String, port: String) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    client.post(conn_url(&id, "port"))
+    client
+        .post(conn_url(&id, "port"))
         .json(&serde_json::json!({"port": port}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn set_connection_mux(id: String, enabled: bool) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    client.post(conn_url(&id, "mux"))
+    client
+        .post(conn_url(&id, "mux"))
         .json(&serde_json::json!({"enabled": enabled}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn set_transport_secure(id: String, enabled: bool) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
         .map_err(|e| e.to_string())?;
-    client.post(conn_url(&id, "transport_secure"))
+    client
+        .post(conn_url(&id, "transport_secure"))
         .json(&serde_json::json!({"enabled": enabled}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     Ok(true)
 }
 
 #[tauri::command]
 async fn set_behavioral_profile(id: String, profile: String) -> Result<bool, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(3)).build()
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
         .map_err(|e| e.to_string())?;
-    let resp = client.post(conn_url(&id, "profile"))
+    let resp = client
+        .post(conn_url(&id, "profile"))
         .json(&serde_json::json!({"profile": profile}))
-        .send().await.map_err(|_| "control server unavailable".to_string())?;
+        .send()
+        .await
+        .map_err(|_| "control server unavailable".to_string())?;
     if !resp.status().is_success() {
         let msg = resp.text().await.unwrap_or_default();
         return Err(format!("set_profile failed: {}", msg));
@@ -865,11 +1070,17 @@ fn validate_external_url(url: &str) -> Result<(), String> {
     if url.len() > 2048 {
         return Err("url too long".into());
     }
-    if url.chars().any(|c| c.is_control() || matches!(c, '"' | '\'' | '\\' | '\n' | '\r' | '\0')) {
+    if url
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '"' | '\'' | '\\' | '\n' | '\r' | '\0'))
+    {
         return Err("url contains forbidden characters".into());
     }
     let lower = url.to_ascii_lowercase();
-    if !(lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")) {
+    if !(lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("mailto:"))
+    {
         return Err("url scheme not allowed".into());
     }
     Ok(())
@@ -965,12 +1176,13 @@ async fn save_routing_rules(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> R
         routing_rules: &routing_rules,
         extra_socks_addrs: &[],
         custom_dns: &settings.custom_dns,
-        tls_fingerprint: &settings.tls_fingerprint,
         socks_user: &settings.socks_user,
         socks_pass: &settings.socks_pass,
         allow_lan: settings.allow_lan,
         log_level: &settings.log_level,
         routing_mode: &settings.routing_mode,
+        bypass_ru: settings.bypass_ru,
+        external_link: &settings.external_link,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
@@ -987,7 +1199,9 @@ async fn save_routing_rules(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> R
 
 #[tauri::command]
 async fn apply_tls_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
-    if cfg!(target_os = "android") { return Ok(()); }
+    if cfg!(target_os = "android") {
+        return Ok(());
+    }
     let settings = get_app_settings(app.clone())?;
     let config_path = mihomo_config_path(&app);
     let socks_addr = if settings.socks_addr.contains(':') {
@@ -1020,12 +1234,13 @@ async fn apply_tls_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
         routing_rules: &routing_rules,
         extra_socks_addrs: &[],
         custom_dns: &settings.custom_dns,
-        tls_fingerprint: &settings.tls_fingerprint,
         socks_user: &settings.socks_user,
         socks_pass: &settings.socks_pass,
         allow_lan: settings.allow_lan,
         log_level: &settings.log_level,
         routing_mode: &settings.routing_mode,
+        bypass_ru: settings.bypass_ru,
+        external_link: &settings.external_link,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
@@ -1084,7 +1299,8 @@ fn read_vpn_log_history() -> Vec<String> {
             return Vec::new();
         };
         let len = meta.len();
-        const TAIL: u64 = 256 * 1024;
+        const TAIL: u64 = 32 * 1024;
+        const HISTORY_LINES: usize = 140;
         let start = len.saturating_sub(TAIL);
         if f.seek(SeekFrom::Start(start)).is_err() {
             return Vec::new();
@@ -1104,7 +1320,9 @@ fn read_vpn_log_history() -> Vec<String> {
         } else {
             String::from_utf8_lossy(&buf).into_owned()
         };
-        return text.lines().map(|l| l.to_string()).collect();
+        let all: Vec<String> = text.lines().map(|l| l.to_string()).collect();
+        let start = all.len().saturating_sub(HISTORY_LINES);
+        return all[start..].to_vec();
     }
     #[allow(unreachable_code)]
     Vec::new()
@@ -1114,13 +1332,22 @@ fn read_vpn_log_history() -> Vec<String> {
 fn get_vpn_log() -> Vec<String> {
     {
         use std::io::{Read, Seek, SeekFrom};
-        let Some(path) = go_client_log_path() else { return Vec::new(); };
-        let Ok(mut f) = std::fs::File::open(&path) else { return Vec::new(); };
-        let Ok(meta) = f.metadata() else { return Vec::new(); };
+        let Some(path) = go_client_log_path() else {
+            return Vec::new();
+        };
+        let Ok(mut f) = std::fs::File::open(&path) else {
+            return Vec::new();
+        };
+        let Ok(meta) = f.metadata() else {
+            return Vec::new();
+        };
         let len = meta.len();
-        let Ok(mut offset) = GO_CLIENT_LOG_OFFSET.lock() else { return Vec::new(); };
+        let Ok(mut offset) = GO_CLIENT_LOG_OFFSET.lock() else {
+            return Vec::new();
+        };
         if len < *offset {
-            *offset = 0;
+            *offset = len;
+            return Vec::new();
         }
         if f.seek(SeekFrom::Start(*offset)).is_err() {
             return Vec::new();
@@ -1138,6 +1365,22 @@ fn get_vpn_log() -> Vec<String> {
     }
     #[allow(unreachable_code)]
     Vec::new()
+}
+
+#[tauri::command]
+fn clear_vpn_log() -> Result<(), String> {
+    let Some(path) = go_client_log_path() else {
+        return Ok(());
+    };
+    std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+    if let Ok(mut offset) = GO_CLIENT_LOG_OFFSET.lock() {
+        *offset = 0;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1185,12 +1428,13 @@ async fn save_blocklist(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> Resul
         routing_rules: &routing_rules,
         extra_socks_addrs: &[],
         custom_dns: &settings.custom_dns,
-        tls_fingerprint: &settings.tls_fingerprint,
         socks_user: &settings.socks_user,
         socks_pass: &settings.socks_pass,
         allow_lan: settings.allow_lan,
         log_level: &settings.log_level,
         routing_mode: &settings.routing_mode,
+        bypass_ru: settings.bypass_ru,
+        external_link: &settings.external_link,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
@@ -1203,6 +1447,47 @@ async fn save_blocklist(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> Resul
         .await;
 
     Ok(())
+}
+
+#[tauri::command]
+fn tunnel_service_installed() -> bool {
+    #[cfg(windows)]
+    {
+        return mihomo::MihomoManager::service_installed();
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
+#[tauri::command]
+async fn install_tunnel_service(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let config_path = mihomo_config_path(&app);
+        let mgr = state.mihomo.lock().map_err(|e| e.to_string())?;
+        mgr.install_persistent_service(&config_path)?;
+        return Ok("Служба установлена: подключение больше не будет запрашивать права".to_string());
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = (app, state);
+        Err("Служба нужна только на Windows".to_string())
+    }
+}
+
+#[tauri::command]
+async fn remove_tunnel_service(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let mut mgr = state.mihomo.lock().map_err(|e| e.to_string())?;
+        mgr.remove_persistent_service()?;
+        return Ok("Служба удалена".to_string());
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = state;
+        Err("Служба нужна только на Windows".to_string())
+    }
 }
 
 #[tauri::command]
@@ -1224,12 +1509,13 @@ fn install_services(
             routing_rules: &[],
             extra_socks_addrs: &[],
             custom_dns: &settings.custom_dns,
-            tls_fingerprint: &settings.tls_fingerprint,
             socks_user: &settings.socks_user,
             socks_pass: &settings.socks_pass,
             allow_lan: settings.allow_lan,
             log_level: &settings.log_level,
             routing_mode: &settings.routing_mode,
+            bypass_ru: settings.bypass_ru,
+            external_link: &settings.external_link,
         });
         fs::write(&config_path, &stub).ok();
     }
@@ -1253,7 +1539,6 @@ fn install_services(
             kill_switch: settings.kill_switch,
             transport: "",
             vpn_dns: &settings.vpn_dns,
-            spoof_ips: &settings.spoof_ips,
             hwid: settings.hwid,
             tls_fingerprint: &settings.tls_fingerprint,
             split_rules: &build_client_rules_json(&settings),
@@ -1262,7 +1547,6 @@ fn install_services(
 
     Ok("Services installed: WhisperaNH, WhisperaGW".to_string())
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct SubscriptionEntry {
@@ -1275,14 +1559,19 @@ struct SubscriptionEntry {
 }
 
 fn subscriptions_path(app: &tauri::AppHandle) -> PathBuf {
-    let dir = app.path().app_config_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let dir = app
+        .path()
+        .app_config_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
     fs::create_dir_all(&dir).ok();
     dir.join("subscriptions.json")
 }
 
 fn load_subs(app: &tauri::AppHandle) -> Vec<SubscriptionEntry> {
     let path = subscriptions_path(app);
-    if !path.exists() { return Vec::new(); }
+    if !path.exists() {
+        return Vec::new();
+    }
     fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -1307,9 +1596,14 @@ fn validate_subscription_url(url: &str) -> Result<(), String> {
         return Err("only https:// subscription urls are accepted".into());
     }
     let after_scheme = &url[8..];
-    let host_end = after_scheme.find(|c: char| matches!(c, '/' | '?' | '#')).unwrap_or(after_scheme.len());
+    let host_end = after_scheme
+        .find(|c: char| matches!(c, '/' | '?' | '#'))
+        .unwrap_or(after_scheme.len());
     let authority = &after_scheme[..host_end];
-    let host = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let host = authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority);
     let host_only = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
     let bare = host_only.trim_start_matches('[').trim_end_matches(']');
     if bare.is_empty() {
@@ -1318,12 +1612,18 @@ fn validate_subscription_url(url: &str) -> Result<(), String> {
     if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
         let blocked = match ip {
             std::net::IpAddr::V4(v4) => {
-                v4.is_loopback() || v4.is_private() || v4.is_link_local()
-                    || v4.is_broadcast() || v4.is_unspecified() || v4.is_multicast()
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_broadcast()
+                    || v4.is_unspecified()
+                    || v4.is_multicast()
                     || v4.octets()[0] == 0
             }
             std::net::IpAddr::V6(v6) => {
-                v6.is_loopback() || v6.is_unspecified() || v6.is_multicast()
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    || v6.is_multicast()
                     || (v6.segments()[0] & 0xfe00) == 0xfc00
                     || (v6.segments()[0] & 0xffc0) == 0xfe80
             }
@@ -1333,7 +1633,11 @@ fn validate_subscription_url(url: &str) -> Result<(), String> {
         }
     } else {
         let h = bare.to_ascii_lowercase();
-        if h == "localhost" || h.ends_with(".localhost") || h.ends_with(".local") || h.ends_with(".internal") {
+        if h == "localhost"
+            || h.ends_with(".localhost")
+            || h.ends_with(".local")
+            || h.ends_with(".internal")
+        {
             return Err("subscription host points to a local address".into());
         }
     }
@@ -1342,6 +1646,15 @@ fn validate_subscription_url(url: &str) -> Result<(), String> {
 
 const SUB_MAX_BYTES: usize = 1024 * 1024;
 
+fn collect_proxy_links(body: &str) -> Vec<String> {
+    const SCHEMES: [&str; 5] = ["vless://", "trojan://", "ss://", "vmess://", "hysteria2://"];
+    body.lines()
+        .map(|l| l.trim())
+        .filter(|l| SCHEMES.iter().any(|s| l.starts_with(s)))
+        .map(|l| l.to_string())
+        .collect()
+}
+
 async fn fetch_sub_url(url: &str) -> Result<SubscriptionEntry, String> {
     use base64::Engine as _;
     validate_subscription_url(url)?;
@@ -1349,7 +1662,18 @@ async fn fetch_sub_url(url: &str) -> Result<SubscriptionEntry, String> {
         .min_tls_version(reqwest::tls::Version::TLS_1_2)
         .danger_accept_invalid_certs(true)
         .timeout(Duration::from_secs(12))
-        .redirect(reqwest::redirect::Policy::none())
+        // Services move their feeds around, so a plain 301 must not read as an
+        // empty subscription. Every hop is validated like the original URL, which
+        // keeps a redirect from being a way into private addresses.
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 3 {
+                return attempt.error("too many redirects");
+            }
+            match validate_subscription_url(attempt.url().as_str()) {
+                Ok(()) => attempt.follow(),
+                Err(e) => attempt.error(e),
+            }
+        }))
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client
@@ -1370,17 +1694,47 @@ async fn fetch_sub_url(url: &str) -> Result<SubscriptionEntry, String> {
     let text = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(text.trim())
-        .map_err(|e| format!("base64: {}", e))?;
-    let payload: serde_json::Value =
-        serde_json::from_slice(&decoded).map_err(|e| format!("json: {}", e))?;
+        .unwrap_or_else(|_| text.as_bytes().to_vec());
+
+    // Two shapes are accepted: our own JSON feed, and the widespread
+    // "base64 of newline-separated proxy links" used by other services.
+    let payload: serde_json::Value = match serde_json::from_slice(&decoded) {
+        Ok(v) => v,
+        Err(_) => {
+            let body = String::from_utf8_lossy(&decoded);
+            let links = collect_proxy_links(&body);
+            if links.is_empty() {
+                return Err("subscription is neither our JSON feed nor a list of proxy links".into());
+            }
+            return Ok(SubscriptionEntry {
+                id: String::new(),
+                name: String::new(),
+                url: url.to_string(),
+                keys: links,
+                servers: Vec::new(),
+                updated: String::new(),
+            });
+        }
+    };
     let keys = payload["keys"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     let servers = payload["servers"].as_array().cloned().unwrap_or_default();
     let name = payload["name"].as_str().unwrap_or("").to_string();
     let updated = payload["updated"].as_str().unwrap_or("").to_string();
-    Ok(SubscriptionEntry { id: String::new(), name, url: url.to_string(), keys, servers, updated })
+    Ok(SubscriptionEntry {
+        id: String::new(),
+        name,
+        url: url.to_string(),
+        keys,
+        servers,
+        updated,
+    })
 }
 
 #[tauri::command]
@@ -1442,7 +1796,10 @@ async fn refresh_subscription(
     id: String,
 ) -> Result<SubscriptionEntry, String> {
     let mut subs = load_subs(&app);
-    let idx = subs.iter().position(|s| s.id == id).ok_or("Subscription not found")?;
+    let idx = subs
+        .iter()
+        .position(|s| s.id == id)
+        .ok_or("Subscription not found")?;
     let url = subs[idx].url.clone();
     let fresh = fetch_sub_url(&url).await?;
     subs[idx].keys = fresh.keys;
@@ -1474,9 +1831,16 @@ fn rename_subscription(app: tauri::AppHandle, id: String, name: String) -> Resul
 }
 
 #[tauri::command]
-fn delete_sub_key(app: tauri::AppHandle, id: String, index: usize) -> Result<SubscriptionEntry, String> {
+fn delete_sub_key(
+    app: tauri::AppHandle,
+    id: String,
+    index: usize,
+) -> Result<SubscriptionEntry, String> {
     let mut subs = load_subs(&app);
-    let idx = subs.iter().position(|s| s.id == id).ok_or("Subscription not found")?;
+    let idx = subs
+        .iter()
+        .position(|s| s.id == id)
+        .ok_or("Subscription not found")?;
     if index >= subs[idx].keys.len() {
         return Err("key index out of range".into());
     }
@@ -1508,6 +1872,21 @@ async fn check_subscription_update(
 // ever worked for the legacy form.
 fn server_addr_from_key(key: &str) -> Option<(String, u16)> {
     use base64::Engine as _;
+
+    // Foreign links carry the endpoint after the userinfo: scheme://id@host:port?...
+    for scheme in ["vless://", "trojan://", "ss://", "vmess://"] {
+        let Some(rest) = key.trim().strip_prefix(scheme) else {
+            continue;
+        };
+        let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+        let hostport = rest.rsplit_once('@').map(|(_, h)| h).unwrap_or(rest);
+        let (h, p) = hostport.rsplit_once(':')?;
+        let host = h.trim_matches(|c| c == '[' || c == ']');
+        if host.is_empty() {
+            return None;
+        }
+        return Some((host.to_string(), p.parse().unwrap_or(443)));
+    }
     let body = key.trim().strip_prefix("whispera://").unwrap_or(key.trim());
     let b64 = body.split(['?', '#']).next().unwrap_or(body);
 
@@ -1535,7 +1914,9 @@ fn server_addr_from_key(key: &str) -> Option<(String, u16)> {
 }
 
 fn server_host_from_key(key: &str) -> String {
-    server_addr_from_key(key).map(|(h, _)| h).unwrap_or_default()
+    server_addr_from_key(key)
+        .map(|(h, _)| h)
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -1603,13 +1984,20 @@ async fn http_ping(mode: &str, host: &str, port: u16) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let url = format!("https://{}:{}/", host, port);
-    let req = if mode == "head" { client.head(&url) } else { client.get(&url) };
+    let req = if mode == "head" {
+        client.head(&url)
+    } else {
+        client.get(&url)
+    };
     // The server camouflages as a site, so any answer — even a 404 — is a
     // complete round trip and times it honestly.
-    req.send()
-        .await
-        .map(|_| ())
-        .map_err(|e| if e.is_timeout() { "timeout".to_string() } else { e.to_string() })
+    req.send().await.map(|_| ()).map_err(|e| {
+        if e.is_timeout() {
+            "timeout".to_string()
+        } else {
+            e.to_string()
+        }
+    })
 }
 
 async fn icmp_ping(host: &str) -> Result<u64, String> {
@@ -1681,7 +2069,7 @@ fn icmp_checksum(data: &[u8]) -> u16 {
 }
 
 #[tauri::command]
-fn uninstall_services(state: tauri::State<AppState>) -> Result<String, String> {
+async fn uninstall_services(state: tauri::State<'_, AppState>) -> Result<String, String> {
     {
         let mut mihomo_mgr = state.mihomo.lock().map_err(|e| e.to_string())?;
         mihomo_mgr.uninstall_service()?;
@@ -1735,7 +2123,11 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
                     let name = parts[0].trim_matches('"').to_string();
                     let pid: u32 = parts[1].trim_matches('"').parse().unwrap_or(0);
                     if !name.is_empty() && seen.insert(name.to_lowercase()) {
-                        result.push(ProcessInfo { label: name.clone(), name, pid });
+                        result.push(ProcessInfo {
+                            label: name.clone(),
+                            name,
+                            pid,
+                        });
                     }
                 }
             }
@@ -1756,7 +2148,11 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
                     let name = parts[0].trim().to_string();
                     let pid: u32 = parts[1].trim().parse().unwrap_or(0);
                     if !name.is_empty() && seen.insert(name.to_lowercase()) {
-                        result.push(ProcessInfo { label: name.clone(), name, pid });
+                        result.push(ProcessInfo {
+                            label: name.clone(),
+                            name,
+                            pid,
+                        });
                     }
                 }
             }
@@ -1770,7 +2166,6 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
     }
 }
 
-
 #[derive(Serialize, Clone)]
 struct UpdateInfo {
     tag: String,
@@ -1783,15 +2178,17 @@ struct UpdateInfo {
 
 fn is_newer_version(tag: &str, current: &str) -> bool {
     let tag = tag.trim_start_matches('v');
-    let parse = |s: &str| -> Vec<u64> {
-        s.split('.').filter_map(|p| p.parse().ok()).collect()
-    };
+    let parse = |s: &str| -> Vec<u64> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
     parse(tag) > parse(current)
 }
 
 fn find_asset_url(assets: &serde_json::Value) -> String {
-    let arr = match assets.as_array() { Some(a) => a, None => return String::new() };
-    let names: Vec<(&str, &str)> = arr.iter()
+    let arr = match assets.as_array() {
+        Some(a) => a,
+        None => return String::new(),
+    };
+    let names: Vec<(&str, &str)> = arr
+        .iter()
         .filter_map(|a| {
             let name = a["name"].as_str()?;
             let url = a["browser_download_url"].as_str()?;
@@ -1873,16 +2270,31 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
     let current = env!("CARGO_PKG_VERSION");
     let is_newer = is_newer_version(&tag, current);
 
-    Ok(UpdateInfo { tag, name, body, html_url, download_url, is_newer })
+    Ok(UpdateInfo {
+        tag,
+        name,
+        body,
+        html_url,
+        download_url,
+        is_newer,
+    })
 }
 
 #[tauri::command]
 #[allow(unreachable_code)]
-async fn install_update(app: tauri::AppHandle, download_url: String, html_url: String) -> Result<(), String> {
+async fn install_update(
+    app: tauri::AppHandle,
+    download_url: String,
+    html_url: String,
+) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
         let _ = app;
-        let url = if !download_url.is_empty() { &download_url } else { &html_url };
+        let url = if !download_url.is_empty() {
+            &download_url
+        } else {
+            &html_url
+        };
         validate_external_url(url)?;
         return whisp_vpn_android::service_intent::open_url_android(url);
     }
@@ -1890,7 +2302,9 @@ async fn install_update(app: tauri::AppHandle, download_url: String, html_url: S
     if download_url.is_empty() {
         #[cfg(not(target_os = "android"))]
         #[allow(deprecated)]
-        app.shell().open(&html_url, None).map_err(|e| e.to_string())?;
+        app.shell()
+            .open(&html_url, None)
+            .map_err(|e| e.to_string())?;
         return Ok(());
     }
 
@@ -1937,7 +2351,8 @@ async fn install_update(app: tauri::AppHandle, download_url: String, html_url: S
             std::process::exit(0);
         } else {
             #[allow(deprecated)]
-            app.shell().open(tmp_path.to_string_lossy().as_ref(), None)
+            app.shell()
+                .open(tmp_path.to_string_lossy().as_ref(), None)
                 .map_err(|e| e.to_string())?;
         }
     }
@@ -1945,8 +2360,52 @@ async fn install_update(app: tauri::AppHandle, download_url: String, html_url: S
     Ok(())
 }
 
+#[cfg(not(target_os = "android"))]
+fn show_main_window(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+fn stop_sidecars_and_exit(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            std::process::exit(0);
+        });
+        let m_app = app.clone();
+        let m = std::thread::spawn(move || {
+            let state: tauri::State<AppState> = m_app.state();
+            let _ = state.mihomo.try_lock().map(|mut m| m.stop().ok());
+        });
+        let g_app = app.clone();
+        let g = std::thread::spawn(move || {
+            let state: tauri::State<AppState> = g_app.state();
+            let _ = state.go_client.try_lock().map(|mut gc| gc.stop().ok());
+        });
+        let _ = m.join();
+        let _ = g.join();
+        std::process::exit(0);
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(all(target_os = "linux", not(target_os = "android")))]
+    {
+        for (k, v) in [
+            ("WEBKIT_DISABLE_DMABUF_RENDERER", "1"),
+            ("WEBKIT_DISABLE_COMPOSITING_MODE", "1"),
+        ] {
+            if std::env::var_os(k).is_none() {
+                std::env::set_var(k, v);
+            }
+        }
+    }
+
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
@@ -1978,13 +2437,18 @@ pub fn run() {
         let so_name = format!("lib{}.so", name);
         if let Some(ref lib_dir) = android_native_lib_dir {
             let p = lib_dir.join(&so_name);
-            if p.exists() { return p; }
+            if p.exists() {
+                return p;
+            }
         }
         let candidates = [
             exe_dir.join(&so_name),
             exe_dir.join(name),
             PathBuf::from(format!("/data/data/com.whispera.whisp/lib/{}", so_name)),
-            PathBuf::from(format!("/data/app/com.whispera.whisp/lib/arm64/{}", so_name)),
+            PathBuf::from(format!(
+                "/data/app/com.whispera.whisp/lib/arm64/{}",
+                so_name
+            )),
         ];
         candidates
             .iter()
@@ -2021,6 +2485,7 @@ pub fn run() {
             mihomo: Mutex::new(MihomoManager::new(mihomo_path)),
             go_client: Mutex::new(GoClientManager::new(go_client_path)),
             android_proxy: Mutex::new(None),
+            external_engine: std::sync::atomic::AtomicBool::new(false),
         })
         .setup(|app| {
             let _ = &app;
@@ -2046,7 +2511,8 @@ pub fn run() {
                             if !s.conn_key.is_empty() {
                                 use sha2::Digest;
                                 let hash = sha2::Sha256::digest(s.conn_key.as_bytes());
-                                let pass: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
+                                let pass: String =
+                                    hash.iter().map(|b| format!("{:02x}", b)).collect();
                                 let proxy_url = format!("socks5h://whisp:{}@127.0.0.1:1080", pass);
                                 let state: tauri::State<AppState> = init_app.state();
                                 if let Ok(mut p) = state.android_proxy.lock() {
@@ -2058,34 +2524,51 @@ pub fn run() {
                 });
             }
 
+            #[cfg(not(target_os = "android"))]
+            {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.unmaximize();
+                    let _ = win.set_size(tauri::LogicalSize::new(1200.0, 600.0));
+                    let _ = win.center();
+                }
+            }
+
+            #[cfg(not(target_os = "android"))]
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::TrayIconBuilder;
+
+                let show = MenuItem::with_id(app, "show", "Открыть", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show, &quit])?;
+
+                let mut tray = TrayIconBuilder::new()
+                    .tooltip("Whisp")
+                    .menu(&menu)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => show_main_window(app),
+                        "quit" => stop_sidecars_and_exit(app.clone()),
+                        _ => {}
+                    });
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    tray = tray.icon(icon);
+                }
+                tray.build(app)?;
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let app = window.app_handle().clone();
-                std::thread::spawn(move || {
-                    // Force-exit fallback so a slow/blocking child stop (e.g. an
-                    // elevated taskkill on Windows) can't wedge the window close.
-                    std::thread::spawn(|| {
-                        std::thread::sleep(std::time::Duration::from_millis(1500));
-                        std::process::exit(0);
-                    });
-                    // Stop both sidecars in parallel instead of serially.
-                    let m_app = app.clone();
-                    let m = std::thread::spawn(move || {
-                        let state: tauri::State<AppState> = m_app.state();
-                        let _ = state.mihomo.try_lock().map(|mut m| m.stop().ok());
-                    });
-                    let g_app = app.clone();
-                    let g = std::thread::spawn(move || {
-                        let state: tauri::State<AppState> = g_app.state();
-                        let _ = state.go_client.try_lock().map(|mut gc| gc.stop().ok());
-                    });
-                    let _ = m.join();
-                    let _ = g.join();
-                    std::process::exit(0);
-                });
+                #[cfg(not(target_os = "android"))]
+                {
+                    let _ = window.hide();
+                }
+                #[cfg(target_os = "android")]
+                {
+                    stop_sidecars_and_exit(window.app_handle().clone());
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -2104,10 +2587,14 @@ pub fn run() {
             open_url,
             install_services,
             uninstall_services,
+            tunnel_service_installed,
+            install_tunnel_service,
+            remove_tunnel_service,
             get_routing_rules,
             save_routing_rules,
             get_vpn_log,
             read_vpn_log_history,
+            clear_vpn_log,
             get_blocklist,
             save_blocklist,
             get_subscriptions,

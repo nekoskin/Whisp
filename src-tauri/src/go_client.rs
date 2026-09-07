@@ -24,7 +24,6 @@ pub struct GoClientConfig<'a> {
     pub kill_switch: bool,
     pub transport: &'a str,
     pub vpn_dns: &'a str,
-    pub spoof_ips: &'a str,
     pub hwid: bool,
     pub tls_fingerprint: &'a str,
     pub split_rules: &'a str,
@@ -32,6 +31,10 @@ pub struct GoClientConfig<'a> {
 
 fn is_forceable_fingerprint(v: &str) -> bool {
     !v.is_empty() && v != "random"
+}
+
+fn go_client_log_file() -> std::path::PathBuf {
+    std::env::temp_dir().join("whispera-go-client.log")
 }
 
 impl GoClientManager {
@@ -56,7 +59,10 @@ impl GoClientManager {
             args.push_str(" -kill-switch");
         }
         if !cfg.split_rules.is_empty() {
-            args.push_str(&format!(" -split-rules \"{}\"", cfg.split_rules.replace('"', "\\\"")));
+            args.push_str(&format!(
+                " -split-rules \"{}\"",
+                cfg.split_rules.replace('"', "\\\"")
+            ));
         }
         if !cfg.transport.is_empty() {
             args.push_str(&format!(" -transport {}", cfg.transport));
@@ -67,6 +73,11 @@ impl GoClientManager {
         if is_forceable_fingerprint(cfg.tls_fingerprint) {
             args.push_str(&format!(" -force-fingerprint {}", cfg.tls_fingerprint));
         }
+
+        args.push_str(&format!(
+            " -log-file \"{}\"",
+            go_client_log_file().display()
+        ));
 
         let bin_path = format!("\"{}\" {}", bin.replace('"', "\\\""), args);
 
@@ -208,6 +219,7 @@ impl GoClientManager {
 
         cmd.arg("-socks").arg(cfg.socks_addr);
         cmd.arg("-no-tun");
+        cmd.arg("-log-file").arg(go_client_log_file());
 
         if cfg.kill_switch {
             cmd.arg("-kill-switch");
@@ -233,9 +245,6 @@ impl GoClientManager {
             cmd.arg("-force-fingerprint").arg(cfg.tls_fingerprint);
         }
 
-        if !cfg.spoof_ips.is_empty() {
-            cmd.arg("-spoof-ips").arg(cfg.spoof_ips);
-        }
 
         let log_path = std::env::temp_dir().join("whispera-go-client.log");
         cmd.arg("-log-file").arg(&log_path);
