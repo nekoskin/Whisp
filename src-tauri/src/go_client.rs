@@ -245,7 +245,6 @@ impl GoClientManager {
             cmd.arg("-force-fingerprint").arg(cfg.tls_fingerprint);
         }
 
-
         let log_path = std::env::temp_dir().join("whispera-go-client.log");
         cmd.arg("-log-file").arg(&log_path);
         let log_file = std::fs::OpenOptions::new()

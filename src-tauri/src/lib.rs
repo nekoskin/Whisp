@@ -1460,7 +1460,10 @@ fn tunnel_service_installed() -> bool {
 }
 
 #[tauri::command]
-async fn install_tunnel_service(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<String, String> {
+async fn install_tunnel_service(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
     #[cfg(windows)]
     {
         let config_path = mihomo_config_path(&app);
@@ -1597,7 +1600,7 @@ fn validate_subscription_url(url: &str) -> Result<(), String> {
     }
     let after_scheme = &url[8..];
     let host_end = after_scheme
-        .find(|c: char| matches!(c, '/' | '?' | '#'))
+        .find(['/', '?', '#'])
         .unwrap_or(after_scheme.len());
     let authority = &after_scheme[..host_end];
     let host = authority
@@ -1704,7 +1707,9 @@ async fn fetch_sub_url(url: &str) -> Result<SubscriptionEntry, String> {
             let body = String::from_utf8_lossy(&decoded);
             let links = collect_proxy_links(&body);
             if links.is_empty() {
-                return Err("subscription is neither our JSON feed nor a list of proxy links".into());
+                return Err(
+                    "subscription is neither our JSON feed nor a list of proxy links".into(),
+                );
             }
             return Ok(SubscriptionEntry {
                 id: String::new(),
@@ -2314,7 +2319,10 @@ async fn install_update(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let filename = download_url.split('/').last().unwrap_or("whisp-installer");
+    let filename = download_url
+        .split('/')
+        .next_back()
+        .unwrap_or("whisp-installer");
     let tmp_path = std::env::temp_dir().join(filename);
 
     let bytes = client
@@ -2498,6 +2506,7 @@ pub fn run() {
                 if let Ok(m) = state.mihomo.lock() {
                     m.kill_all_by_name();
                 }
+                #[allow(clippy::drop_non_drop)]
                 drop(state);
             }
             #[cfg(target_os = "android")]

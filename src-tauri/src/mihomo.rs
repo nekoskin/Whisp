@@ -309,10 +309,8 @@ impl MihomoManager {
 
         #[cfg(windows)]
         {
-            if service_exists(SERVICE_NAME) {
-                if self.start_service().is_ok() {
-                    return Ok(());
-                }
+            if service_exists(SERVICE_NAME) && self.start_service().is_ok() {
+                return Ok(());
             }
             return if is_admin() {
                 self.start_direct(config_path)
@@ -340,7 +338,6 @@ impl MihomoManager {
     }
 
     #[cfg(unix)]
-    #[cfg(unix)]
     fn ensure_writable_binary(&mut self) {
         use std::os::unix::fs::PermissionsExt;
 
@@ -366,7 +363,10 @@ impl MihomoManager {
         };
         let dst = dst_dir.join(name);
 
-        let same = match (std::fs::metadata(&dst), std::fs::metadata(&self.binary_path)) {
+        let same = match (
+            std::fs::metadata(&dst),
+            std::fs::metadata(&self.binary_path),
+        ) {
             (Ok(a), Ok(b)) => a.len() == b.len(),
             _ => false,
         };
@@ -377,6 +377,7 @@ impl MihomoManager {
         self.binary_path = dst;
     }
 
+    #[cfg(unix)]
     fn grant_caps(&self) -> Result<(), String> {
         let status = Command::new("pkexec")
             .arg(find_tool("setcap"))
@@ -600,7 +601,6 @@ fn mihomo_has_caps(bin: &Path) -> bool {
 }
 
 #[cfg(windows)]
-#[cfg(windows)]
 fn current_user_sid() -> Result<String, String> {
     let out = Command::new("powershell")
         .args([
@@ -676,7 +676,10 @@ pub fn external_proxy_yaml(link: &str, name: &str) -> Option<String> {
                 "  - name: {name}\n    type: vless\n    server: {host}\n    port: {port}\n    uuid: {uuid}\n    udp: true\n"
             );
             let network = opts.get("type").map(String::as_str).unwrap_or("tcp");
-            y.push_str(&format!("    network: {}\n", if network.is_empty() { "tcp" } else { network }));
+            y.push_str(&format!(
+                "    network: {}\n",
+                if network.is_empty() { "tcp" } else { network }
+            ));
             let security = opts.get("security").map(String::as_str).unwrap_or("");
             if security == "tls" || security == "reality" {
                 y.push_str("    tls: true\n");
@@ -837,7 +840,6 @@ pub struct MihomoConfig<'a> {
     pub external_link: &'a str,
 }
 
-
 fn valid_nameserver(s: &str) -> bool {
     let s = s.trim();
     if s.is_empty() {
@@ -855,7 +857,6 @@ fn valid_nameserver(s: &str) -> bool {
     };
     host.len() > 3 && host.contains('.') && !host.starts_with('.') && !host.ends_with('.')
 }
-
 
 pub fn generate_config(cfg: &MihomoConfig) -> String {
     let parts: Vec<&str> = cfg.socks_addr.splitn(2, ':').collect();
@@ -954,7 +955,6 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
         }
     }
 
-
     let primary_proxy = external_proxy_yaml(cfg.external_link, "whisp-server").unwrap_or_else(|| {
         // Reached only when there is no external profile at all: an unparsable one
         // is refused earlier, so a broken link can never quietly become our tunnel.
@@ -974,7 +974,11 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
     // и отключаем fake-ip (переходим на redir-host). Так DNS-запросы уходят в тоннель,
     // а не к системному резолверу, и клиент видит реальные IP.
     // Без флага — старое поведение (fake-ip, быстрее, но DNS виден провайдеру).
-    let dns_enhanced_mode = if cfg.dns_redirect { "redir-host" } else { "fake-ip" };
+    let dns_enhanced_mode = if cfg.dns_redirect {
+        "redir-host"
+    } else {
+        "fake-ip"
+    };
     let dns_proxy_policy = if cfg.dns_redirect {
         format!("  proxy-server-nameserver:\n{}\n", nameservers)
     } else {
