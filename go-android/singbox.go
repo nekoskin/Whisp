@@ -248,9 +248,14 @@ func Start(fd int32, workDir string, socksAddr string, connKey string, rulesJson
 		}
 	}
 
+	tunSelf := `"172.19.0.0/30"`
+	if ipv6 {
+		tunSelf += `,"2001:db8::/126"`
+	}
 	ruleParts := []string{
 		`{"action":"sniff"}`,
 		`{"port":53,"action":"hijack-dns"}`,
+		fmt.Sprintf(`{"ip_cidr":[%s],"action":"reject"}`, tunSelf),
 	}
 	if !quic {
 		ruleParts = append(ruleParts, `{"protocol":"quic","action":"reject"}`)
