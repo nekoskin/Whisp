@@ -534,17 +534,16 @@ impl MihomoManager {
 
         if let Some(ref mut child) = self.process {
             match child.try_wait() {
-                Ok(Some(_)) => {
+                Ok(Some(status)) => {
+                    crate::go_client::note_exit("mihomo", status);
                     self.process = None;
                     false
                 }
                 Ok(None) => true,
                 Err(_) => false,
             }
-        } else if self.elevated {
-            api_reachable()
         } else {
-            false
+            api_reachable()
         }
     }
 }
@@ -618,6 +617,7 @@ fn current_user_sid() -> Result<String, String> {
     Ok(sid)
 }
 
+#[cfg(windows)]
 fn service_exists(name: &str) -> bool {
     Command::new("sc")
         .args(["query", name])
@@ -627,11 +627,40 @@ fn service_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+// A listening port only proves something holds it. Asking mihomo's own API for
+// its version proves mihomo is up and serving, which is what the caller means.
+// A listening port only proves something holds it. Asking the process's own
+// control API proves it is up and serving, which is what the caller means.
+// A listening port only proves something holds it. Asking the process's own
+// control API proves it is up and serving, which is what the caller means.
+pub(crate) fn http_get(addr: &str, path: &str) -> Option<(u16, String)> {
+    use std::io::{Read, Write};
+
+    let addr = addr.parse::<std::net::SocketAddr>().ok()?;
+    let timeout = std::time::Duration::from_millis(400);
+    let mut conn = std::net::TcpStream::connect_timeout(&addr, timeout).ok()?;
+    let _ = conn.set_read_timeout(Some(timeout));
+    let _ = conn.set_write_timeout(Some(timeout));
+    let req = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+    conn.write_all(req.as_bytes()).ok()?;
+
+    let mut raw = Vec::new();
+    conn.take(64 * 1024).read_to_end(&mut raw).ok()?;
+    let text = String::from_utf8_lossy(&raw);
+    let code = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse::<u16>().ok())?;
+    let body = text.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+    Some((code, body))
+}
+
+pub(crate) fn http_ok(addr: &str, path: &str) -> bool {
+    matches!(http_get(addr, path), Some((200, _)) | Some((401, _)))
+}
+
 fn api_reachable() -> bool {
-    let Ok(addr) = "127.0.0.1:9090".parse::<std::net::SocketAddr>() else {
-        return false;
-    };
-    std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(120)).is_ok()
+    http_ok("127.0.0.1:9090", "/version")
 }
 
 fn service_running(name: &str) -> bool {
@@ -858,6 +887,12 @@ fn valid_nameserver(s: &str) -> bool {
     host.len() > 3 && host.contains('.') && !host.starts_with('.') && !host.ends_with('.')
 }
 
+const GO_CLIENT_PROCESS: &str = if cfg!(windows) {
+    "whispera-go-client.exe"
+} else {
+    "whispera-go-client"
+};
+
 pub fn generate_config(cfg: &MihomoConfig) -> String {
     let parts: Vec<&str> = cfg.socks_addr.splitn(2, ':').collect();
     let server = parts.first().copied().unwrap_or("127.0.0.1");
@@ -955,6 +990,18 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
         }
     }
 
+    let mut fakeip_extra = String::new();
+    for rule in cfg.routing_rules {
+        if !rule.action.eq_ignore_ascii_case("DIRECT") {
+            continue;
+        }
+        match rule.kind.as_str() {
+            "domain" => fakeip_extra.push_str(&format!("    - \"+.{}\"\n", rule.value)),
+            "domain-full" => fakeip_extra.push_str(&format!("    - \"{}\"\n", rule.value)),
+            _ => {}
+        }
+    }
+
     let primary_proxy = external_proxy_yaml(cfg.external_link, "whisp-server").unwrap_or_else(|| {
         // Reached only when there is no external profile at all: an unparsable one
         // is refused earlier, so a broken link can never quietly become our tunnel.
@@ -1005,6 +1052,7 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
     } else {
         String::new()
     };
+    let self_direct_rule = format!("  - PROCESS-NAME,{GO_CLIENT_PROCESS},DIRECT\n");
 
     let allow_lan = cfg.allow_lan;
     let _ = cfg.log_level;
@@ -1054,7 +1102,7 @@ dns:
     - "+.pool.ntp.org"
     - "+.stun.*.*"
     - "+.stun.*.*.*"
-  nameserver:
+{fakeip_extra}  nameserver:
 {nameservers}
 
 tun:
@@ -1072,7 +1120,7 @@ proxy-groups:
 {proxy_group}
 
 rules:
-{server_direct_rule}{custom_rules}{ru_rules}  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+{server_direct_rule}{self_direct_rule}{custom_rules}{ru_rules}  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
   - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
   - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
   - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
@@ -1132,6 +1180,81 @@ mod tests {
     fn unknown_scheme_is_rejected() {
         assert!(external_proxy_yaml("https://example.com", "p").is_none());
         assert!(external_proxy_yaml("", "p").is_none());
+    }
+
+    #[test]
+    fn direct_domains_leave_the_fake_ip_pool() {
+        use super::{generate_config, MihomoRoutingRule};
+        let rules = vec![
+            MihomoRoutingRule {
+                kind: "domain".into(),
+                value: "direct.example".into(),
+                action: "DIRECT".into(),
+            },
+            MihomoRoutingRule {
+                kind: "domain-full".into(),
+                value: "cdn.example.net".into(),
+                action: "direct".into(),
+            },
+            MihomoRoutingRule {
+                kind: "domain".into(),
+                value: "blocked.example".into(),
+                action: "PROXY".into(),
+            },
+        ];
+        let out = generate_config(&test_config(&rules));
+        let filter = out
+            .split("fake-ip-filter:")
+            .nth(1)
+            .and_then(|s| s.split("nameserver:").next())
+            .expect("config must have a fake-ip-filter section");
+        assert!(filter.contains("+.direct.example"), "{filter}");
+        assert!(filter.contains("cdn.example.net"), "{filter}");
+        assert!(!filter.contains("blocked.example"), "{filter}");
+    }
+
+    #[test]
+    fn sidecar_traffic_is_never_sent_back_to_itself() {
+        use super::{generate_config, MihomoRoutingRule, GO_CLIENT_PROCESS};
+        let rules = vec![MihomoRoutingRule {
+            kind: "domain".into(),
+            value: "example.org".into(),
+            action: "PROXY".into(),
+        }];
+        let out = generate_config(&test_config(&rules));
+        let own = out
+            .find(&format!("PROCESS-NAME,{GO_CLIENT_PROCESS},DIRECT"))
+            .expect(
+                "without a DIRECT rule the sidecar's bypass dials come back to it through the TUN",
+            );
+        let custom = out
+            .find("example.org,PROXY")
+            .expect("custom rule must be in the config");
+        assert!(
+            own < custom,
+            "the sidecar rule must precede every routing rule:\n{out}"
+        );
+    }
+
+    fn test_config(rules: &[super::MihomoRoutingRule]) -> super::MihomoConfig<'_> {
+        super::MihomoConfig {
+            socks_addr: "127.0.0.1:1081",
+            server_host: "example.com",
+            mixed_port: 7890,
+            tun_stack: "gvisor",
+            dns_redirect: false,
+            ipv6: false,
+            routing_rules: rules,
+            extra_socks_addrs: &[],
+            custom_dns: &[],
+            socks_user: "",
+            socks_pass: "",
+            allow_lan: false,
+            log_level: "info",
+            routing_mode: "rule",
+            bypass_ru: true,
+            external_link: "",
+        }
     }
 }
 
