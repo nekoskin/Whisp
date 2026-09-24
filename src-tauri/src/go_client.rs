@@ -27,14 +27,77 @@ pub struct GoClientConfig<'a> {
     pub hwid: bool,
     pub tls_fingerprint: &'a str,
     pub split_rules: &'a str,
+    pub tls_fragment: bool,
 }
 
 fn is_forceable_fingerprint(v: &str) -> bool {
     !v.is_empty() && v != "random"
 }
 
-fn go_client_log_file() -> std::path::PathBuf {
+pub(crate) fn go_client_log_file() -> std::path::PathBuf {
     std::env::temp_dir().join("whispera-go-client.log")
+}
+
+pub(crate) fn log_len() -> u64 {
+    std::fs::metadata(go_client_log_file())
+        .map(|m| m.len())
+        .unwrap_or(0)
+}
+
+pub(crate) fn startup_failure(since: u64) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut tail = Vec::new();
+    if let Ok(mut f) = std::fs::File::open(go_client_log_file()) {
+        let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+        let from = since.max(len.saturating_sub(64 * 1024));
+        if f.seek(SeekFrom::Start(from)).is_ok() {
+            let _ = f.read_to_end(&mut tail);
+        }
+    }
+    let text = String::from_utf8_lossy(&tail);
+    match failure_line(&text) {
+        Some(line) => format!("go-client stopped at startup: {}", line),
+        None => "go-client stopped at startup".to_string(),
+    }
+}
+
+fn failure_line(tail: &str) -> Option<&str> {
+    let line = tail
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("[whisp]"))?;
+    Some(without_log_stamp(line))
+}
+
+fn without_log_stamp(line: &str) -> &str {
+    let b = line.as_bytes();
+    if b.len() > 20 && b[4] == b'/' && b[7] == b'/' && b[13] == b':' && b[19] == b' ' {
+        &line[20..]
+    } else {
+        line
+    }
+}
+
+// The UI tails this file, so a sidecar dying has to say so here or the user
+// sees a connection drop with nothing to explain it.
+pub(crate) fn note_exit(who: &str, status: std::process::ExitStatus) {
+    use std::io::Write;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = match status.code() {
+        Some(code) => format!("[whisp] {} exited with code {} (t={})\n", who, code, stamp),
+        None => format!("[whisp] {} was killed by a signal (t={})\n", who, stamp),
+    };
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(go_client_log_file())
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
 }
 
 impl GoClientManager {
@@ -72,6 +135,11 @@ impl GoClientManager {
         }
         if is_forceable_fingerprint(cfg.tls_fingerprint) {
             args.push_str(&format!(" -force-fingerprint {}", cfg.tls_fingerprint));
+        }
+        // The toggle only ever reached Android; on the desktop the switch sat
+        // in the UI doing nothing while fragmentation stayed on.
+        if !cfg.tls_fragment {
+            args.push_str(" -hello-frag=false");
         }
 
         args.push_str(&format!(
@@ -244,6 +312,11 @@ impl GoClientManager {
         if is_forceable_fingerprint(cfg.tls_fingerprint) {
             cmd.arg("-force-fingerprint").arg(cfg.tls_fingerprint);
         }
+        if !cfg.tls_fragment {
+            cmd.arg("-hello-frag=false");
+        }
+
+        cmd.env("WHISPERA_SHAPE_SEARCH", "1");
 
         let log_path = std::env::temp_dir().join("whispera-go-client.log");
         cmd.arg("-log-file").arg(&log_path);
@@ -311,14 +384,15 @@ impl GoClientManager {
         }
         match &mut self.process {
             Some(child) => match child.try_wait() {
-                Ok(Some(_)) => {
+                Ok(Some(status)) => {
+                    note_exit("whispera-go-client", status);
                     self.process = None;
                     false
                 }
                 Ok(None) => true,
                 Err(_) => false,
             },
-            None => false,
+            None => control_reachable(),
         }
     }
 }
@@ -328,6 +402,35 @@ impl Drop for GoClientManager {
         self.stop().ok();
         self.kill_all_by_name();
     }
+}
+
+pub(crate) fn control_reachable() -> bool {
+    crate::mihomo::http_ok("127.0.0.1:10801", "/connections")
+}
+
+// Whether any transport is actually carrying traffic, and why not when it is
+// not. A live process says nothing about a live tunnel: mihomo without TUN and
+// a client that never reached the server both look healthy from outside.
+// None means the client could not be asked at all.
+pub(crate) fn tunnel_state() -> Option<(bool, Option<String>)> {
+    let (200, body) = crate::mihomo::http_get("127.0.0.1:10801", "/connections")? else {
+        return None;
+    };
+    let entries: Vec<serde_json::Value> = serde_json::from_str(&body).ok()?;
+    let mut reason = None;
+    for e in &entries {
+        if e.get("status").and_then(|v| v.as_str()) == Some("connected") {
+            return Some((true, None));
+        }
+        if reason.is_none() {
+            reason = e
+                .get("error")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+        }
+    }
+    Some((false, reason))
 }
 
 fn service_exists(name: &str) -> bool {
@@ -357,5 +460,33 @@ impl CommandExtWin for Command {
         #[cfg(windows)]
         self.creation_flags(_flags);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::failure_line;
+
+    #[test]
+    fn startup_failure_names_the_fatal_line_not_our_exit_note() {
+        let tail = "2026/09/23 09:35:12 Whispera Client starting...
+                    2026/09/23 09:35:12 Failed to parse connection key: invalid key format
+                    [whisp] whispera-go-client exited with code 1 (t=1)
+";
+        assert_eq!(
+            failure_line(tail),
+            Some("Failed to parse connection key: invalid key format")
+        );
+    }
+
+    #[test]
+    fn startup_failure_is_empty_when_the_client_wrote_nothing() {
+        assert_eq!(
+            failure_line(
+                "[whisp] whispera-go-client exited with code 1 (t=1)
+"
+            ),
+            None
+        );
     }
 }

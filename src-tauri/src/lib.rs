@@ -331,6 +331,30 @@ fn patch_app_settings(app: tauri::AppHandle, patch: serde_json::Value) -> Result
         for (k, v) in patch_obj {
             obj.insert(k.clone(), v.clone());
         }
+async fn wait_go_client_ready(
+    state: &tauri::State<'_, AppState>,
+    log_mark: u64,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        let alive = state
+            .go_client
+            .lock()
+            .map_err(|e| e.to_string())?
+            .is_running();
+        if !alive {
+            let reason = go_client::startup_failure(log_mark);
+            eprintln!("[connect] {}", reason);
+            return Err(reason);
+        }
+        if go_client::control_reachable() {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Ok(())
+}
+
     }
     let data = serde_json::to_string_pretty(&current).map_err(|e| e.to_string())?;
     fs::write(&path, data).map_err(|e| e.to_string())?;
@@ -467,7 +491,6 @@ async fn connect(
         format!("{}:1080", settings.socks_addr)
     };
 
-    let mut gc = state.go_client.lock().map_err(|e| e.to_string())?;
     // With an external profile the routing engine dials the remote itself,
     // so our own tunnel process is not started at all.
     let external = !settings.external_link.trim().is_empty();
@@ -620,6 +643,14 @@ static LAST_STATUS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 fn get_status(state: tauri::State<AppState>) -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
+#[tauri::command]
+fn get_tunnel_state() -> serde_json::Value {
+    match go_client::tunnel_state() {
+        Some((up, error)) => serde_json::json!({"known": true, "up": up, "error": error}),
+        None => serde_json::json!({"known": false, "up": false, "error": null}),
+    }
+}
+
         let _ = state;
         let active = whisp_vpn_android::service_intent::is_vpn_active()
             || whisp_vpn_android::service_intent::is_vpn_service_running();
@@ -1513,6 +1544,7 @@ fn install_services(
             extra_socks_addrs: &[],
             custom_dns: &settings.custom_dns,
             socks_user: &settings.socks_user,
+            tls_fragment: settings.tls_fragment,
             socks_pass: &settings.socks_pass,
             allow_lan: settings.allow_lan,
             log_level: &settings.log_level,
@@ -2483,7 +2515,14 @@ pub fn run() {
         }
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    #[cfg(not(target_os = "android"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        show_main_window(app);
+    }));
+
+    builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
@@ -2559,6 +2598,7 @@ pub fn run() {
                         "quit" => stop_sidecars_and_exit(app.clone()),
                         _ => {}
                     });
+            get_tunnel_state,
                 if let Some(icon) = app.default_window_icon().cloned() {
                     tray = tray.icon(icon);
                 }
