@@ -906,12 +906,19 @@ body {
   top: 7px;
 }
 
-.setting-value:has(.pill-btn[data-pingmode]) {
+.setting-row:has(.socks-auth) .setting-label {
+  position: relative;
+  top: 7px;
+}
+
+.setting-value:has(.pill-btn[data-pingmode]),
+.setting-row:has(.pill-btn[data-pingmode]) .setting-label {
   position: relative;
   top: 10px;
 }
 
-.setting-value:has(#btn-open-config) {
+.setting-value:has(#btn-open-config),
+.setting-row:has(#btn-open-config) .setting-label {
   position: relative;
   top: 7px;
 }
@@ -2364,11 +2371,20 @@ button.spinning svg {
   .setting-label { flex: 1 1 auto; }
   .setting-hint { flex: 1 0 100%; order: 3; }
   .setting-value { flex: 0 1 auto; margin-left: auto; }
+  .setting-row:has(.socks-auth) .setting-label,
+  .setting-row:has(.pill-btn[data-pingmode]) .setting-label,
+  .setting-row:has(#btn-open-config) .setting-label,
+  .setting-value.socks-auth,
+  .setting-value:has(.pill-btn[data-pingmode]),
+  .setting-value:has(#btn-open-config) { top: 0; }
 
   .setting-value.socks-auth {
     flex: 1 1 100%;
     flex-wrap: nowrap;
   }
+  .setting-value:has(.pill-btn[data-vpndns]) { flex: 1 1 100%; }
+  .setting-value:has(.pill-btn[data-vpndns]) .pill-group { width: 100%; }
+  .setting-value:has(.pill-btn[data-vpndns]) .pill-btn { flex: 1 1 0; }
   .setting-value.socks-auth input[type="text"],
   .setting-value.socks-auth input[type="password"],
   .socks-auth .field-with-icon {

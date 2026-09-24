@@ -29,12 +29,6 @@ const ICONS = {
   code: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
 };
 
-interface MultiBridgeEntry {
-  id: string;
-  address: string;
-  rules: string[]; // domain/IP/CIDR patterns routed to this bridge
-}
-
 interface AppSettings {
   conn_key: string;
   auto_connect: boolean;
@@ -50,7 +44,6 @@ interface AppSettings {
   secret: string;
   custom_dns?: string[];
   vpn_dns?: string;
-  multi_bridges?: MultiBridgeEntry[];
   tls_fingerprint?: string;
   bypass_ru?: boolean;
   quic?: boolean;
@@ -214,11 +207,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     rulesTitle: "Правила",
     rulesSearchProcess: "Поиск процесса...",
     rulesNoProcesses: "Нет процессов",
-    multibridgeTitle: "Мультибридж",
-    multibridgeDesc: "Трафик для выбранных доменов — через другой сервер.",
-    multibridgeDomains: "домены через запятую",
-    multibridgeNone: "Нет бриджей",
-    multibridgeAllTraffic: "весь трафик",
     subUpdated: "Подписка обновлена",
     subUpdateAvailableToast: "Доступно обновление подписки",
     subUpdateFailed: "Ошибка обновления",
@@ -235,7 +223,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     dnsFakeip: "Поддельный",
     dnsLocal: "Локальный",
     dnsStrategyHint: "Поддельный (fake-IP) — домены резолвятся внутри тоннеля, IP не видны провайдеру. Локальный — системный резолвер устройства.",
-    killSwitchLabel: "Аварийное отключение",
+    killSwitchLabel: "Kill Switch",
     killSwitchOn: "Система блокирует соединения без VPN",
     killSwitchOff: "Соединения без VPN не блокируются",
     killSwitchOpen: "Настройки системы",
@@ -250,8 +238,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     tlsFragment: "Фрагментация TLS",
     tlsFragmentHint: "Разбивает TLS ClientHello на несколько TCP-сегментов, чтобы DPI не видел SNI целиком",
     isp: "Провайдер",
-    bypassRu: "Обходить .ru / .su напрямую",
-    bypassRuHint: "GEOIP Россия + домены .ru/.su идут напрямую, минуя VPN",
+    bypassMode: "Режим обхода",
+    bypassModeHint: "GeoIP и домены вашей страны автоматически идут напрямую.",
     advanced: "Расширенные",
     allowLan: "Разрешить LAN",
     allowLanHint: "Другие устройства в сети смогут использовать прокси",
@@ -407,11 +395,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     rulesTitle: "Rules",
     rulesSearchProcess: "Search process...",
     rulesNoProcesses: "No processes",
-    multibridgeTitle: "Multi-Bridge",
-    multibridgeDesc: "Route specific domains through an alternate bridge.",
-    multibridgeDomains: "domains, comma-separated",
-    multibridgeNone: "None configured",
-    multibridgeAllTraffic: "all traffic",
     subUpdated: "Subscription updated",
     subUpdateAvailableToast: "Subscription update available",
     subUpdateFailed: "Update failed",
@@ -443,8 +426,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     tlsFragment: "TLS fragmentation",
     tlsFragmentHint: "Splits the TLS ClientHello across several TCP segments so DPI can't read the whole SNI",
     isp: "ISP",
-    bypassRu: "Bypass .ru / .su direct",
-    bypassRuHint: "GEOIP Russia + .ru/.su domains go direct, bypassing VPN",
+    bypassMode: "Bypass Mode",
+    bypassModeHint: "GeoIP and domains from your country are automatically routed to direct.",
     advanced: "Advanced",
     allowLan: "Allow LAN",
     allowLanHint: "Other devices on the network can use this proxy",
@@ -600,11 +583,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     rulesTitle: "规则",
     rulesSearchProcess: "搜索进程...",
     rulesNoProcesses: "无进程",
-    multibridgeTitle: "多桥接",
-    multibridgeDesc: "将特定域名的流量路由到备用桥接。",
-    multibridgeDomains: "域名，逗号分隔",
-    multibridgeNone: "未配置",
-    multibridgeAllTraffic: "所有流量",
     subUpdated: "订阅已更新",
     subUpdateAvailableToast: "订阅有可用更新",
     subUpdateFailed: "更新失败",
@@ -636,8 +614,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     tlsFragment: "TLS 分片",
     tlsFragmentHint: "将 TLS ClientHello 拆分为多个 TCP 分段，使 DPI 无法读取完整 SNI",
     isp: "运营商",
-    bypassRu: "直连 .ru / .su 域名",
-    bypassRuHint: "俄罗斯IP + .ru/.su域名直连，不走VPN",
+    bypassMode: "绕过模式",
+    bypassModeHint: "GeoIP 和您所在国家/地区的域名将自动直连。",
     advanced: "高级",
     allowLan: "允许 LAN",
     allowLanHint: "局域网其他设备可使用此代理",
@@ -793,11 +771,6 @@ const i18n: Record<Lang, Record<string, string>> = {
     rulesTitle: "قوانین",
     rulesSearchProcess: "جستجوی پروسه...",
     rulesNoProcesses: "پروسه‌ای وجود ندارد",
-    multibridgeTitle: "چند پل",
-    multibridgeDesc: "ترافیک دامنه‌های انتخابی را از طریق پل جایگزین هدایت کنید.",
-    multibridgeDomains: "دامنه‌ها، جداشده با کاما",
-    multibridgeNone: "پیکربندی نشده",
-    multibridgeAllTraffic: "همه ترافیک",
     subUpdated: "اشتراک به‌روز شد",
     subUpdateAvailableToast: "بروزرسانی اشتراک موجود است",
     subUpdateFailed: "به‌روزرسانی ناموفق",
@@ -829,8 +802,8 @@ const i18n: Record<Lang, Record<string, string>> = {
     tlsFragment: "قطعه‌قطعه‌سازی TLS",
     tlsFragmentHint: "ClientHello در TLS را به چند بخش TCP تقسیم می‌کند تا DPI نتواند کل SNI را بخواند",
     isp: "ISP",
-    bypassRu: "دور زدن .ru / .su مستقیم",
-    bypassRuHint: "دامنه‌های روسی و GEOIP Russia مستقیم، بدون VPN",
+    bypassMode: "حالت دور زدن",
+    bypassModeHint: "GeoIP و دامنه‌های کشور شما به‌طور خودکار مستقیم مسیردهی می‌شوند.",
     advanced: "پیشرفته",
     allowLan: "اجازه LAN",
     allowLanHint: "سایر دستگاه‌های شبکه می‌توانند از این پروکسی استفاده کنند",
@@ -869,6 +842,11 @@ const i18n: Record<Lang, Record<string, string>> = {
 let currentPage: Page = "home";
 let lang: Lang = "ru";
 let isConnected = false;
+// Whether the sidecars are alive, as opposed to whether the tunnel carries
+// traffic. Reconnecting keys off this one: a tunnel that is briefly down
+// recovers on its own, and tearing the engines down would interrupt that.
+let enginesUp = false;
+let lastTunnelError = "";
 let isConnecting = false;
 
 
@@ -932,7 +910,6 @@ let subUpdateAvailable: Set<string> = new Set();
 let subAutoCheckTimer: ReturnType<typeof setInterval> | null = null;
 let routingRules: RoutingRule[] = [];
 let blocklistRules: RoutingRule[] = [];
-let multiBridges: MultiBridgeEntry[] = [];
 let logLines: string[] = [];
 let logTimes: number[] = [];
 let connectTime: number | null = null;
@@ -1034,17 +1011,10 @@ function saveLang(): void { localStorage.setItem("whisp_lang", lang); }
 async function loadSettings(): Promise<void> {
   try { const s = await invoke<AppSettings>("get_app_settings"); settings = { ...settings, ...s }; } catch {/**/ }
   if (!settings.secret) settings.secret = genSecret();
-  multiBridges = settings.multi_bridges ?? [];
 }
 
 async function persistSettings(): Promise<void> {
-  settings.multi_bridges = multiBridges;
   try { await invoke("save_app_setting", { settings }); } catch {/**/ }
-}
-
-async function persistMultiBridges(): Promise<void> {
-  settings.multi_bridges = multiBridges;
-  await persistSettings();
 }
 
 async function loadRoutingRules(): Promise<void> {
@@ -1143,15 +1113,34 @@ async function waitForVpnStopped(timeoutMs: number): Promise<void> {
   }
 }
 
-async function checkStatus(): Promise<void> {
+// Returns false when the backend could not be asked at all. That is not the
+// same as "disconnected", and the caller must not treat it as one: acting on a
+// question we failed to ask is how a working tunnel gets torn down.
+async function checkStatus(): Promise<boolean> {
   try {
     const was = isConnected;
-    isConnected = await invoke<boolean>("get_status");
+    enginesUp = await invoke<boolean>("get_status");
+    isConnected = enginesUp;
+    if (enginesUp) {
+      const t = await invoke<{ known: boolean; up: boolean; error: string | null }>("get_tunnel_state");
+      if (t.known && !t.up) {
+        isConnected = false;
+        if (t.error && t.error !== lastTunnelError) {
+          lastTunnelError = t.error;
+          addLog(`[whisp] engines are up but no transport is connected: ${t.error}`);
+        }
+      } else if (t.up) {
+        lastTunnelError = "";
+      }
+    }
     if (isConnected && !was && connectTime === null) {
       const saved = parseInt(localStorage.getItem("connectTime") || "", 10);
       connectTime = Number.isFinite(saved) && saved > 0 ? saved : Date.now();
     }
-  } catch {/**/ }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /* Site checks — update DOM in-place, no flicker */
@@ -2226,30 +2215,6 @@ function renderRouting(): string {
       <div id="rules-list">${unifiedRows}</div>
     </div>
 
-    <div class="card" id="mb-card">
-      <div class="card-header" style="cursor:pointer" id="mb-collapse-hdr">
-        <span class="card-title">${t("multibridgeTitle")}</span>
-        <span style="opacity:.4;font-size:12px" id="mb-collapse-arrow">▼</span>
-      </div>
-      <div id="mb-collapse-body" style="display:none;padding-top:8px">
-        <p style="font-size:12px;opacity:.55;margin:0 0 8px">${t("multibridgeDesc")}</p>
-        <div class="rule-add-row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">
-          <input type="text" id="mb-addr-input" placeholder="host:port" class="rule-input" style="flex:1;min-width:120px"/>
-          <input type="text" id="mb-rules-input" placeholder="${t("multibridgeDomains")}" class="rule-input" style="flex:2;min-width:160px"/>
-          <button class="btn-sm" id="btn-add-mb">+</button>
-        </div>
-        <div id="mb-bridge-list">
-          ${multiBridges.length === 0
-            ? `<div class="empty-state" style="padding:8px 0"><p style="font-size:12px;opacity:.4">${t("multibridgeNone")}</p></div>`
-            : multiBridges.map(b => `
-              <div class="rule-row" data-mb-id="${b.id}">
-                <span class="rule-kind" style="background:var(--accent-subtle,#1e3a5f);color:var(--accent)">${b.address}</span>
-                <span class="rule-value" style="flex:1;font-size:11px;opacity:.7">${b.rules.join(", ") || t("multibridgeAllTraffic")}</span>
-                <button class="btn-del-rule btn-del-mb" data-mb-id="${b.id}">${ICONS.x}</button>
-              </div>`).join("")}
-        </div>
-      </div>
-    </div>
     </div>`;
 }
 
@@ -2375,50 +2340,6 @@ function bindRoutingEvents(): void {
     });
   });
 
-  // Multi-bridge collapse toggle
-  document.getElementById("mb-collapse-hdr")?.addEventListener("click", () => {
-    const body = document.getElementById("mb-collapse-body");
-    const arrow = document.getElementById("mb-collapse-arrow");
-    if (!body) return;
-    const open = body.style.display !== "none";
-    body.style.display = open ? "none" : "block";
-    if (arrow) arrow.textContent = open ? "▶" : "▼";
-  });
-
-  // Multi-bridge: add
-  document.getElementById("btn-add-mb")?.addEventListener("click", async () => {
-    const addrInput = document.getElementById("mb-addr-input") as HTMLInputElement;
-    const rulesInput = document.getElementById("mb-rules-input") as HTMLInputElement;
-    const addr = addrInput.value.trim();
-    if (!addr) return;
-    const rules = rulesInput.value.split(",").map(r => r.trim()).filter(Boolean);
-    const entry: MultiBridgeEntry = { id: Date.now().toString(), address: addr, rules };
-    multiBridges.push(entry);
-    await persistMultiBridges();
-    try {
-      await fetch(`http://127.0.0.1:10801/multi-bridges`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: entry.id, address: addr, rules }),
-      });
-    } catch { /**/ }
-    addrInput.value = "";
-    rulesInput.value = "";
-    renderPage();
-  });
-
-  // Multi-bridge: delete
-  document.querySelectorAll<HTMLElement>(".btn-del-mb").forEach(el => {
-    el.addEventListener("click", async () => {
-      const id = el.dataset.mbId;
-      multiBridges = multiBridges.filter(b => b.id !== id);
-      await persistMultiBridges();
-      try {
-        await fetch(`http://127.0.0.1:10801/multi-bridges/${id}`, { method: "DELETE" });
-      } catch { /**/ }
-      renderPage();
-    });
-  });
 }
 
 function renderProcessList(procs: { name: string; label: string; pid: number }[], container: HTMLElement, filter: string): void {
@@ -2516,7 +2437,7 @@ function socksAuthRow(): string {
   const url = `socks5://${esc(user)}:${esc(pass)}@127.0.0.1:${settings.mihomo_port}`;
   const hint = user || pass
     ? `<span class="setting-hint socks-auth-url"><code id="socks-proxy-url" title="${url}">${url}</code><button class="btn-icon" id="btn-copy-socks-url" title="${t("copy")}">${ICONS.copy}</button></span>`
-    : `<span class="setting-hint">${t("socksAuthHint")}</span>`;
+    : "";
   return `<div class="setting-row">
         <span class="setting-label">${t("socksAuth")}</span>
         <div class="setting-value socks-auth">
@@ -2592,29 +2513,28 @@ function renderSettings(): string {
     return `<div class="page-header"><h2 class="page-title">${t("settings")}</h2></div>
     <div class="settings-section">
       <div class="settings-section-title">sing-box</div>
-      ${row(t("vpnDns"), vpnDnsPills + textField("set-vpn-dns", vpnDnsVal, "1.1.1.1"), t("vpnDnsHint"), COLUMN_VALUE)}
+      ${row(t("vpnDns"), vpnDnsPills + textField("set-vpn-dns", vpnDnsVal, "1.1.1.1"), "", COLUMN_VALUE)}
       ${row(t("dnsMode"), pills("data-dnsmode", settings.dns_mode || "tcp", [["udp", "UDP"], ["tcp", "TCP"], ["doh", "DoH"]]))}
-      ${row(t("dnsStrategy"), pills("data-dnsstrategy", settings.dns_strategy || "fakeip", [["fakeip", t("dnsFakeip")], ["local", t("dnsLocal")]]), t("dnsStrategyHint"))}
-      ${row(t("mtuLabel"), `<input type="number" id="set-mtu" min="576" max="9000" value="${settings.mtu ?? 1500}" style="width:80px;box-sizing:border-box;text-align:right"/>`, t("mtuHint"))}
-      ${row(t("tlsFragment"), toggleBox("set-tls-fragment", !!settings.tls_fragment), t("tlsFragmentHint"))}
+      ${row(t("dnsStrategy"), pills("data-dnsstrategy", settings.dns_strategy || "fakeip", [["fakeip", t("dnsFakeip")], ["local", t("dnsLocal")]]))}
+      ${row(t("mtuLabel"), `<input type="number" id="set-mtu" min="576" max="9000" value="${settings.mtu ?? 1500}" style="width:80px;box-sizing:border-box;text-align:right"/>`)}
+      ${row(t("tlsFragment"), toggleBox("set-tls-fragment", !!settings.tls_fragment))}
       ${row(t("ipv6Label"), toggleBox("set-ipv6", !!settings.ipv6))}
-      ${row(t("tunStackLabel"), pills("data-tunstack", settings.tun_stack_android || "gvisor", [["gvisor", "gVisor"], ["system", "System"], ["mixed", "Mixed"]]), t("tunStackHint"))}
-      ${row(t("quicLabel"), toggleBox("set-quic", !!settings.quic), t("quicHint"))}
+      ${row(t("tunStackLabel"), pills("data-tunstack", settings.tun_stack_android || "gvisor", [["gvisor", "gVisor"], ["system", "System"], ["mixed", "Mixed"]]))}
+      ${row(t("quicLabel"), toggleBox("set-quic", !!settings.quic))}
       ${row(t("killSwitchLabel"),
           `<span class="ping-val ${vpnLockdown ? "ok" : "timeout"}">${vpnLockdown ? "ON" : "OFF"}</span>`
-          + `<button class="btn-sm" id="btn-open-vpn-settings">${t("killSwitchOpen")}</button>`,
-          vpnLockdown ? t("killSwitchOn") : t("killSwitchOff"))}
-      ${row(t("pingModeLabel"), pingPills, t("pingModeHint"))}
-      ${row(t("bypassRu"), toggleBox("set-bypass-ru", settings.bypass_ru !== false), t("bypassRuHint"))}
+          + `<button class="btn-sm" id="btn-open-vpn-settings">${t("killSwitchOpen")}</button>`)}
+      ${row(t("pingModeLabel"), pingPills)}
+      ${row(t("bypassMode"), toggleBox("set-bypass-ru", settings.bypass_ru !== false))}
       ${row(t("theme"), themePills)}
     </div>
     <div class="settings-section">
       <div class="settings-section-title">${t("shareProxy")}</div>
       ${row(t("mixedPort"), `<input type="number" id="set-port" value="${settings.mihomo_port}"/>`)}
-      ${row(t("allowLan"), toggleBox("set-allow-lan", !!settings.allow_lan), t("allowLanHint"))}
+      ${row(t("allowLan"), toggleBox("set-allow-lan", !!settings.allow_lan))}
       ${socksAuthRow()}
     </div>
-    ${whispSection(`${row(t("externalLink"), textField("set-external-link", settings.external_link || "", "vless://..."), t("externalHint"), ` style="flex:1;min-width:240px"`)}`)}
+    ${whispSection("")}
     ${updatesSection()}
     `;
   }
@@ -2633,16 +2553,16 @@ function renderSettings(): string {
           textField("set-custom-dns", (settings.custom_dns || []).join(", "), "77.88.8.8, 8.8.8.8")
           + `<span class="setting-hint">${t("dnsCommaSep")}</span>`,
           "", ` style="flex-direction:column;align-items:stretch;gap:4px"`)}
-      ${row(t("vpnDns"), vpnDnsPills + textField("set-vpn-dns", vpnDnsVal, "1.1.1.1:53"), t("vpnDnsHint"), COLUMN_VALUE)}
+      ${row(t("vpnDns"), vpnDnsPills + textField("set-vpn-dns", vpnDnsVal, "1.1.1.1:53"), "", COLUMN_VALUE)}
       ${row(t("ipv6Label"), toggleBox("set-ipv6", !!settings.ipv6))}
-      ${row(t("bypassRu"), toggleBox("set-bypass-ru", settings.bypass_ru !== false), t("bypassRuHint"))}
+      ${row(t("bypassMode"), toggleBox("set-bypass-ru", settings.bypass_ru !== false), t("bypassModeHint"))}
       ${row(t("secretLabel"), `<span class="secret-value">${settings.secret}</span><button class="btn-sm" id="btn-copy-secret">${t("copy")}</button>`)}
       ${socksAuthRow()}
     </div>
     <div class="settings-section">
       <div class="settings-section-title">${t("advanced")}</div>
       ${row(t("killSwitch"), toggleBox("set-ks", !!settings.kill_switch))}
-      ${row(t("pingModeLabel"), pingPills, t("pingModeHint"))}
+      ${row(t("pingModeLabel"), pingPills)}
     </div>
     ${whispSection(`${row(t("config"), `<button class="btn-sm" id="btn-open-config">${t("open")}</button>`)}`)}
     ${updatesSection()}
@@ -2908,12 +2828,18 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("click", () => {
     document.querySelectorAll<HTMLElement>(".key-menu").forEach(m => { m.hidden = true; });
   });
-  await Promise.all([
+  const [, , , statusKnown] = await Promise.all([
     loadSubscriptions(),
     loadRoutingRules(),
     loadBlocklist(),
     checkStatus(),
   ]);
+  // The user's own last action is the one thing we always know: connecting
+  // stores the timestamp, disconnecting removes it. When the backend cannot be
+  // asked, show that instead of guessing, and never act on the guess.
+  if (!statusKnown) {
+    isConnected = localStorage.getItem("connectTime") !== null;
+  }
   renderShell();
   fetchSysInfo();
   startSubAutoCheck();
@@ -2926,7 +2852,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // On Android autostart means "reconnect once after a phone reboot" — handled
   // natively by BootReceiver, NOT on every app launch. So skip auto-connect on
   // open for Android; on desktop keep connect-on-launch behaviour.
-  if (!isAndroid && settings.auto_connect && !isConnected && settings.conn_key && !isConnecting) {
+  if (!isAndroid && statusKnown && settings.auto_connect && !enginesUp && settings.conn_key && !isConnecting) {
     doConnect();
   }
   setInterval(() => { if (isConnected && connectTime) tickUptime(); }, 1000);
