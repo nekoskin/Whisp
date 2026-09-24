@@ -156,8 +156,6 @@ struct AppSettings {
     #[serde(default)]
     vpn_dns: String,
     #[serde(default)]
-    multi_bridges: Vec<serde_json::Value>,
-    #[serde(default)]
     tls_fingerprint: String,
     #[serde(default)]
     external_link: String,
@@ -232,7 +230,6 @@ impl Default for AppSettings {
             blocklist: Vec::new(),
             custom_dns: Vec::new(),
             vpn_dns: String::new(),
-            multi_bridges: Vec::new(),
             tls_fingerprint: String::new(),
             external_link: String::new(),
             bypass_ru: true,
@@ -304,9 +301,6 @@ fn save_app_setting(app: tauri::AppHandle, mut settings: AppSettings) -> Result<
                 if settings.vpn_dns.is_empty() {
                     settings.vpn_dns = existing.vpn_dns;
                 }
-                if settings.multi_bridges.is_empty() {
-                    settings.multi_bridges = existing.multi_bridges;
-                }
                 if settings.tls_fingerprint.is_empty() {
                     settings.tls_fingerprint = existing.tls_fingerprint;
                 }
@@ -331,6 +325,12 @@ fn patch_app_settings(app: tauri::AppHandle, patch: serde_json::Value) -> Result
         for (k, v) in patch_obj {
             obj.insert(k.clone(), v.clone());
         }
+    }
+    let data = serde_json::to_string_pretty(&current).map_err(|e| e.to_string())?;
+    fs::write(&path, data).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 async fn wait_go_client_ready(
     state: &tauri::State<'_, AppState>,
     log_mark: u64,
@@ -352,12 +352,6 @@ async fn wait_go_client_ready(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    Ok(())
-}
-
-    }
-    let data = serde_json::to_string_pretty(&current).map_err(|e| e.to_string())?;
-    fs::write(&path, data).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -500,66 +494,41 @@ async fn connect(
     state
         .external_engine
         .store(external, std::sync::atomic::Ordering::Relaxed);
-    if external {
-        gc.stop().ok();
-        eprintln!("[connect] external profile active, go-client not started");
-    } else {
-        eprintln!(
-            "[connect] starting go-client, socks={}, key_len={}",
-            socks_addr,
-            settings.conn_key.len()
-        );
-        gc.start(&GoClientConfig {
-            conn_key: &settings.conn_key,
-            server_addr: "",
-            socks_addr: &socks_addr,
-            kill_switch: settings.kill_switch,
-            transport: "",
-            vpn_dns: &settings.vpn_dns,
-            hwid: settings.hwid,
-            tls_fingerprint: &settings.tls_fingerprint,
-            split_rules: &build_client_rules_json(&settings),
-        })
-        .map_err(|e| {
-            eprintln!("[connect] go-client start FAILED: {}", e);
-            e
-        })?;
-        eprintln!("[connect] go-client started OK");
-    }
-
-    if !settings.multi_bridges.is_empty() {
-        let bridges_clone = settings.multi_bridges.clone();
-        tokio::spawn(async move {
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_millis(500))
-                .build()
-                .unwrap_or_default();
-            let deadline = tokio::time::Instant::now() + Duration::from_millis(2000);
-            loop {
-                if client
-                    .get("http://127.0.0.1:10801/status")
-                    .send()
-                    .await
-                    .is_ok()
-                {
-                    break;
-                }
-                if tokio::time::Instant::now() >= deadline {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-            for b in &bridges_clone {
-                if let Err(e) = client
-                    .post("http://127.0.0.1:10801/multi-bridges")
-                    .json(b)
-                    .send()
-                    .await
-                {
-                    eprintln!("[multi-bridge] restore failed: {}", e);
-                }
-            }
-        });
+    let started = {
+        let mut gc = state.go_client.lock().map_err(|e| e.to_string())?;
+        if external {
+            gc.stop().ok();
+            eprintln!("[connect] external profile active, go-client not started");
+            None
+        } else {
+            eprintln!(
+                "[connect] starting go-client, socks={}, key_len={}",
+                socks_addr,
+                settings.conn_key.len()
+            );
+            let log_mark = go_client::log_len();
+            gc.start(&GoClientConfig {
+                conn_key: &settings.conn_key,
+                server_addr: "",
+                socks_addr: &socks_addr,
+                kill_switch: settings.kill_switch,
+                transport: "",
+                vpn_dns: &settings.vpn_dns,
+                hwid: settings.hwid,
+                tls_fingerprint: &settings.tls_fingerprint,
+                tls_fragment: settings.tls_fragment,
+                split_rules: &build_client_rules_json(&settings),
+            })
+            .map_err(|e| {
+                eprintln!("[connect] go-client start FAILED: {}", e);
+                e
+            })?;
+            eprintln!("[connect] go-client started OK");
+            Some(log_mark)
+        }
+    };
+    if let Some(log_mark) = started {
+        wait_go_client_ready(&state, log_mark).await?;
     }
 
     let config_path = mihomo_config_path(&app);
@@ -643,14 +612,6 @@ static LAST_STATUS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 fn get_status(state: tauri::State<AppState>) -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
-#[tauri::command]
-fn get_tunnel_state() -> serde_json::Value {
-    match go_client::tunnel_state() {
-        Some((up, error)) => serde_json::json!({"known": true, "up": up, "error": error}),
-        None => serde_json::json!({"known": false, "up": false, "error": null}),
-    }
-}
-
         let _ = state;
         let active = whisp_vpn_android::service_intent::is_vpn_active()
             || whisp_vpn_android::service_intent::is_vpn_service_running();
@@ -679,6 +640,14 @@ fn get_tunnel_state() -> serde_json::Value {
         let up = mihomo.is_running() && gc.is_running();
         LAST_STATUS.store(up, last);
         Ok(up)
+    }
+}
+
+#[tauri::command]
+fn get_tunnel_state() -> serde_json::Value {
+    match go_client::tunnel_state() {
+        Some((up, error)) => serde_json::json!({"known": true, "up": up, "error": error}),
+        None => serde_json::json!({"known": false, "up": false, "error": null}),
     }
 }
 
@@ -1544,7 +1513,6 @@ fn install_services(
             extra_socks_addrs: &[],
             custom_dns: &settings.custom_dns,
             socks_user: &settings.socks_user,
-            tls_fragment: settings.tls_fragment,
             socks_pass: &settings.socks_pass,
             allow_lan: settings.allow_lan,
             log_level: &settings.log_level,
@@ -1576,6 +1544,7 @@ fn install_services(
             vpn_dns: &settings.vpn_dns,
             hwid: settings.hwid,
             tls_fingerprint: &settings.tls_fingerprint,
+            tls_fragment: settings.tls_fragment,
             split_rules: &build_client_rules_json(&settings),
         })?;
     }
@@ -2598,7 +2567,6 @@ pub fn run() {
                         "quit" => stop_sidecars_and_exit(app.clone()),
                         _ => {}
                     });
-            get_tunnel_state,
                 if let Some(icon) = app.default_window_icon().cloned() {
                     tray = tray.icon(icon);
                 }
@@ -2630,6 +2598,7 @@ pub fn run() {
             connect,
             disconnect,
             get_status,
+            get_tunnel_state,
             get_ip_info,
             get_system_info,
             open_config_dir,
