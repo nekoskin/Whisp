@@ -254,6 +254,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Setup Go
         uses: actions/setup-go@v5
