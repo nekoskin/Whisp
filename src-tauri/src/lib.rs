@@ -10,6 +10,8 @@ use tauri_plugin_shell::ShellExt;
 
 mod go_client;
 mod mihomo;
+#[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
+mod tun_helper;
 
 use go_client::{GoClientConfig, GoClientManager};
 use mihomo::MihomoManager;
@@ -1455,6 +1457,10 @@ fn tunnel_service_installed() -> bool {
     {
         return mihomo::MihomoManager::service_installed();
     }
+    #[cfg(target_os = "macos")]
+    {
+        return tun_helper::is_installed();
+    }
     #[allow(unreachable_code)]
     false
 }
@@ -1471,10 +1477,17 @@ async fn install_tunnel_service(
         mgr.install_persistent_service(&config_path)?;
         return Ok("Служба установлена: подключение больше не будет запрашивать права".to_string());
     }
+    #[cfg(target_os = "macos")]
+    {
+        let config_path = mihomo_config_path(&app);
+        let mgr = state.mihomo.lock().map_err(|e| e.to_string())?;
+        mgr.install_tun_helper(&config_path)?;
+        return Ok("Служба установлена: подключение больше не будет запрашивать права".to_string());
+    }
     #[allow(unreachable_code)]
     {
         let _ = (app, state);
-        Err("Служба нужна только на Windows".to_string())
+        Err("Служба нужна только на Windows и macOS".to_string())
     }
 }
 
@@ -1486,10 +1499,17 @@ async fn remove_tunnel_service(state: tauri::State<'_, AppState>) -> Result<Stri
         mgr.remove_persistent_service()?;
         return Ok("Служба удалена".to_string());
     }
+    #[cfg(target_os = "macos")]
+    {
+        let mut mgr = state.mihomo.lock().map_err(|e| e.to_string())?;
+        mgr.stop()?;
+        tun_helper::uninstall()?;
+        return Ok("Служба удалена".to_string());
+    }
     #[allow(unreachable_code)]
     {
         let _ = state;
-        Err("Служба нужна только на Windows".to_string())
+        Err("Служба нужна только на Windows и macOS".to_string())
     }
 }
 
@@ -2403,6 +2423,15 @@ fn stop_sidecars_and_exit(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    if let Some(served) = tun_helper::run_if_requested() {
+        if let Err(e) = served {
+            eprintln!("{} {e}", tun_helper::HELPER_FLAG);
+            std::process::exit(1);
+        }
+        return;
+    }
+
     #[cfg(all(target_os = "linux", not(target_os = "android")))]
     {
         for (k, v) in [

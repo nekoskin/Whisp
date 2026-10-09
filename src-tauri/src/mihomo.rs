@@ -16,6 +16,8 @@ pub struct MihomoManager {
     process: Option<Child>,
     elevated: bool,
     use_service: bool,
+    #[cfg(target_os = "macos")]
+    tun_session: Option<std::os::unix::net::UnixStream>,
 }
 
 /// How many mihomo processes the system currently has, ours included.
@@ -58,7 +60,15 @@ impl MihomoManager {
             process: None,
             elevated: false,
             use_service: false,
+            #[cfg(target_os = "macos")]
+            tun_session: None,
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn install_tun_helper(&self, config_path: &Path) -> Result<(), String> {
+        let settings = crate::tun_helper::HelperSettings::for_current_user(config_path);
+        crate::tun_helper::ensure_installed(&settings, &self.binary_path)
     }
 
     #[cfg(windows)]
@@ -319,7 +329,15 @@ impl MihomoManager {
             };
         }
 
-        #[cfg(unix)]
+        #[cfg(target_os = "macos")]
+        {
+            self.install_tun_helper(config_path)?;
+            let socket = crate::tun_helper::socket_path();
+            self.tun_session = Some(crate::tun_helper::request_start(&socket)?);
+            return Ok(());
+        }
+
+        #[cfg(all(unix, not(target_os = "macos")))]
         {
             // Best-effort: raise TUN capabilities on the binary (via pkexec if a
             // polkit agent is present) so mihomo can build the tun device without
@@ -337,7 +355,7 @@ impl MihomoManager {
         Err("unsupported platform".to_string())
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn ensure_writable_binary(&mut self) {
         use std::os::unix::fs::PermissionsExt;
 
@@ -377,7 +395,7 @@ impl MihomoManager {
         self.binary_path = dst;
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn grant_caps(&self) -> Result<(), String> {
         let status = Command::new("pkexec")
             .arg(find_tool("setcap"))
@@ -392,6 +410,7 @@ impl MihomoManager {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn start_direct(&mut self, config_path: &Path) -> Result<(), String> {
         let home_dir = config_path.parent().unwrap_or(config_path);
         let mut cmd = Command::new(&self.binary_path);
@@ -457,6 +476,11 @@ impl MihomoManager {
     pub fn stop(&mut self) -> Result<(), String> {
         if self.use_service {
             return self.stop_service();
+        }
+
+        #[cfg(target_os = "macos")]
+        if let Some(mut session) = self.tun_session.take() {
+            let _ = crate::tun_helper::request_stop(&mut session);
         }
 
         if let Some(ref mut child) = self.process {
@@ -532,6 +556,12 @@ impl MihomoManager {
             return api_reachable();
         }
 
+        #[cfg(target_os = "macos")]
+        if self.tun_session.is_some() {
+            return crate::tun_helper::is_running(&crate::tun_helper::socket_path())
+                .unwrap_or(false);
+        }
+
         if let Some(ref mut child) = self.process {
             match child.try_wait() {
                 Ok(Some(status)) => {
@@ -566,7 +596,7 @@ fn is_admin() -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn is_admin() -> bool {
     Command::new("id")
         .arg("-u")
@@ -575,7 +605,7 @@ fn is_admin() -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn find_tool(name: &str) -> String {
     for dir in ["/usr/sbin", "/sbin", "/usr/bin", "/bin"] {
         let p = format!("{}/{}", dir, name);
@@ -586,7 +616,7 @@ fn find_tool(name: &str) -> String {
     name.to_string()
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn mihomo_has_caps(bin: &Path) -> bool {
     Command::new(find_tool("getcap"))
         .arg(bin)
