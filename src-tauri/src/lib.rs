@@ -11,6 +11,8 @@ use tauri_plugin_shell::ShellExt;
 mod go_client;
 mod mihomo;
 #[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
+mod system_dns;
+#[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
 mod tun_helper;
 
 use go_client::{GoClientConfig, GoClientManager};

@@ -46,6 +46,10 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 const INSTALL_WAIT: Duration = Duration::from_secs(15);
 #[cfg(target_os = "macos")]
 const INSTALL_POLL: Duration = Duration::from_millis(200);
+#[cfg(target_os = "macos")]
+const STATE_DIR: &str = "/Library/Application Support";
+#[cfg(target_os = "macos")]
+const DNS_STATE_FILE: &str = "dns-before-tun";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct HelperSettings {
@@ -141,8 +145,39 @@ fn lock(mihomo: &Mutex<Mihomo>) -> MutexGuard<'_, Mihomo> {
     mihomo.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+#[cfg(target_os = "macos")]
+fn dns_state() -> PathBuf {
+    Path::new(STATE_DIR).join(LABEL).join(DNS_STATE_FILE)
+}
+
+#[cfg(target_os = "macos")]
+fn point_dns_at_tunnel(settings: &HelperSettings) {
+    if let Err(e) = crate::system_dns::point_at_tunnel(&settings.config, &dns_state()) {
+        eprintln!("dns: {e}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn point_dns_at_tunnel(_settings: &HelperSettings) {}
+
+#[cfg(target_os = "macos")]
+fn restore_dns() {
+    if let Err(e) = crate::system_dns::restore(&dns_state()) {
+        eprintln!("dns: {e}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn restore_dns() {}
+
+fn stop_mihomo(state: &mut Mihomo) {
+    terminate(&mut state.child);
+    restore_dns();
+}
+
 fn serve(settings: &HelperSettings) -> Result<(), String> {
     let listener = bind(settings).map_err(|e| format!("{}: {e}", settings.socket.display()))?;
+    restore_dns();
     let mihomo = Arc::new(Mutex::new(Mihomo::default()));
     let next_connection = AtomicU64::new(1);
     for stream in listener.incoming().flatten() {
@@ -188,7 +223,7 @@ fn serve_connection(
         let reply = match request.trim() {
             REQUEST_START => start_mihomo(settings, connection, mihomo),
             REQUEST_STOP => {
-                terminate(&mut lock(mihomo).child);
+                stop_mihomo(&mut lock(mihomo));
                 REPLY_OK.to_string()
             }
             REQUEST_STATUS => mihomo_status(mihomo).to_string(),
@@ -200,7 +235,7 @@ fn serve_connection(
     }
     let mut state = lock(mihomo);
     if state.owner == connection {
-        terminate(&mut state.child);
+        stop_mihomo(&mut state);
     }
 }
 
@@ -219,6 +254,7 @@ fn start_mihomo(settings: &HelperSettings, connection: u64, mihomo: &Mutex<Mihom
         Ok(child) => {
             state.child = Some(child);
             state.owner = connection;
+            point_dns_at_tunnel(settings);
             REPLY_OK.to_string()
         }
         Err(e) => format!("{REPLY_ERROR} {e}"),
@@ -1019,6 +1055,7 @@ mod tests {
             run_as_root(&install);
             wait_until_reachable(&settings.socket).expect("the helper answers after install");
 
+            let dns_before = crate::system_dns::snapshot().expect("system DNS settings");
             let mut session = request_start(&settings.socket).expect("the helper starts mihomo");
             let controller = config_value(&config_text, CONTROLLER_KEY).to_string();
             let report = || diagnostics(&controller, &settings);
@@ -1033,18 +1070,11 @@ mod tests {
                 report()
             );
 
-            let tunnelled = answers(curl, &url(TUNNEL_HOST));
             assert!(
-                tunnelled.is_some(),
-                "{TUNNEL_HOST} did not answer with the TUN up\n{}",
+                wait_for_route(curl, &url(TUNNEL_HOST), |ip| is_fake(ip, fake_range)),
+                "{TUNNEL_HOST} was not resolved by mihomo: system DNS goes around the TUN\n{}",
                 report()
             );
-            if let Some(ip) = tunnelled {
-                println!(
-                    "{TUNNEL_HOST} answered from {ip}, fake-ip: {}",
-                    is_fake(ip, fake_range)
-                );
-            }
             assert!(
                 reached_server(&server_log, TUNNEL_HOST),
                 "{TUNNEL_HOST} did not go through the tunnel\n{}",
@@ -1117,6 +1147,11 @@ mod tests {
 
             request_stop(&mut session).expect("the helper stops mihomo");
             assert!(!is_running(&settings.socket).unwrap());
+            assert_eq!(
+                crate::system_dns::snapshot().expect("system DNS settings"),
+                dns_before,
+                "system DNS was not restored after stop"
+            );
             assert!(
                 eventually(|| !public_route_through_tun()),
                 "traffic to {PUBLIC_ROUTE_PROBE} stayed on the TUN after stop\n{}",
