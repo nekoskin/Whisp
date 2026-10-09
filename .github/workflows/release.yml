@@ -133,9 +133,13 @@ jobs:
           set -e
           gh release download "${{ steps.wver.outputs.tag }}" -R nekoskin/whispera \
             -p 'whispera-go-client-*-apple-darwin' -D go-client-darwin
-          lipo -create -output "src-tauri/binaries/whispera-go-client-${{ matrix.triple }}" go-client-darwin/*
-          lipo -info "src-tauri/binaries/whispera-go-client-${{ matrix.triple }}"
+          OUT="src-tauri/binaries/whispera-go-client-${{ matrix.triple }}"
+          lipo -create -output "$OUT" go-client-darwin/*
+          lipo -info "$OUT"
           rm -rf go-client-darwin
+          for T in $(echo "${{ matrix.rust_targets }}" | tr ',' ' '); do
+            cp "$OUT" "src-tauri/binaries/whispera-go-client-${T}"
+          done
 
       - name: Download mihomo
         shell: bash
@@ -161,6 +165,9 @@ jobs:
             lipo -info "$OUT"
             rm -f $PARTS
             chmod +x "$OUT"
+            for T in $(echo "${{ matrix.rust_targets }}" | tr ',' ' '); do
+              cp "$OUT" "src-tauri/binaries/mihomo-${T}"
+            done
           elif [ "$ARCH" = "zip" ]; then
             curl -fsSL --retry 3 --retry-delay 5 \
               -H "Authorization: Bearer ${GH_TOKEN}" \
