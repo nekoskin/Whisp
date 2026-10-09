@@ -4,6 +4,9 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+const APPLE_TARGET_SUFFIX: &str = "apple-darwin";
+const UNIVERSAL_APPLE_TARGET: &str = "universal-apple-darwin";
+
 fn hash_file(path: &Path) -> Option<String> {
     let bytes = fs::read(path).ok()?;
     let mut hasher = Sha256::new();
@@ -23,8 +26,14 @@ fn main() {
     let mut entries: Vec<(String, String)> = Vec::new();
 
     for name in sidecars {
-        let src = bins_dir.join(format!("{}-{}{}", name, target, ext));
-        if let Some(hex) = hash_file(&src) {
+        let mut candidates = vec![bins_dir.join(format!("{}-{}{}", name, target, ext))];
+        if target.ends_with(APPLE_TARGET_SUFFIX) {
+            candidates.push(bins_dir.join(format!("{}-{}", name, UNIVERSAL_APPLE_TARGET)));
+        }
+        let found = candidates
+            .iter()
+            .find_map(|src| hash_file(src).map(|hex| (src, hex)));
+        if let Some((src, hex)) = found {
             entries.push((format!("{}{}", name, ext), hex));
             println!("cargo:rerun-if-changed={}", src.display());
         }

@@ -47,22 +47,17 @@ jobs:
               src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
               src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm
               src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
-          - label: macos-x86_64
+          - label: macos-universal
             runner: macos-14
-            triple: x86_64-apple-darwin
+            triple: universal-apple-darwin
+            universal: true
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
             ext: ""
-            mihomo_asset: mihomo-darwin-amd64
+            mihomo_asset: mihomo-darwin
+            mihomo_arches: arm64 amd64
             mihomo_archive: gz
             bundle_glob: |
-              src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
-          - label: macos-aarch64
-            runner: macos-14
-            triple: aarch64-apple-darwin
-            ext: ""
-            mihomo_asset: mihomo-darwin-arm64
-            mihomo_archive: gz
-            bundle_glob: |
-              src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
+              src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,7 +83,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.triple }}
+          targets: ${{ matrix.rust_targets || matrix.triple }}
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -120,6 +115,7 @@ jobs:
           fi
 
       - name: Download whispera-go-client
+        if: '!matrix.universal'
         uses: robinraju/release-downloader@v1.10
         with:
           repository: nekoskin/whispera
@@ -127,6 +123,19 @@ jobs:
           fileName: 'whispera-go-client-${{ matrix.triple }}${{ matrix.ext }}'
           out-file-path: src-tauri/binaries/
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download whispera-go-client for every macOS architecture
+        if: matrix.universal
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          gh release download "${{ steps.wver.outputs.tag }}" -R nekoskin/whispera \
+            -p 'whispera-go-client-*-apple-darwin' -D go-client-darwin
+          lipo -create -output "src-tauri/binaries/whispera-go-client-${{ matrix.triple }}" go-client-darwin/*
+          lipo -info "src-tauri/binaries/whispera-go-client-${{ matrix.triple }}"
+          rm -rf go-client-darwin
 
       - name: Download mihomo
         shell: bash
@@ -139,7 +148,20 @@ jobs:
           OUT="src-tauri/binaries/mihomo-${{ matrix.triple }}${{ matrix.ext }}"
           mkdir -p src-tauri/binaries
           BASE_URL="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VER}"
-          if [ "$ARCH" = "zip" ]; then
+          if [ "${{ matrix.universal }}" = "true" ]; then
+            PARTS=""
+            for A in ${{ matrix.mihomo_arches }}; do
+              curl -fsSL --retry 3 --retry-delay 5 \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                "${BASE_URL}/${ASSET}-${A}-${MIHOMO_VER}.gz" -o "mihomo-${A}.gz"
+              gunzip -f "mihomo-${A}.gz"
+              PARTS="$PARTS mihomo-${A}"
+            done
+            lipo -create -output "$OUT" $PARTS
+            lipo -info "$OUT"
+            rm -f $PARTS
+            chmod +x "$OUT"
+          elif [ "$ARCH" = "zip" ]; then
             curl -fsSL --retry 3 --retry-delay 5 \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               "${BASE_URL}/${ASSET}-${MIHOMO_VER}.zip" -o mihomo.zip
