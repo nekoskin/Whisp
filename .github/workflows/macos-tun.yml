@@ -127,14 +127,29 @@ jobs:
           WHISP_TUN_BROWSER: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
           WHISP_TUN_SCREENSHOT: ${{ runner.temp }}/youtube.png
         run: |
+          set -o pipefail
           cargo test --release --lib -- --ignored --exact \
-            tun_helper::tests::on_a_mac::split_tunnel_on_a_mac_matches_windows --nocapture
+            tun_helper::tests::on_a_mac::split_tunnel_on_a_mac_matches_windows --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/split-tunnel.log"
+
+      - name: Publish the test output as an annotation
+        if: failure()
+        run: |
+          python3 - "$RUNNER_TEMP/split-tunnel.log" <<'PY'
+          import sys
+          limit = 30000
+          text = open(sys.argv[1], errors="replace").read()[-limit:]
+          for raw, escaped in (("%", "%25"), ("\r", "%0D"), ("\n", "%0A")):
+              text = text.replace(raw, escaped)
+          print("::error title=split tunnel::" + text)
+          PY
 
       - name: Collect logs and the screenshot
         if: always()
         run: |
           mkdir -p artifacts
-          cp "$RUNNER_TEMP/server/server.log" "$RUNNER_TEMP/go-client.log" "$RUNNER_TEMP/youtube.png" artifacts/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/server/server.log" "$RUNNER_TEMP/go-client.log" "$RUNNER_TEMP/youtube.png" \
+            "$RUNNER_TEMP/split-tunnel.log" artifacts/ 2>/dev/null || true
           sudo sh -c 'cp /Library/Logs/com.whispera.whisp.*.log "$0" 2>/dev/null || true' artifacts
           sudo chmod -R a+r artifacts
 
