@@ -799,6 +799,7 @@ mod tests {
         const HELPER_LOG_LINES: &str = "50";
         const DIAGNOSTIC_LIMIT: usize = 4000;
         const SCREENSHOT_SIZE: &str = "1280,800";
+        const SCREENSHOT_SCRIPT_TIME_MS: &str = "15000";
 
         fn required(name: &str) -> String {
             std::env::var(name).unwrap_or_else(|_| panic!("set {name}"))
@@ -1135,6 +1136,7 @@ mod tests {
                 let status = Command::new(browser)
                     .args(["--headless=new", "--disable-gpu", "--hide-scrollbars"])
                     .arg(format!("--window-size={SCREENSHOT_SIZE}"))
+                    .arg(format!("--virtual-time-budget={SCREENSHOT_SCRIPT_TIME_MS}"))
                     .arg(format!("--screenshot={screenshot}"))
                     .arg(url(TUNNEL_HOST))
                     .status()
