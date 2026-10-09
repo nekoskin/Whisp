@@ -2114,6 +2114,43 @@ struct ProcessInfo {
     pid: u32,
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn macos_processes(ps_output: &str) -> Vec<ProcessInfo> {
+    let bundle_marker = format!("{}/", mihomo::APP_BUNDLE_SUFFIX);
+    let mut seen = std::collections::HashSet::new();
+    let mut processes = Vec::new();
+    for line in ps_output.lines() {
+        let Some((pid, command)) = line.trim().split_once(char::is_whitespace) else {
+            continue;
+        };
+        let Ok(pid) = pid.parse::<u32>() else {
+            continue;
+        };
+        let command = command.trim();
+        let (name, label) = match command.find(&bundle_marker) {
+            Some(end) => {
+                let bundle = &command[..end + mihomo::APP_BUNDLE_SUFFIX.len()];
+                let label = std::path::Path::new(bundle)
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or(bundle);
+                (bundle.to_string(), label.to_string())
+            }
+            None => {
+                let name = std::path::Path::new(command)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(command);
+                (name.to_string(), name.to_string())
+            }
+        };
+        if !name.is_empty() && seen.insert(name.to_lowercase()) {
+            processes.push(ProcessInfo { name, label, pid });
+        }
+    }
+    processes
+}
+
 #[tauri::command]
 fn list_processes() -> Result<Vec<ProcessInfo>, String> {
     let mut result = Vec::new();
@@ -2160,7 +2197,21 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
         }
     }
 
-    #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("ps")
+            .args(["-axo", "pid=,comm="])
+            .output();
+        if let Ok(out) = out {
+            result.extend(macos_processes(&String::from_utf8_lossy(&out.stdout)));
+        }
+    }
+
+    #[cfg(all(
+        not(target_os = "windows"),
+        not(target_os = "android"),
+        not(target_os = "macos")
+    ))]
     {
         let out = std::process::Command::new("ps")
             .args(["-eo", "comm,pid", "--no-headers"])
@@ -2689,5 +2740,32 @@ mod tests {
             .as_str()
             .expect("tauri.conf.json must declare a version");
         assert_eq!(context.package_info().version.to_string(), declared);
+    }
+
+    #[test]
+    fn macos_apps_are_listed_once_with_their_helpers() {
+        let ps = "    1 /sbin/launchd\n\
+  512 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n\
+  515 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper\n\
+  700 /usr/bin/curl\n\
+  801 Telegram\n\
+  not-a-pid /bin/ls\n";
+        let listed: Vec<(String, String)> = super::macos_processes(ps)
+            .into_iter()
+            .map(|p| (p.name, p.label))
+            .collect();
+        let expected = [
+            ("launchd", "launchd"),
+            ("/Applications/Google Chrome.app", "Google Chrome"),
+            ("curl", "curl"),
+            ("Telegram", "Telegram"),
+        ];
+        assert_eq!(
+            listed,
+            expected
+                .iter()
+                .map(|(name, label)| (name.to_string(), label.to_string()))
+                .collect::<Vec<_>>()
+        );
     }
 }

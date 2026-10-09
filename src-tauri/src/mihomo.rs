@@ -925,6 +925,9 @@ const GO_CLIENT_PROCESS: &str = if cfg!(windows) {
 
 const DNS_LISTEN_ADDR: &str = "127.0.0.1:1053";
 
+pub(crate) const APP_BUNDLE_SUFFIX: &str = ".app";
+const BUNDLE_CONTENTS_WILDCARD: &str = "/*";
+
 pub fn generate_config(cfg: &MihomoConfig) -> String {
     let parts: Vec<&str> = cfg.socks_addr.splitn(2, ':').collect();
     let server = parts.first().copied().unwrap_or("127.0.0.1");
@@ -997,6 +1000,12 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
             }
             "domain-full" => {
                 custom_rules.push_str(&format!("  - DOMAIN,{},{}\n", rule.value, action));
+            }
+            "process" if rule.value.ends_with(APP_BUNDLE_SUFFIX) => {
+                custom_rules.push_str(&format!(
+                    "  - PROCESS-PATH-WILDCARD,{}{},{}\n",
+                    rule.value, BUNDLE_CONTENTS_WILDCARD, action
+                ));
             }
             "process" => {
                 let exe_name = std::path::Path::new(&rule.value)
@@ -1243,6 +1252,32 @@ mod tests {
         assert!(filter.contains("+.direct.example"), "{filter}");
         assert!(filter.contains("cdn.example.net"), "{filter}");
         assert!(!filter.contains("blocked.example"), "{filter}");
+    }
+
+    #[test]
+    fn app_rule_covers_every_process_in_the_bundle() {
+        use super::{generate_config, MihomoRoutingRule};
+        let rules = vec![
+            MihomoRoutingRule {
+                kind: "process".into(),
+                value: "/Applications/Google Chrome.app".into(),
+                action: "DIRECT".into(),
+            },
+            MihomoRoutingRule {
+                kind: "process".into(),
+                value: "/usr/bin/telegram-desktop".into(),
+                action: "PROXY".into(),
+            },
+        ];
+        let out = generate_config(&test_config(&rules));
+        assert!(
+            out.contains("  - PROCESS-PATH-WILDCARD,/Applications/Google Chrome.app/*,DIRECT\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("  - PROCESS-NAME,telegram-desktop,PROXY\n"),
+            "{out}"
+        );
     }
 
     #[test]
