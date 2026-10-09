@@ -893,6 +893,8 @@ const GO_CLIENT_PROCESS: &str = if cfg!(windows) {
     "whispera-go-client"
 };
 
+const DNS_LISTEN_ADDR: &str = "127.0.0.1:1053";
+
 pub fn generate_config(cfg: &MihomoConfig) -> String {
     let parts: Vec<&str> = cfg.socks_addr.splitn(2, ':').collect();
     let server = parts.first().copied().unwrap_or("127.0.0.1");
@@ -1085,7 +1087,7 @@ sniffer:
 
 dns:
   enable: true
-  listen: 0.0.0.0:1053
+  listen: {DNS_LISTEN_ADDR}
 {dns_proxy_policy}  enhanced-mode: {dns_enhanced_mode}
   fake-ip-range: 198.18.0.1/16
   fake-ip-filter:
@@ -1234,6 +1236,240 @@ mod tests {
             own < custom,
             "the sidecar rule must precede every routing rule:\n{out}"
         );
+    }
+
+    #[test]
+    fn dns_listener_only_serves_this_machine() {
+        use super::{generate_config, MihomoConfig};
+        for allow_lan in [false, true] {
+            let out = generate_config(&MihomoConfig {
+                allow_lan,
+                ..test_config(&[])
+            });
+            let listen: std::net::SocketAddr = config_value(&out, "listen")
+                .parse()
+                .expect("dns listen must be ip:port");
+            assert!(
+                listen.ip().is_loopback(),
+                "allow_lan={allow_lan}: DNS listens on {listen}"
+            );
+        }
+    }
+
+    fn config_value<'a>(config: &'a str, key: &str) -> &'a str {
+        config
+            .lines()
+            .map(str::trim)
+            .find_map(|line| line.strip_prefix(key)?.strip_prefix(": "))
+            .unwrap_or_else(|| panic!("config has no {key}:\n{config}"))
+    }
+
+    mod with_sidecar {
+        use super::{config_value, test_config};
+        use crate::mihomo::{generate_config, http_ok, MihomoConfig};
+        use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+        use std::path::PathBuf;
+        use std::process::{Child, Command};
+        use std::time::{Duration, Instant};
+
+        const MIHOMO_BIN_ENV: &str = "WHISP_MIHOMO_BIN";
+        const STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
+        const RETRY_INTERVAL: Duration = Duration::from_millis(200);
+        const QUERY_TIMEOUT: Duration = Duration::from_secs(1);
+
+        const UNROUTED_ADDR: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 1);
+        const STANDARD_DNS_PORT: u16 = 53;
+        const PROBE_DOMAIN: &str = "example.com";
+
+        const DNS_RECURSION_DESIRED: u16 = 0x0100;
+        const DNS_TYPE_A: u16 = 1;
+        const DNS_CLASS_IN: u16 = 1;
+        const DNS_NAME_POINTER: u8 = 0xC0;
+        const DNS_HEADER_LEN: usize = 12;
+        const DNS_QUESTION_FIXED_LEN: usize = 4;
+        const DNS_RECORD_FIXED_LEN: usize = 10;
+        const DNS_MAX_UDP_MESSAGE: usize = 512;
+
+        #[test]
+        #[ignore = "needs the mihomo binary and a TUN device; run docker/run-checks.sh"]
+        fn dns_answers_through_tun_but_not_from_the_network() {
+            let config = generate_config(&MihomoConfig {
+                bypass_ru: false,
+                ..test_config(&[])
+            });
+            let listen: SocketAddr = config_value(&config, "listen")
+                .parse()
+                .expect("dns listen must be ip:port");
+            let fake_ip_range = config_value(&config, "fake-ip-range");
+            let lan_ip = outward_ip();
+
+            let mihomo = Sidecar::start(&config);
+            let controller = config_value(&config, "external-controller");
+            assert!(
+                retry(|| http_ok(controller, "/version").then_some(())).is_some(),
+                "mihomo did not come up:\n{}",
+                mihomo.log()
+            );
+
+            let through_tun = retry(|| {
+                resolve_a(
+                    SocketAddr::from((UNROUTED_ADDR, STANDARD_DNS_PORT)),
+                    PROBE_DOMAIN,
+                )
+            })
+            .unwrap_or_else(|| panic!("no DNS answer through the TUN:\n{}", mihomo.log()));
+            assert!(
+                in_cidr(through_tun, fake_ip_range),
+                "{through_tun} is outside the fake-ip range {fake_ip_range}"
+            );
+
+            assert!(
+                resolve_a(listen, PROBE_DOMAIN).is_some(),
+                "the DNS listener does not answer on {listen} itself"
+            );
+            let from_network = resolve_a(SocketAddr::new(lan_ip, listen.port()), PROBE_DOMAIN);
+            assert_eq!(
+                from_network, None,
+                "the DNS listener answered on the network address {lan_ip}"
+            );
+        }
+
+        struct Sidecar {
+            process: Child,
+            home: PathBuf,
+        }
+
+        impl Sidecar {
+            fn start(config: &str) -> Self {
+                let bin = std::env::var_os(MIHOMO_BIN_ENV)
+                    .unwrap_or_else(|| panic!("set {MIHOMO_BIN_ENV} to a mihomo binary"));
+                let home =
+                    std::env::temp_dir().join(format!("whisp-mihomo-test-{}", std::process::id()));
+                std::fs::create_dir_all(&home).expect("create mihomo home");
+                let config_path = home.join("config.yaml");
+                std::fs::write(&config_path, config).expect("write mihomo config");
+                let log = std::fs::File::create(home.join("mihomo.log")).expect("create log");
+                let process = Command::new(bin)
+                    .arg("-d")
+                    .arg(&home)
+                    .arg("-f")
+                    .arg(&config_path)
+                    .stdout(log.try_clone().expect("clone log handle"))
+                    .stderr(log)
+                    .spawn()
+                    .expect("start mihomo");
+                Self { process, home }
+            }
+
+            fn log(&self) -> String {
+                std::fs::read_to_string(self.home.join("mihomo.log")).unwrap_or_default()
+            }
+        }
+
+        impl Drop for Sidecar {
+            fn drop(&mut self) {
+                let _ = self.process.kill();
+                let _ = self.process.wait();
+                let _ = std::fs::remove_dir_all(&self.home);
+            }
+        }
+
+        fn retry<T>(mut attempt: impl FnMut() -> Option<T>) -> Option<T> {
+            let deadline = Instant::now() + STARTUP_TIMEOUT;
+            loop {
+                if let Some(value) = attempt() {
+                    return Some(value);
+                }
+                if Instant::now() >= deadline {
+                    return None;
+                }
+                std::thread::sleep(RETRY_INTERVAL);
+            }
+        }
+
+        fn outward_ip() -> IpAddr {
+            let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).expect("bind probe socket");
+            socket
+                .connect((UNROUTED_ADDR, STANDARD_DNS_PORT))
+                .expect("route to the probe address");
+            socket.local_addr().expect("probe socket address").ip()
+        }
+
+        fn in_cidr(ip: Ipv4Addr, cidr: &str) -> bool {
+            let (base, prefix) = cidr.split_once('/').expect("cidr must be base/prefix");
+            let base: Ipv4Addr = base.parse().expect("cidr base must be IPv4");
+            let prefix: u32 = prefix.parse().expect("cidr prefix must be a number");
+            let mask = u32::MAX.checked_shl(32 - prefix).unwrap_or(0);
+            u32::from(ip) & mask == u32::from(base) & mask
+        }
+
+        fn resolve_a(server: SocketAddr, name: &str) -> Option<Ipv4Addr> {
+            let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+            socket.set_read_timeout(Some(QUERY_TIMEOUT)).ok()?;
+            let id = std::process::id() as u16;
+            socket.send_to(&a_query(id, name), server).ok()?;
+            let mut reply = [0u8; DNS_MAX_UDP_MESSAGE];
+            let (len, _) = socket.recv_from(&mut reply).ok()?;
+            first_a_record(&reply[..len], id)
+        }
+
+        fn a_query(id: u16, name: &str) -> Vec<u8> {
+            let mut message = Vec::new();
+            message.extend_from_slice(&id.to_be_bytes());
+            message.extend_from_slice(&DNS_RECURSION_DESIRED.to_be_bytes());
+            for count in [1u16, 0, 0, 0] {
+                message.extend_from_slice(&count.to_be_bytes());
+            }
+            for label in name.split('.') {
+                message.push(label.len() as u8);
+                message.extend_from_slice(label.as_bytes());
+            }
+            message.push(0);
+            message.extend_from_slice(&DNS_TYPE_A.to_be_bytes());
+            message.extend_from_slice(&DNS_CLASS_IN.to_be_bytes());
+            message
+        }
+
+        fn first_a_record(reply: &[u8], id: u16) -> Option<Ipv4Addr> {
+            let header = reply.get(..DNS_HEADER_LEN)?;
+            if u16::from_be_bytes([header[0], header[1]]) != id {
+                return None;
+            }
+            let questions = u16::from_be_bytes([header[4], header[5]]);
+            let answers = u16::from_be_bytes([header[6], header[7]]);
+            let mut pos = DNS_HEADER_LEN;
+            for _ in 0..questions {
+                pos = skip_name(reply, pos)? + DNS_QUESTION_FIXED_LEN;
+            }
+            for _ in 0..answers {
+                pos = skip_name(reply, pos)?;
+                let fixed = reply.get(pos..pos + DNS_RECORD_FIXED_LEN)?;
+                let kind = u16::from_be_bytes([fixed[0], fixed[1]]);
+                let data_len = usize::from(u16::from_be_bytes([fixed[8], fixed[9]]));
+                pos += DNS_RECORD_FIXED_LEN;
+                let data = reply.get(pos..pos + data_len)?;
+                if kind == DNS_TYPE_A {
+                    if let [a, b, c, d] = *data {
+                        return Some(Ipv4Addr::new(a, b, c, d));
+                    }
+                }
+                pos += data_len;
+            }
+            None
+        }
+
+        fn skip_name(message: &[u8], mut pos: usize) -> Option<usize> {
+            loop {
+                let len = *message.get(pos)?;
+                if len & DNS_NAME_POINTER == DNS_NAME_POINTER {
+                    return Some(pos + 2);
+                }
+                pos += 1 + usize::from(len);
+                if len == 0 {
+                    return Some(pos);
+                }
+            }
+        }
     }
 
     fn test_config(rules: &[super::MihomoRoutingRule]) -> super::MihomoConfig<'_> {
