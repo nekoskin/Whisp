@@ -752,6 +752,7 @@ mod tests {
         const VERSION_PATH: &str = "/version";
         const CONNECTIONS_PATH: &str = "/connections";
         const ROUTE_INTERFACE_KEY: &str = "interface:";
+        const PUBLIC_ROUTE_PROBE: &str = "1.1.1.1";
         const TUN_INTERFACE_PREFIX: &str = "utun";
         const HTTP_OK: &str = "200";
         const ANSWERED: Range<u16> = 200..400;
@@ -885,9 +886,9 @@ mod tests {
                 .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == HTTP_OK)
         }
 
-        fn default_route_through_tun() -> bool {
+        fn public_route_through_tun() -> bool {
             Command::new("route")
-                .args(["-n", "get", "default"])
+                .args(["-n", "get", PUBLIC_ROUTE_PROBE])
                 .output()
                 .is_ok_and(|out| {
                     String::from_utf8_lossy(&out.stdout)
@@ -1027,8 +1028,8 @@ mod tests {
                 report()
             );
             assert!(
-                eventually(default_route_through_tun),
-                "the default route never moved to the TUN\n{}",
+                eventually(public_route_through_tun),
+                "traffic to {PUBLIC_ROUTE_PROBE} never moved to the TUN\n{}",
                 report()
             );
 
@@ -1117,8 +1118,8 @@ mod tests {
             request_stop(&mut session).expect("the helper stops mihomo");
             assert!(!is_running(&settings.socket).unwrap());
             assert!(
-                eventually(|| !default_route_through_tun()),
-                "the default route stayed on the TUN after stop\n{}",
+                eventually(|| !public_route_through_tun()),
+                "traffic to {PUBLIC_ROUTE_PROBE} stayed on the TUN after stop\n{}",
                 report()
             );
             assert!(
