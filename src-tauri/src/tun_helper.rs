@@ -748,10 +748,19 @@ mod tests {
         const DIRECT_ACTION: &str = "DIRECT";
         const PROXY_ACTION: &str = "PROXY";
         const FAKE_IP_RANGE_KEY: &str = "fake-ip-range:";
+        const CONTROLLER_KEY: &str = "external-controller:";
+        const VERSION_PATH: &str = "/version";
+        const CONNECTIONS_PATH: &str = "/connections";
+        const ROUTE_INTERFACE_KEY: &str = "interface:";
+        const TUN_INTERFACE_PREFIX: &str = "utun";
+        const HTTP_OK: &str = "200";
         const ANSWERED: Range<u16> = 200..400;
         const ROUTE_WAIT: Duration = Duration::from_secs(90);
         const PROBE_INTERVAL: Duration = Duration::from_secs(2);
         const PROBE_TIMEOUT_SECS: &str = "15";
+        const CONTROLLER_TIMEOUT_SECS: &str = "5";
+        const HELPER_LOG_LINES: &str = "50";
+        const DIAGNOSTIC_LIMIT: usize = 4000;
         const SCREENSHOT_SIZE: &str = "1280,800";
 
         fn required(name: &str) -> String {
@@ -798,13 +807,17 @@ mod tests {
             )
         }
 
-        fn fake_ip_range(config: &str) -> (Ipv4Addr, u32) {
-            let value = config
+        fn config_value<'a>(config: &'a str, key: &str) -> &'a str {
+            config
                 .lines()
                 .map(str::trim)
-                .find_map(|line| line.strip_prefix(FAKE_IP_RANGE_KEY))
-                .expect("the config has a fake-ip range")
-                .trim();
+                .find_map(|line| line.strip_prefix(key))
+                .unwrap_or_else(|| panic!("the config has no {key}"))
+                .trim()
+        }
+
+        fn fake_ip_range(config: &str) -> (Ipv4Addr, u32) {
+            let value = config_value(config, FAKE_IP_RANGE_KEY);
             let (base, prefix) = value.split_once('/').expect("the range is base/prefix");
             (
                 base.parse().expect("the range base is IPv4"),
@@ -831,21 +844,117 @@ mod tests {
             Some((code.parse().ok()?, ip.parse().ok()?))
         }
 
-        fn wait_for_route(program: &Path, url: &str, accept: impl Fn(IpAddr) -> bool) -> bool {
+        fn eventually(mut condition: impl FnMut() -> bool) -> bool {
             let deadline = Instant::now() + ROUTE_WAIT;
             while Instant::now() < deadline {
-                if let Some((code, ip)) = probe(program, url) {
-                    if ANSWERED.contains(&code) && accept(ip) {
-                        return true;
-                    }
+                if condition() {
+                    return true;
                 }
                 std::thread::sleep(PROBE_INTERVAL);
             }
             false
         }
 
+        fn answers(program: &Path, url: &str) -> Option<IpAddr> {
+            let mut answer = None;
+            eventually(|| {
+                answer = probe(program, url)
+                    .filter(|(code, _)| ANSWERED.contains(code))
+                    .map(|(_, ip)| ip);
+                answer.is_some()
+            });
+            answer
+        }
+
         fn reached_server(log: &Path, host: &str) -> bool {
             std::fs::read_to_string(log).is_ok_and(|text| text.contains(&format!("{host}:")))
+        }
+
+        fn controller_answers(controller: &str) -> bool {
+            Command::new(CURL)
+                .args([
+                    "-s",
+                    "-o",
+                    "/dev/null",
+                    "--max-time",
+                    CONTROLLER_TIMEOUT_SECS,
+                ])
+                .args(["-w", "%{http_code}"])
+                .arg(format!("http://{controller}{VERSION_PATH}"))
+                .output()
+                .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == HTTP_OK)
+        }
+
+        fn default_route_through_tun() -> bool {
+            Command::new("route")
+                .args(["-n", "get", "default"])
+                .output()
+                .is_ok_and(|out| {
+                    String::from_utf8_lossy(&out.stdout)
+                        .lines()
+                        .filter_map(|line| line.trim().strip_prefix(ROUTE_INTERFACE_KEY))
+                        .any(|name| name.trim().starts_with(TUN_INTERFACE_PREFIX))
+                })
+        }
+
+        fn command_output(program: &str, args: &[&str]) -> String {
+            match Command::new(program).args(args).output() {
+                Ok(out) => {
+                    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+                    text.push_str(&String::from_utf8_lossy(&out.stderr));
+                    text.chars().take(DIAGNOSTIC_LIMIT).collect()
+                }
+                Err(e) => format!("{program}: {e}"),
+            }
+        }
+
+        fn diagnostics(controller: &str, settings: &HelperSettings) -> String {
+            let helper_log = Path::new(LOG_DIR).join(format!("{LABEL}.log"));
+            let helper_log = helper_log.to_string_lossy();
+            let mihomo = settings.mihomo.to_string_lossy();
+            let home = settings.home.to_string_lossy();
+            let config = settings.config.to_string_lossy();
+            let version = format!("http://{controller}{VERSION_PATH}");
+            let connections = format!("http://{controller}{CONNECTIONS_PATH}");
+            let checks: [(&str, &str, Vec<&str>); 9] = [
+                ("default route", "route", vec!["-n", "get", "default"]),
+                ("routes", "netstat", vec!["-rn", "-f", "inet"]),
+                ("interfaces", "ifconfig", vec!["-l"]),
+                ("dns", "scutil", vec!["--dns"]),
+                ("mihomo processes", "pgrep", vec!["-fl", "mihomo"]),
+                (
+                    "mihomo version",
+                    CURL,
+                    vec!["-sS", "--max-time", CONTROLLER_TIMEOUT_SECS, &version],
+                ),
+                (
+                    "mihomo connections",
+                    CURL,
+                    vec!["-sS", "--max-time", CONTROLLER_TIMEOUT_SECS, &connections],
+                ),
+                (
+                    "mihomo config test",
+                    "sudo",
+                    vec!["-n", &mihomo, "-t", "-d", &home, "-f", &config],
+                ),
+                (
+                    "helper log",
+                    "sudo",
+                    vec!["-n", "tail", "-n", HELPER_LOG_LINES, &helper_log],
+                ),
+            ];
+            checks
+                .iter()
+                .map(|(title, program, args)| {
+                    format!("--- {title}\n{}\n", command_output(program, args))
+                })
+                .collect()
+        }
+
+        fn wait_for_route(program: &Path, url: &str, accept: impl Fn(IpAddr) -> bool) -> bool {
+            eventually(|| {
+                probe(program, url).is_some_and(|(code, ip)| ANSWERED.contains(&code) && accept(ip))
+            })
         }
 
         #[test]
@@ -910,53 +1019,83 @@ mod tests {
             wait_until_reachable(&settings.socket).expect("the helper answers after install");
 
             let mut session = request_start(&settings.socket).expect("the helper starts mihomo");
+            let controller = config_value(&config_text, CONTROLLER_KEY).to_string();
+            let report = || diagnostics(&controller, &settings);
             assert!(
-                wait_for_route(curl, &url(TUNNEL_HOST), |ip| is_fake(ip, fake_range)),
-                "{TUNNEL_HOST} never answered through the TUN"
+                eventually(|| controller_answers(&controller)),
+                "mihomo never answered on {controller}\n{}",
+                report()
             );
             assert!(
+                eventually(default_route_through_tun),
+                "the default route never moved to the TUN\n{}",
+                report()
+            );
+
+            let tunnelled = answers(curl, &url(TUNNEL_HOST));
+            assert!(
+                tunnelled.is_some(),
+                "{TUNNEL_HOST} did not answer with the TUN up\n{}",
+                report()
+            );
+            if let Some(ip) = tunnelled {
+                println!(
+                    "{TUNNEL_HOST} answered from {ip}, fake-ip: {}",
+                    is_fake(ip, fake_range)
+                );
+            }
+            assert!(
                 reached_server(&server_log, TUNNEL_HOST),
-                "{TUNNEL_HOST} did not go through the tunnel"
+                "{TUNNEL_HOST} did not go through the tunnel\n{}",
+                report()
             );
 
             for host in [RU_BYPASS_HOST, DIRECT_DOMAIN_HOST] {
                 assert!(
                     wait_for_route(curl, &url(host), |_| true),
-                    "{host} did not answer"
+                    "{host} did not answer\n{}",
+                    report()
                 );
                 assert!(
                     !reached_server(&server_log, host),
-                    "{host} went through the tunnel"
+                    "{host} went through the tunnel\n{}",
+                    report()
                 );
             }
             assert!(
                 wait_for_route(curl, &url(RU_PROXIED_HOST), |_| true),
-                "{RU_PROXIED_HOST} did not answer"
+                "{RU_PROXIED_HOST} did not answer\n{}",
+                report()
             );
             assert!(
                 reached_server(&server_log, RU_PROXIED_HOST),
-                "the PROXY rule for {RU_PROXIED_HOST} lost to the .ru bypass"
+                "the PROXY rule for {RU_PROXIED_HOST} lost to the .ru bypass\n{}",
+                report()
             );
 
             for program in [&bundle_main, &bundle_helper] {
                 assert!(
                     wait_for_route(program, &url(APP_RULE_HOST), |_| true),
-                    "{} could not reach {APP_RULE_HOST}",
-                    program.display()
+                    "{} could not reach {APP_RULE_HOST}\n{}",
+                    program.display(),
+                    report()
                 );
             }
             assert!(
                 !reached_server(&server_log, APP_RULE_HOST),
-                "the rule for {} did not keep its processes direct",
-                bundle.display()
+                "the rule for {} did not keep its processes direct\n{}",
+                bundle.display(),
+                report()
             );
             assert!(
                 wait_for_route(curl, &url(APP_RULE_HOST), |_| true),
-                "{APP_RULE_HOST} did not answer"
+                "{APP_RULE_HOST} did not answer\n{}",
+                report()
             );
             assert!(
                 reached_server(&server_log, APP_RULE_HOST),
-                "outside the app {APP_RULE_HOST} should go through the tunnel"
+                "outside the app {APP_RULE_HOST} should go through the tunnel\n{}",
+                report()
             );
 
             if let (Ok(browser), Ok(screenshot)) =
@@ -978,8 +1117,14 @@ mod tests {
             request_stop(&mut session).expect("the helper stops mihomo");
             assert!(!is_running(&settings.socket).unwrap());
             assert!(
-                wait_for_route(curl, &url(TUNNEL_HOST), |ip| !is_fake(ip, fake_range)),
-                "the network did not come back after the TUN went down"
+                eventually(|| !default_route_through_tun()),
+                "the default route stayed on the TUN after stop\n{}",
+                report()
+            );
+            assert!(
+                answers(curl, &url(TUNNEL_HOST)).is_some(),
+                "the network did not come back after the TUN went down\n{}",
+                report()
             );
 
             let uninstall = work.join("uninstall.sh");
