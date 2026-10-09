@@ -768,7 +768,7 @@ async fn get_agent_stats() -> Result<serde_json::Value, String> {
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client
-        .get(format!("{}/agent", &control_base(CONTROL_PORT_MAIN)))
+        .get(format!("{}/agent", control_base(CONTROL_PORT_MAIN)))
         .send()
         .await
         .map_err(|_| "control server unavailable".to_string())?;
@@ -786,7 +786,7 @@ async fn agent_recommend() -> Result<serde_json::Value, String> {
     let resp = client
         .get(format!(
             "{}/agent/recommend",
-            &control_base(CONTROL_PORT_MAIN)
+            control_base(CONTROL_PORT_MAIN)
         ))
         .send()
         .await
@@ -809,7 +809,7 @@ async fn agent_report(
         .build()
         .map_err(|e| e.to_string())?;
     client
-        .post(format!("{}/agent/report", &control_base(CONTROL_PORT_MAIN)))
+        .post(format!("{}/agent/report", control_base(CONTROL_PORT_MAIN)))
         .json(&serde_json::json!({
             "transport": transport,
             "server": server,
@@ -2167,7 +2167,7 @@ fn list_processes() -> Result<Vec<ProcessInfo>, String> {
 
     #[cfg(not(target_os = "android"))]
     {
-        result.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+        result.sort_by_key(|p| p.label.to_lowercase());
         Ok(result)
     }
 }
