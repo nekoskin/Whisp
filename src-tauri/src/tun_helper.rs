@@ -519,6 +519,7 @@ mod tests {
     use super::*;
 
     const TEST_WAIT: Duration = Duration::from_secs(5);
+    const STAND_PREFIX: &str = "whisp-tun";
 
     fn wait_for(mut condition: impl FnMut() -> bool) -> bool {
         let deadline = Instant::now() + TEST_WAIT;
@@ -538,7 +539,8 @@ mod tests {
 
     impl Stand {
         fn new(name: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!("{LABEL}-{name}-{}", std::process::id()));
+            let dir =
+                std::env::temp_dir().join(format!("{STAND_PREFIX}-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let mihomo = dir.join("mihomo");
@@ -709,5 +711,281 @@ mod tests {
         assert!(plist.contains("<string>/Users/a&amp;b/whisp/config.yaml</string>"));
         assert!(plist.contains("<key>KeepAlive</key>\n  <true/>"));
         assert!(!plist.contains("a&b"));
+    }
+
+    #[cfg(target_os = "macos")]
+    mod on_a_mac {
+        use super::super::*;
+        use crate::mihomo::{generate_config, MihomoConfig, MihomoRoutingRule};
+        use std::net::{IpAddr, Ipv4Addr};
+        use std::ops::Range;
+
+        const HELPER_BIN_ENV: &str = "WHISP_HELPER_BIN";
+        const MIHOMO_BIN_ENV: &str = "WHISP_MIHOMO_BIN";
+        const SOCKS_ENV: &str = "WHISP_TUN_SOCKS";
+        const SERVER_HOST_ENV: &str = "WHISP_TUN_SERVER_HOST";
+        const SERVER_PROCESS_ENV: &str = "WHISP_TUN_SERVER_PROCESS";
+        const SERVER_LOG_ENV: &str = "WHISP_TUN_SERVER_LOG";
+        const BROWSER_ENV: &str = "WHISP_TUN_BROWSER";
+        const SCREENSHOT_ENV: &str = "WHISP_TUN_SCREENSHOT";
+
+        const TUNNEL_HOST: &str = "www.youtube.com";
+        const RU_BYPASS_HOST: &str = "ya.ru";
+        const DIRECT_DOMAIN_HOST: &str = "example.com";
+        const RU_PROXIED_HOST: &str = "mail.ru";
+        const APP_RULE_HOST: &str = "www.wikipedia.org";
+
+        const PROBE_APP: &str = "Whisp Probe.app";
+        const PROBE_HELPER_APP: &str = "Whisp Probe Helper.app";
+        const CURL: &str = "/usr/bin/curl";
+
+        const MIXED_PORT: u16 = 7890;
+        const TUN_STACK: &str = "mixed";
+        const LOG_LEVEL: &str = "info";
+        const ROUTING_MODE: &str = "rule";
+        const PROCESS_RULE: &str = "process";
+        const DOMAIN_RULE: &str = "domain";
+        const DIRECT_ACTION: &str = "DIRECT";
+        const PROXY_ACTION: &str = "PROXY";
+        const FAKE_IP_RANGE_KEY: &str = "fake-ip-range:";
+        const ANSWERED: Range<u16> = 200..400;
+        const ROUTE_WAIT: Duration = Duration::from_secs(90);
+        const PROBE_INTERVAL: Duration = Duration::from_secs(2);
+        const PROBE_TIMEOUT_SECS: &str = "15";
+        const SCREENSHOT_SIZE: &str = "1280,800";
+
+        fn required(name: &str) -> String {
+            std::env::var(name).unwrap_or_else(|_| panic!("set {name}"))
+        }
+
+        fn url(host: &str) -> String {
+            format!("https://{host}/")
+        }
+
+        fn rule(kind: &str, value: &str, action: &str) -> MihomoRoutingRule {
+            MihomoRoutingRule {
+                kind: kind.into(),
+                value: value.into(),
+                action: action.into(),
+            }
+        }
+
+        fn run_as_root(script: &Path) {
+            let status = Command::new("sudo")
+                .arg("-n")
+                .arg("/bin/sh")
+                .arg(script)
+                .status()
+                .expect("sudo");
+            assert!(status.success(), "{} failed", script.display());
+        }
+
+        fn probe_bundle(work: &Path) -> (PathBuf, PathBuf, PathBuf) {
+            let bundle = work.join(PROBE_APP);
+            let main = bundle.join("Contents/MacOS/probe");
+            let helper = bundle
+                .join("Contents/Frameworks")
+                .join(PROBE_HELPER_APP)
+                .join("Contents/MacOS/probe-helper");
+            for program in [&main, &helper] {
+                std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+                std::fs::copy(CURL, program).unwrap();
+            }
+            (
+                std::fs::canonicalize(&bundle).unwrap(),
+                std::fs::canonicalize(&main).unwrap(),
+                std::fs::canonicalize(&helper).unwrap(),
+            )
+        }
+
+        fn fake_ip_range(config: &str) -> (Ipv4Addr, u32) {
+            let value = config
+                .lines()
+                .map(str::trim)
+                .find_map(|line| line.strip_prefix(FAKE_IP_RANGE_KEY))
+                .expect("the config has a fake-ip range")
+                .trim();
+            let (base, prefix) = value.split_once('/').expect("the range is base/prefix");
+            (
+                base.parse().expect("the range base is IPv4"),
+                prefix.parse().expect("the prefix is a number"),
+            )
+        }
+
+        fn is_fake(ip: IpAddr, (base, prefix): (Ipv4Addr, u32)) -> bool {
+            let IpAddr::V4(ip) = ip else {
+                return false;
+            };
+            let mask = u32::MAX.checked_shl(32 - prefix).unwrap_or(0);
+            u32::from(ip) & mask == u32::from(base) & mask
+        }
+
+        fn probe(program: &Path, url: &str) -> Option<(u16, IpAddr)> {
+            let out = Command::new(program)
+                .args(["-sS", "-o", "/dev/null", "--max-time", PROBE_TIMEOUT_SECS])
+                .args(["-w", "%{http_code} %{remote_ip}", url])
+                .output()
+                .ok()?;
+            let text = String::from_utf8_lossy(&out.stdout);
+            let (code, ip) = text.trim().split_once(' ')?;
+            Some((code.parse().ok()?, ip.parse().ok()?))
+        }
+
+        fn wait_for_route(program: &Path, url: &str, accept: impl Fn(IpAddr) -> bool) -> bool {
+            let deadline = Instant::now() + ROUTE_WAIT;
+            while Instant::now() < deadline {
+                if let Some((code, ip)) = probe(program, url) {
+                    if ANSWERED.contains(&code) && accept(ip) {
+                        return true;
+                    }
+                }
+                std::thread::sleep(PROBE_INTERVAL);
+            }
+            false
+        }
+
+        fn reached_server(log: &Path, host: &str) -> bool {
+            std::fs::read_to_string(log).is_ok_and(|text| text.contains(&format!("{host}:")))
+        }
+
+        #[test]
+        #[ignore = "installs the LaunchDaemon with sudo and routes the machine through TUN; for a macOS CI runner"]
+        fn split_tunnel_on_a_mac_matches_windows() {
+            let work = std::env::temp_dir().join(format!("{LABEL}-e2e"));
+            let _ = std::fs::remove_dir_all(&work);
+            std::fs::create_dir_all(&work).unwrap();
+            let work = std::fs::canonicalize(&work).unwrap();
+            let (bundle, bundle_main, bundle_helper) = probe_bundle(&work);
+            let server_log = PathBuf::from(required(SERVER_LOG_ENV));
+            let curl = Path::new(CURL);
+
+            let socks = required(SOCKS_ENV);
+            let server_host = required(SERVER_HOST_ENV);
+            let rules = [
+                rule(PROCESS_RULE, &required(SERVER_PROCESS_ENV), DIRECT_ACTION),
+                rule(DOMAIN_RULE, DIRECT_DOMAIN_HOST, DIRECT_ACTION),
+                rule(DOMAIN_RULE, RU_PROXIED_HOST, PROXY_ACTION),
+                rule(PROCESS_RULE, &bundle.to_string_lossy(), DIRECT_ACTION),
+            ];
+            let config_text = generate_config(&MihomoConfig {
+                socks_addr: &socks,
+                server_host: &server_host,
+                mixed_port: MIXED_PORT,
+                tun_stack: TUN_STACK,
+                dns_redirect: false,
+                ipv6: false,
+                routing_rules: &rules,
+                extra_socks_addrs: &[],
+                custom_dns: &[],
+                socks_user: "",
+                socks_pass: "",
+                allow_lan: false,
+                log_level: LOG_LEVEL,
+                routing_mode: ROUTING_MODE,
+                bypass_ru: true,
+                external_link: "",
+            });
+            let fake_range = fake_ip_range(&config_text);
+            let config = work.join("config.yaml");
+            std::fs::write(&config, &config_text).unwrap();
+            let settings = HelperSettings {
+                socket: socket_path(),
+                owner_uid: current_uid(),
+                mihomo: installed_mihomo(),
+                home: work.clone(),
+                config,
+            };
+
+            let plist = work.join(format!("{LABEL}.plist"));
+            std::fs::write(&plist, launchd_plist(&settings, &installed_helper())).unwrap();
+            let install = work.join("install.sh");
+            let helper_source = PathBuf::from(required(HELPER_BIN_ENV));
+            let mihomo_source = PathBuf::from(required(MIHOMO_BIN_ENV));
+            std::fs::write(
+                &install,
+                install_script(&helper_source, &mihomo_source, &plist),
+            )
+            .unwrap();
+            run_as_root(&install);
+            wait_until_reachable(&settings.socket).expect("the helper answers after install");
+
+            let mut session = request_start(&settings.socket).expect("the helper starts mihomo");
+            assert!(
+                wait_for_route(curl, &url(TUNNEL_HOST), |ip| is_fake(ip, fake_range)),
+                "{TUNNEL_HOST} never answered through the TUN"
+            );
+            assert!(
+                reached_server(&server_log, TUNNEL_HOST),
+                "{TUNNEL_HOST} did not go through the tunnel"
+            );
+
+            for host in [RU_BYPASS_HOST, DIRECT_DOMAIN_HOST] {
+                assert!(
+                    wait_for_route(curl, &url(host), |_| true),
+                    "{host} did not answer"
+                );
+                assert!(
+                    !reached_server(&server_log, host),
+                    "{host} went through the tunnel"
+                );
+            }
+            assert!(
+                wait_for_route(curl, &url(RU_PROXIED_HOST), |_| true),
+                "{RU_PROXIED_HOST} did not answer"
+            );
+            assert!(
+                reached_server(&server_log, RU_PROXIED_HOST),
+                "the PROXY rule for {RU_PROXIED_HOST} lost to the .ru bypass"
+            );
+
+            for program in [&bundle_main, &bundle_helper] {
+                assert!(
+                    wait_for_route(program, &url(APP_RULE_HOST), |_| true),
+                    "{} could not reach {APP_RULE_HOST}",
+                    program.display()
+                );
+            }
+            assert!(
+                !reached_server(&server_log, APP_RULE_HOST),
+                "the rule for {} did not keep its processes direct",
+                bundle.display()
+            );
+            assert!(
+                wait_for_route(curl, &url(APP_RULE_HOST), |_| true),
+                "{APP_RULE_HOST} did not answer"
+            );
+            assert!(
+                reached_server(&server_log, APP_RULE_HOST),
+                "outside the app {APP_RULE_HOST} should go through the tunnel"
+            );
+
+            if let (Ok(browser), Ok(screenshot)) =
+                (std::env::var(BROWSER_ENV), std::env::var(SCREENSHOT_ENV))
+            {
+                let status = Command::new(browser)
+                    .args(["--headless=new", "--disable-gpu", "--hide-scrollbars"])
+                    .arg(format!("--window-size={SCREENSHOT_SIZE}"))
+                    .arg(format!("--screenshot={screenshot}"))
+                    .arg(url(TUNNEL_HOST))
+                    .status()
+                    .expect("browser");
+                assert!(
+                    status.success() && Path::new(&screenshot).exists(),
+                    "no screenshot of {TUNNEL_HOST}"
+                );
+            }
+
+            request_stop(&mut session).expect("the helper stops mihomo");
+            assert!(!is_running(&settings.socket).unwrap());
+            assert!(
+                wait_for_route(curl, &url(TUNNEL_HOST), |ip| !is_fake(ip, fake_range)),
+                "the network did not come back after the TUN went down"
+            );
+
+            let uninstall = work.join("uninstall.sh");
+            std::fs::write(&uninstall, uninstall_script()).unwrap();
+            run_as_root(&uninstall);
+            assert!(!installed_plist().exists());
+        }
     }
 }

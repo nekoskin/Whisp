@@ -1,0 +1,145 @@
+name: macOS TUN split tunnel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src-tauri/src/tun_helper.rs'
+      - 'src-tauri/src/mihomo.rs'
+      - 'src-tauri/src/lib.rs'
+      - '.github/workflows/macos-tun.yml'
+
+jobs:
+  split-tunnel:
+    runs-on: macos-14
+    env:
+      WHISPERA_PORT: "9443"
+      SERVER_HOST: "127.0.0.1"
+      SOCKS_ADDR: "127.0.0.1:10800"
+      SERVER_PROCESS: whispera-server
+      KEY_USER: macos-e2e
+      KEY_SNI: www.apple.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: nekoskin/whispera
+          path: whispera
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: whispera/go.mod
+          cache-dependency-path: whispera/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build the whispera server and go-client
+        working-directory: whispera
+        run: |
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/$SERVER_PROCESS" ./app/server
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/whispera-go-client" ./app/goclient
+
+      - name: Download the mihomo the release ships
+        run: |
+          set -e
+          MIHOMO_VER=$(sed -n 's/^ *MIHOMO_VER="\(v[0-9.]*\)".*/\1/p' .github/workflows/release.yml | head -n 1)
+          test -n "$MIHOMO_VER"
+          case "$(uname -m)" in
+            arm64) ARCH=arm64 ;;
+            x86_64) ARCH=amd64 ;;
+          esac
+          curl -fsSL --retry 3 \
+            "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VER}/mihomo-darwin-${ARCH}-${MIHOMO_VER}.gz" \
+            -o mihomo.gz
+          gunzip -f mihomo.gz
+          chmod +x mihomo
+          mv mihomo "$RUNNER_TEMP/mihomo"
+
+      - name: Start the whispera server and go-client
+        run: |
+          set -e
+          SERVER_DIR="$RUNNER_TEMP/server"
+          mkdir -p "$SERVER_DIR"
+          sed "s/listen_addr: \":443\"/listen_addr: \":${WHISPERA_PORT}\"/" \
+            whispera/scripts/e2e/cfg/config.yaml > "$SERVER_DIR/config.yaml"
+          cd "$SERVER_DIR"
+          KEY=$(sudo "$RUNNER_TEMP/$SERVER_PROCESS" create-key -user "$KEY_USER" -port "$WHISPERA_PORT" \
+            -sni "$KEY_SNI" -self-cert enable -config config.yaml \
+            | grep -o 'whispera://[A-Za-z0-9._~+/=-]*' | tail -n 1)
+          test -n "$KEY"
+          KEY=$(python3 - "$KEY" "$SERVER_HOST:$WHISPERA_PORT" <<'PY'
+          import base64, json, sys
+          key, addr = sys.argv[1], sys.argv[2]
+          raw = key.replace("whispera://", "")
+          data = json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+          for field in ("server", "whispera_addr"):
+              if field in data:
+                  data[field] = addr
+          encoded = base64.urlsafe_b64encode(json.dumps(data, separators=(",", ":")).encode())
+          print("whispera://" + encoded.decode().rstrip("="))
+          PY
+          )
+          nohup sudo "$RUNNER_TEMP/$SERVER_PROCESS" -config config.yaml > server.log 2>&1 &
+          for i in $(seq 1 30); do nc -z "$SERVER_HOST" "$WHISPERA_PORT" && break; sleep 1; done
+          nohup "$RUNNER_TEMP/whispera-go-client" -key "$KEY" -server "$SERVER_HOST:$WHISPERA_PORT" \
+            -socks "$SOCKS_ADDR" -no-tun -log-file "$RUNNER_TEMP/go-client.log" \
+            > "$RUNNER_TEMP/go-client.stdout" 2>&1 &
+          for i in $(seq 1 30); do nc -z "${SOCKS_ADDR%:*}" "${SOCKS_ADDR##*:}" && break; sleep 1; done
+          curl -sS -o /dev/null -w 'tunnel without TUN: %{http_code}\n' -x "socks5h://$SOCKS_ADDR" https://www.youtube.com/
+          echo "WHISP_TUN_SERVER_LOG=$SERVER_DIR/server.log" >> "$GITHUB_ENV"
+
+      - name: Build the frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Whisp
+        working-directory: src-tauri
+        run: |
+          TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
+          cp "$RUNNER_TEMP/mihomo" "binaries/mihomo-$TRIPLE"
+          cp "$RUNNER_TEMP/whispera-go-client" "binaries/whispera-go-client-$TRIPLE"
+          cargo build --release
+
+      - name: Unit tests on macOS
+        working-directory: src-tauri
+        run: cargo test --release --lib
+
+      - name: Split tunnel through the launchd helper
+        working-directory: src-tauri
+        env:
+          WHISP_HELPER_BIN: ${{ github.workspace }}/src-tauri/target/release/whisp
+          WHISP_MIHOMO_BIN: ${{ runner.temp }}/mihomo
+          WHISP_TUN_SOCKS: ${{ env.SOCKS_ADDR }}
+          WHISP_TUN_SERVER_HOST: ${{ env.SERVER_HOST }}
+          WHISP_TUN_SERVER_PROCESS: ${{ env.SERVER_PROCESS }}
+          WHISP_TUN_BROWSER: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+          WHISP_TUN_SCREENSHOT: ${{ runner.temp }}/youtube.png
+        run: |
+          cargo test --release --lib -- --ignored --exact \
+            tun_helper::tests::on_a_mac::split_tunnel_on_a_mac_matches_windows --nocapture
+
+      - name: Collect logs and the screenshot
+        if: always()
+        run: |
+          mkdir -p artifacts
+          cp "$RUNNER_TEMP/server/server.log" "$RUNNER_TEMP/go-client.log" "$RUNNER_TEMP/youtube.png" artifacts/ 2>/dev/null || true
+          sudo sh -c 'cp /Library/Logs/com.whispera.whisp.*.log "$0" 2>/dev/null || true' artifacts
+          sudo chmod -R a+r artifacts
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-tun-split
+          path: artifacts/
