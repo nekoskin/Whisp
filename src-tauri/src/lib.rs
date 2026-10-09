@@ -996,7 +996,7 @@ struct SystemInfoResponse {
 }
 
 #[tauri::command]
-fn get_system_info() -> Result<SystemInfoResponse, String> {
+fn get_system_info(app: tauri::AppHandle) -> Result<SystemInfoResponse, String> {
     #[cfg(target_os = "android")]
     let os_info = format!("Android ({})", std::env::consts::ARCH);
     #[cfg(not(target_os = "android"))]
@@ -1013,7 +1013,7 @@ fn get_system_info() -> Result<SystemInfoResponse, String> {
     Ok(SystemInfoResponse {
         os: os_info,
         uptime,
-        version: format!("v{}", env!("CARGO_PKG_VERSION")),
+        version: format!("v{}", app.package_info().version),
         admin,
     })
 }
@@ -2239,7 +2239,7 @@ fn find_asset_url(assets: &serde_json::Value) -> String {
 }
 
 #[tauri::command]
-async fn check_for_updates() -> Result<UpdateInfo, String> {
+async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
     let client = reqwest::Client::builder()
         .user_agent("whisp-updater/1.0")
         .timeout(Duration::from_secs(10))
@@ -2273,8 +2273,8 @@ async fn check_for_updates() -> Result<UpdateInfo, String> {
     let body = json["body"].as_str().unwrap_or("").to_string();
     let html_url = json["html_url"].as_str().unwrap_or("").to_string();
     let download_url = find_asset_url(&json["assets"]);
-    let current = env!("CARGO_PKG_VERSION");
-    let is_newer = is_newer_version(&tag, current);
+    let running = app.package_info().version.to_string();
+    let is_newer = is_newer_version(&tag, &running);
 
     Ok(UpdateInfo {
         tag,
@@ -2647,4 +2647,18 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn app_version_is_read_from_tauri_conf() {
+        let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json must be valid JSON");
+        let declared = conf["version"]
+            .as_str()
+            .expect("tauri.conf.json must declare a version");
+        assert_eq!(context.package_info().version.to_string(), declared);
+    }
 }
