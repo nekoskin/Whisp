@@ -30,10 +30,10 @@ jobs:
 
       - name: Sidecars the bundle expects
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
+          exec 2> >(tee -a "$RUNNER_TEMP/steps.err" >&2)
+          trap 'echo "line $LINENO exited $?: $BASH_COMMAND" >&2' ERR
           MIHOMO_VER=$(sed -n 's/^ *MIHOMO_VER="\(v[0-9.]*\)".*/\1/p' .github/workflows/release.yml | head -n 1)
           mkdir -p src-tauri/binaries
           curl -fsSL --retry 3 \
@@ -41,13 +41,16 @@ jobs:
             -o mihomo.zip
           unzip -o mihomo.zip -d mihomo_tmp
           mv mihomo_tmp/*.exe "src-tauri/binaries/mihomo-$TRIPLE.exe"
-          gh release download -R nekoskin/whispera -p "whispera-go-client-$TRIPLE.exe" \
-            -O "src-tauri/binaries/whispera-go-client-$TRIPLE.exe"
+          curl -fsSL --retry 3 \
+            "https://github.com/nekoskin/whispera/releases/latest/download/whispera-go-client-$TRIPLE.exe" \
+            -o "src-tauri/binaries/whispera-go-client-$TRIPLE.exe"
 
       - name: Build the old version
         shell: bash
         run: |
           set -e
+          exec 2> >(tee -a "$RUNNER_TEMP/steps.err" >&2)
+          trap 'echo "line $LINENO exited $?: $BASH_COMMAND" >&2' ERR
           npm ci
           npx tauri build --bundles nsis --config "{\"version\":\"$OLD_VERSION\"}"
 
@@ -172,7 +175,8 @@ jobs:
           $UIA = [System.Windows.Automation.AutomationElement]
           $Scope = [System.Windows.Automation.TreeScope]
           $Any = [System.Windows.Automation.Condition]::TrueCondition
-          $text = ""
+          $stderr = Join-Path $env:RUNNER_TEMP 'steps.err'
+          $text = if (Test-Path $stderr) { "--- stderr`n" + (Get-Content $stderr -Tail 40 | Out-String) } else { "" }
           foreach ($window in $UIA::RootElement.FindAll($Scope::Children, $Any)) {
             $names = $window.FindAll($Scope::Descendants, $Any) | ForEach-Object { $_.Current.Name.Trim() } | Where-Object { $_ } | Select-Object -Unique
             $text += "--- $($window.Current.Name)`n$($names -join "`n")`n"
