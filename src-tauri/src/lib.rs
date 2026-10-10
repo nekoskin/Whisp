@@ -2924,6 +2924,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        target_os = "linux",
+        ignore = "needs net.ipv4.ping_group_range to cover this user; run docker/run-checks.sh"
+    )]
     fn icmp_echo_is_answered_by_loopback() {
         let rtt = super::icmp_echo(std::net::Ipv4Addr::LOCALHOST);
         assert!(rtt.is_ok(), "{rtt:?}");
