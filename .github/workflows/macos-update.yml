@@ -1,0 +1,176 @@
+name: macOS in-app update
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src-tauri/src/lib.rs'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/tauri.macos.conf.json'
+      - '.github/workflows/macos-update.yml'
+
+jobs:
+  update:
+    runs-on: macos-14
+    env:
+      UPDATE_PORT: "8765"
+      OLD_VERSION: "0.0.1"
+      NEW_VERSION: "0.0.99"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Sidecars the bundle expects
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
+          MIHOMO_VER=$(sed -n 's/^ *MIHOMO_VER="\(v[0-9.]*\)".*/\1/p' .github/workflows/release.yml | head -n 1)
+          case "$(uname -m)" in
+            arm64) ARCH=arm64 ;;
+            x86_64) ARCH=amd64 ;;
+          esac
+          curl -fsSL --retry 3 \
+            "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VER}/mihomo-darwin-${ARCH}-${MIHOMO_VER}.gz" \
+            -o mihomo.gz
+          gunzip -f mihomo.gz
+          mv mihomo "src-tauri/binaries/mihomo-$TRIPLE"
+          gh release download -R nekoskin/whispera -p "whispera-go-client-$TRIPLE" -O "src-tauri/binaries/whispera-go-client-$TRIPLE"
+          chmod +x src-tauri/binaries/*
+
+      - name: Build the old and the new version with a throwaway signing key
+        run: |
+          set -e
+          npm ci
+          KEY="$RUNNER_TEMP/update-test.key"
+          npx tauri signer generate -w "$KEY" --ci -p ""
+          export TAURI_SIGNING_PRIVATE_KEY="$KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+          PUB=$(cat "$KEY.pub")
+          config() {
+            printf '{"version":"%s","bundle":{"createUpdaterArtifacts":true,"icon":["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png"]},"plugins":{"updater":{"pubkey":"%s","endpoints":["http://127.0.0.1:%s/latest.json"],"dangerousInsecureTransportProtocol":true}}}' \
+              "$1" "$PUB" "$UPDATE_PORT"
+          }
+          BUNDLE=src-tauri/target/release/bundle/macos
+          npx tauri build --bundles app --config "$(config "$OLD_VERSION")"
+          mkdir -p "$HOME/Applications"
+          rm -rf "$HOME/Applications/Whisp.app"
+          cp -R "$BUNDLE/Whisp.app" "$HOME/Applications/"
+          npx tauri build --bundles app --config "$(config "$NEW_VERSION")"
+          SERVE="$RUNNER_TEMP/update-server"
+          mkdir -p "$SERVE"
+          cp "$BUNDLE/Whisp.app.tar.gz" "$BUNDLE/Whisp.app.tar.gz.sig" "$SERVE/"
+          python3 - "$SERVE" "$NEW_VERSION" "$UPDATE_PORT" <<'PY'
+          import json, os, sys
+          serve, version, port = sys.argv[1:4]
+          entry = {
+              "signature": open(os.path.join(serve, "Whisp.app.tar.gz.sig")).read().strip(),
+              "url": f"http://127.0.0.1:{port}/Whisp.app.tar.gz",
+          }
+          manifest = {"version": version, "platforms": {"darwin-aarch64": entry, "darwin-x86_64": entry}}
+          json.dump(manifest, open(os.path.join(serve, "latest.json"), "w"))
+          PY
+
+      - name: Install the update from the app's own button
+        run: |
+          set -e
+          APP="$HOME/Applications/Whisp.app"
+          CLICK="$RUNNER_TEMP/click.applescript"
+          cat > "$CLICK" <<'AS'
+          on run argv
+            set label to item 1 of argv
+            tell application "System Events"
+              tell process "Whisp"
+                set frontmost to true
+                repeat 60 times
+                  try
+                    repeat with element in (entire contents of window 1)
+                      set texts to {}
+                      try
+                        set end of texts to (name of element as text)
+                      end try
+                      try
+                        set end of texts to (value of element as text)
+                      end try
+                      try
+                        set end of texts to (description of element as text)
+                      end try
+                      if texts contains label then
+                        if role of element is "AXButton" then
+                          perform action "AXPress" of element
+                        else
+                          set {x, y} to position of element
+                          set {w, h} to size of element
+                          click at {x + w div 2, y + h div 2}
+                        end if
+                        return "pressed " & label
+                      end if
+                    end repeat
+                  end try
+                  delay 1
+                end repeat
+              end tell
+            end tell
+            error "nothing labelled " & label
+          end run
+          AS
+          (cd "$RUNNER_TEMP/update-server" && nohup python3 -m http.server "$UPDATE_PORT" > "$RUNNER_TEMP/update-server.log" 2>&1 &)
+          nohup "$APP/Contents/MacOS/Whisp" > "$RUNNER_TEMP/whisp.log" 2>&1 &
+          echo "installed version: $(defaults read "$APP/Contents/Info" CFBundleShortVersionString)"
+          osascript "$CLICK" "Настройки"
+          osascript "$CLICK" "Проверить обновления"
+          osascript "$CLICK" "Установить"
+          screencapture -x "$RUNNER_TEMP/before-restart.png" || true
+          for i in $(seq 1 90); do
+            VERSION=$(defaults read "$APP/Contents/Info" CFBundleShortVersionString 2>/dev/null || true)
+            if [ "$VERSION" = "$NEW_VERSION" ] && pgrep -f "$APP/Contents/MacOS/Whisp" >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          echo "installed version after update: $VERSION"
+          test "$VERSION" = "$NEW_VERSION"
+          pgrep -fl "$APP/Contents/MacOS/Whisp"
+          osascript "$CLICK" "Настройки"
+          osascript "$CLICK" "v$NEW_VERSION"
+          screencapture -x "$RUNNER_TEMP/after-update.png"
+
+      - name: Publish what the app logged
+        if: failure()
+        run: |
+          python3 - "$RUNNER_TEMP/whisp.log" "$RUNNER_TEMP/update-server.log" <<'PY'
+          import sys
+          limit = 30000
+          text = ""
+          for path in sys.argv[1:]:
+              try:
+                  text += f"--- {path}\n" + open(path, errors="replace").read()[-limit:] + "\n"
+              except OSError as e:
+                  text += f"--- {path}: {e}\n"
+          for raw, escaped in (("%", "%25"), ("\r", "%0D"), ("\n", "%0A")):
+              text = text.replace(raw, escaped)
+          print("::error title=in-app update::" + text)
+          PY
+
+      - name: Collect the screenshots
+        if: always()
+        run: |
+          mkdir -p artifacts
+          cp "$RUNNER_TEMP"/*.png "$RUNNER_TEMP/whisp.log" "$RUNNER_TEMP/update-server.log" artifacts/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-update
+          path: artifacts/
