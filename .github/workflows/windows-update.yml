@@ -1,0 +1,193 @@
+name: Windows in-app update
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src-tauri/src/lib.rs'
+      - '.github/workflows/windows-update.yml'
+
+jobs:
+  update:
+    runs-on: windows-latest
+    env:
+      OLD_VERSION: "0.0.1"
+      TRIPLE: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Sidecars the bundle expects
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          MIHOMO_VER=$(sed -n 's/^ *MIHOMO_VER="\(v[0-9.]*\)".*/\1/p' .github/workflows/release.yml | head -n 1)
+          mkdir -p src-tauri/binaries
+          curl -fsSL --retry 3 \
+            "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VER}/mihomo-windows-amd64-${MIHOMO_VER}.zip" \
+            -o mihomo.zip
+          unzip -o mihomo.zip -d mihomo_tmp
+          mv mihomo_tmp/*.exe "src-tauri/binaries/mihomo-$TRIPLE.exe"
+          gh release download -R nekoskin/whispera -p "whispera-go-client-$TRIPLE.exe" \
+            -O "src-tauri/binaries/whispera-go-client-$TRIPLE.exe"
+
+      - name: Build the old version
+        shell: bash
+        run: |
+          set -e
+          npm ci
+          npx tauri build --bundles nsis --config "{\"version\":\"$OLD_VERSION\"}"
+
+      - name: Expected version is the latest release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          echo "NEW_VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "latest release: $TAG"
+
+      - name: Install the update from the app's own button
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, System.Drawing
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class Mouse {
+            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+            [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, IntPtr extra);
+            public static void Click(int x, int y) {
+              SetCursorPos(x, y);
+              mouse_event(2, 0, 0, 0, IntPtr.Zero);
+              mouse_event(4, 0, 0, 0, IntPtr.Zero);
+            }
+          }
+          "@
+          $UIA = [System.Windows.Automation.AutomationElement]
+          $Scope = [System.Windows.Automation.TreeScope]
+          $Any = [System.Windows.Automation.Condition]::TrueCondition
+          $Button = [System.Windows.Automation.ControlType]::Button
+          $Invoke = [System.Windows.Automation.InvokePattern]::Pattern
+
+          function Shot($name) {
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $bitmap.Save("$env:RUNNER_TEMP\$name.png")
+          }
+
+          function Window($pattern) {
+            $UIA::RootElement.FindAll($Scope::Children, $Any) |
+              Where-Object { $_.Current.Name -like $pattern } | Select-Object -First 1
+          }
+
+          function TryPress($window, $label) {
+            $found = @($window.FindAll($Scope::Descendants, $Any) |
+              Where-Object { $_.Current.Name.Trim() -eq $label -and $_.Current.IsEnabled })
+            $target = $found | Where-Object { $_.Current.ControlType -eq $Button } | Select-Object -First 1
+            if (-not $target) { $target = $found | Select-Object -First 1 }
+            if (-not $target) { return $false }
+            $pattern = $null
+            if ($target.TryGetCurrentPattern($Invoke, [ref]$pattern)) {
+              $pattern.Invoke()
+            } else {
+              $rect = $target.Current.BoundingRectangle
+              [Mouse]::Click([int]($rect.X + $rect.Width / 2), [int]($rect.Y + $rect.Height / 2))
+            }
+            Write-Host "pressed $label"
+            return $true
+          }
+
+          function Press($pattern, $label) {
+            for ($i = 0; $i -lt 60; $i++) {
+              $window = Window $pattern
+              if ($window -and (TryPress $window $label)) { return }
+              Start-Sleep -Seconds 1
+            }
+            Shot "missing-$($label -replace '\W', '')"
+            throw "nothing labelled $label in a window like $pattern"
+          }
+
+          function Installed {
+            Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
+              Get-ItemProperty | Where-Object { $_.DisplayName -eq 'Whisp' } | Select-Object -First 1
+          }
+
+          $setup = Get-ChildItem 'src-tauri\target\release\bundle\nsis\*-setup.exe' | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $before = Installed
+          Write-Host "installed version: $($before.DisplayVersion)"
+          $exe = $before.DisplayIcon.Trim('"')
+          Start-Process -FilePath $exe
+
+          Press 'Whisp' 'EN'
+          Press 'Whisp' 'Settings'
+          Press 'Whisp' 'Check updates'
+          Press 'Whisp' 'Install'
+
+          $deadline = (Get-Date).AddMinutes(5)
+          while ((Get-Date) -lt $deadline) {
+            $wizard = Window '*Setup*'
+            if ($wizard) {
+              foreach ($label in 'Next >', 'Install', 'Finish') {
+                if (TryPress $wizard $label) { Start-Sleep -Seconds 2; break }
+              }
+            }
+            $now = Installed
+            if ($now.DisplayVersion -eq $env:NEW_VERSION -and -not (Window '*Setup*') -and (Get-Process Whisp -ErrorAction SilentlyContinue)) {
+              break
+            }
+            Start-Sleep -Seconds 2
+          }
+          $after = Installed
+          Write-Host "installed version after update: $($after.DisplayVersion)"
+          Shot 'after-update'
+          if ($after.DisplayVersion -ne $env:NEW_VERSION) { throw "expected $env:NEW_VERSION, found $($after.DisplayVersion)" }
+          Get-Process Whisp | Format-Table Id, Path -AutoSize
+
+      - name: Publish what went wrong
+        if: failure()
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, System.Drawing
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $bitmap.Save("$env:RUNNER_TEMP\failure.png")
+          $UIA = [System.Windows.Automation.AutomationElement]
+          $Scope = [System.Windows.Automation.TreeScope]
+          $Any = [System.Windows.Automation.Condition]::TrueCondition
+          $text = ""
+          foreach ($window in $UIA::RootElement.FindAll($Scope::Children, $Any)) {
+            $names = $window.FindAll($Scope::Descendants, $Any) | ForEach-Object { $_.Current.Name.Trim() } | Where-Object { $_ } | Select-Object -Unique
+            $text += "--- $($window.Current.Name)`n$($names -join "`n")`n"
+          }
+          Write-Host "::error title=windows in-app update::$($text -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A')"
+
+      - name: Collect the screenshots
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp "$RUNNER_TEMP"/*.png artifacts/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-update
+          path: artifacts/
