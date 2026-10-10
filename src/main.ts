@@ -2469,7 +2469,7 @@ function textField(id: string, value: string, placeholder: string): string {
 
 function whispSection(extraRows: string): string {
   return `<div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link" id="whisp-update-status">${t("installed")}</span></div>
+      <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link" id="whisp-update-status"></span></div>
       ${row(t("autostart"), toggleBox("set-autostart", !!settings.auto_connect))}
       ${row(t("update"), `<button class="btn-sm" id="btn-open-repo">${t("openRepo")}</button>`)}
       ${extraRows}
@@ -2718,7 +2718,7 @@ function bindSettingsEvents(): void {
       } else {
         el.textContent = t("installed");
       }
-    } catch { /* keep default label */ }
+    } catch {/**/ }
   })();
   document.getElementById("btn-check-updates")?.addEventListener("click", async () => {
     const btn = document.getElementById("btn-check-updates") as HTMLButtonElement;

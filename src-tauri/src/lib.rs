@@ -2437,35 +2437,98 @@ fn find_asset_url(assets: &serde_json::Value) -> String {
     String::new()
 }
 
+const UPDATE_USER_AGENT: &str = "whisp-updater/1.0";
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+const GITHUB_SITE: &str = "https://github.com";
+const RELEASES_PATH: &str = "/nekoskin/Whisp/releases";
+const LATEST_RELEASE_API: &str = "https://api.github.com/repos/nekoskin/Whisp/releases/latest";
+
+async fn latest_release_from_site() -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .user_agent(UPDATE_USER_AGENT)
+        .timeout(UPDATE_CHECK_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| e.to_string())?;
+    let latest = client
+        .get(format!("{GITHUB_SITE}{RELEASES_PATH}/latest"))
+        .send()
+        .await
+        .map_err(|e| format!("github.com unavailable: {e}"))?;
+    let tag = latest
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|location| location.to_str().ok())
+        .and_then(|location| location.rsplit_once("/tag/"))
+        .map(|(_, tag)| tag.to_string())
+        .ok_or("github.com did not name the latest release")?;
+    let page = client
+        .get(format!(
+            "{GITHUB_SITE}{RELEASES_PATH}/expanded_assets/{tag}"
+        ))
+        .send()
+        .await
+        .map_err(|e| format!("github.com unavailable: {e}"))?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(release_from_assets_page(&tag, &page))
+}
+
+fn release_from_assets_page(tag: &str, page: &str) -> serde_json::Value {
+    let download_prefix = format!("{RELEASES_PATH}/download/{tag}/");
+    let assets: Vec<serde_json::Value> = page
+        .split("href=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .filter_map(|href| {
+            let name = href.strip_prefix(&download_prefix)?;
+            Some(serde_json::json!({
+                "name": name,
+                "browser_download_url": format!("{GITHUB_SITE}{href}"),
+            }))
+        })
+        .collect();
+    serde_json::json!({
+        "tag_name": tag,
+        "html_url": format!("{GITHUB_SITE}{RELEASES_PATH}/tag/{tag}"),
+        "assets": assets,
+    })
+}
+
 #[tauri::command]
 async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
     let client = reqwest::Client::builder()
-        .user_agent("whisp-updater/1.0")
-        .timeout(Duration::from_secs(10))
+        .user_agent(UPDATE_USER_AGENT)
+        .timeout(UPDATE_CHECK_TIMEOUT)
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client
-        .get("https://api.github.com/repos/nekoskin/Whisp/releases/latest")
-        .send()
-        .await
-        .map_err(|e| format!("GitHub API unavailable: {}", e))?;
-
-    if resp.status().as_u16() == 404 {
-        return Ok(UpdateInfo {
-            tag: String::new(),
-            name: String::new(),
-            body: String::new(),
-            html_url: String::new(),
-            download_url: String::new(),
-            is_newer: false,
-        });
-    }
-    if !resp.status().is_success() {
-        return Err(format!("GitHub API: HTTP {}", resp.status().as_u16()));
-    }
-
-    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let json: serde_json::Value = match client.get(LATEST_RELEASE_API).send().await {
+        Ok(resp) if resp.status().as_u16() == 404 => {
+            return Ok(UpdateInfo {
+                tag: String::new(),
+                name: String::new(),
+                body: String::new(),
+                html_url: String::new(),
+                download_url: String::new(),
+                is_newer: false,
+            });
+        }
+        Ok(resp) if resp.status().is_success() => resp.json().await.map_err(|e| e.to_string())?,
+        Ok(resp) => {
+            let api_error = format!("GitHub API: HTTP {}", resp.status().as_u16());
+            latest_release_from_site()
+                .await
+                .map_err(|e| format!("{api_error}; {e}"))?
+        }
+        Err(e) => {
+            let api_error = format!("GitHub API unavailable: {}", e);
+            latest_release_from_site()
+                .await
+                .map_err(|e| format!("{api_error}; {e}"))?
+        }
+    };
 
     let tag = json["tag_name"].as_str().unwrap_or("").to_string();
     let name = json["name"].as_str().unwrap_or(&tag).to_string();
@@ -2931,6 +2994,43 @@ mod tests {
     fn icmp_echo_is_answered_by_loopback() {
         let rtt = super::icmp_echo(std::net::Ipv4Addr::LOCALHOST);
         assert!(rtt.is_ok(), "{rtt:?}");
+    }
+
+    #[test]
+    fn release_assets_are_read_from_the_site_page() {
+        let page = r#"<li><a href="/nekoskin/Whisp/releases/download/v0.0.10/Whisp_0.0.10_x64-setup.exe" rel="nofollow">
+<a href="/nekoskin/Whisp/releases/download/v0.0.10/app-universal-debug.apk" rel="nofollow">
+<a href="/nekoskin/Whisp/archive/refs/tags/v0.0.10.zip" rel="nofollow">"#;
+        let release = super::release_from_assets_page("v0.0.10", page);
+        assert_eq!(release["tag_name"], "v0.0.10");
+        assert_eq!(
+            release["html_url"],
+            "https://github.com/nekoskin/Whisp/releases/tag/v0.0.10"
+        );
+        let assets: Vec<(&str, &str)> = release["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| {
+                (
+                    a["name"].as_str().unwrap(),
+                    a["browser_download_url"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            assets,
+            [
+                (
+                    "Whisp_0.0.10_x64-setup.exe",
+                    "https://github.com/nekoskin/Whisp/releases/download/v0.0.10/Whisp_0.0.10_x64-setup.exe"
+                ),
+                (
+                    "app-universal-debug.apk",
+                    "https://github.com/nekoskin/Whisp/releases/download/v0.0.10/app-universal-debug.apk"
+                ),
+            ]
+        );
     }
 
     #[test]
