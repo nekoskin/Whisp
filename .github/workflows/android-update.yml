@@ -35,7 +35,10 @@ jobs:
           cat > "$RUNNER_TEMP/press.py" <<'PY'
           import re, sys, xml.etree.ElementTree as ET
           label, height = sys.argv[1], int(sys.argv[2])
-          root = ET.parse(sys.argv[3]).getroot()
+          try:
+              root = ET.parse(sys.argv[3]).getroot()
+          except ET.ParseError:
+              sys.exit(1)
           found = []
           for node in root.iter("node"):
               names = {node.get("text", "").strip(), node.get("content-desc", "").strip()}
@@ -57,6 +60,8 @@ jobs:
           mkdir -p "$OUT"
           HEIGHT=$(adb shell wm size | sed -n 's/.*x\([0-9]*\).*/\1/p' | tail -n 1)
           shot() { adb exec-out screencap -p > "$OUT/$1.png"; }
+          trap 'adb logcat -d > "$OUT/logcat.txt"; shot exit' EXIT
+          PRESSES=0
           dump() {
             adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || return 1
             adb exec-out cat /sdcard/ui.xml > "$OUT/ui.xml"
@@ -75,6 +80,9 @@ jobs:
                   if [ "$AT" = "swipe" ]; then
                     adb shell input swipe 500 $((HEIGHT * 3 / 4)) 500 $((HEIGHT / 4)) 300
                   else
+                    PRESSES=$((PRESSES + 1))
+                    shot "press-$PRESSES"
+                    cp "$OUT/ui.xml" "$OUT/press-$PRESSES.xml"
                     adb shell input tap $AT
                     echo "pressed $1 at $AT"
                     return 0

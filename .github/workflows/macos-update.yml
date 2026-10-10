@@ -176,7 +176,25 @@ jobs:
         if: failure()
         run: |
           screencapture -x "$RUNNER_TEMP/failure.png" || true
-          python3 - "$RUNNER_TEMP/autostart.log" "$RUNNER_TEMP/whisp.log" "$RUNNER_TEMP/update-server.log" <<'PY'
+          osascript > "$RUNNER_TEMP/screen.log" 2>&1 <<'AS' || true
+          tell application "System Events"
+            tell process "Whisp"
+              set seen to ""
+              repeat with element in (entire contents of window 1)
+                repeat with field in {"name", "value", "description"}
+                  try
+                    if field as text is "name" then set shown to name of element as text
+                    if field as text is "value" then set shown to value of element as text
+                    if field as text is "description" then set shown to description of element as text
+                    if shown is not "" and shown is not "missing value" then set seen to seen & shown & linefeed
+                  end try
+                end repeat
+              end repeat
+              return seen
+            end tell
+          end tell
+          AS
+          python3 - "$RUNNER_TEMP/screen.log" "$RUNNER_TEMP/autostart.log" "$RUNNER_TEMP/whisp.log" "$RUNNER_TEMP/update-server.log" <<'PY'
           import sys
           limit = 30000
           text = ""
