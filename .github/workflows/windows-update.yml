@@ -75,10 +75,14 @@ jobs:
           public static class Mouse {
             [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
             [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, IntPtr extra);
+            [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
             public static void Click(int x, int y) {
               SetCursorPos(x, y);
               mouse_event(2, 0, 0, 0, IntPtr.Zero);
               mouse_event(4, 0, 0, 0, IntPtr.Zero);
+            }
+            public static void ClickButton(int window) {
+              PostMessage(new IntPtr(window), 0x00F5, IntPtr.Zero, IntPtr.Zero);
             }
           }
           "@
@@ -117,6 +121,12 @@ jobs:
               }
               $target = @($buttons + $others) | Select-Object -First 1
               if (-not $target) { return $false }
+              $handle = $target.Current.NativeWindowHandle
+              if ($handle -ne 0 -and $target.Current.ControlType -eq $Button) {
+                [Mouse]::ClickButton($handle)
+                Write-Host "sent a click to the $label button"
+                return $true
+              }
               $pattern = $null
               try {
                 if (-not $target.TryGetCurrentPattern($Invoke, [ref]$pattern)) { throw 'no invoke pattern' }
@@ -162,9 +172,19 @@ jobs:
           Press 'Whisp' 'Install'
 
           $deadline = (Get-Date).AddMinutes(5)
+          $lastPage = ''
           while ((Get-Date) -lt $deadline) {
             $wizard = Window '*Setup*'
             if ($wizard) {
+              $page = @(foreach ($element in $wizard.FindAll($Scope::Descendants, $Any)) {
+                try { $element.Current.Name } catch { }
+              }) | Where-Object { $_ } | Select-Object -Unique
+              $page = $page -join ' | '
+              if ($page -ne $lastPage) {
+                Write-Host "wizard: $page"
+                Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*setup*' } | ForEach-Object { Write-Host "installer: $($_.ExecutablePath)" }
+                $lastPage = $page
+              }
               foreach ($label in 'Next >', 'Install', 'Finish') {
                 if (TryPress $wizard $label) { Start-Sleep -Seconds 2; break }
               }

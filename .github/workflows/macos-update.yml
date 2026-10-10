@@ -118,6 +118,12 @@ jobs:
                 try
                   tell process "Whisp"
                     set frontmost to true
+                    try
+                      set value of attribute "AXManualAccessibility" to true
+                    end try
+                    try
+                      set value of attribute "AXEnhancedUserInterface" to true
+                    end try
                     set fallback to missing value
                     repeat with element in (entire contents of window 1)
                       set texts to {}
@@ -180,16 +186,28 @@ jobs:
           osascript > "$RUNNER_TEMP/screen.log" 2>&1 <<'AS' || true
           tell application "System Events"
             tell process "Whisp"
+              try
+                set value of attribute "AXEnhancedUserInterface" to true
+              end try
               set seen to {"windows: " & (count of windows)}
               repeat with element in (entire contents of window 1)
+                set entry to ""
+                try
+                  set entry to role of element as text
+                end try
                 try
                   set shown to name of element
-                  if shown is not missing value and shown is not "" then set end of seen to (role of element as text) & ": " & shown
+                  if shown is not missing value then set entry to entry & " name=" & shown
                 end try
                 try
                   set shown to value of element
-                  if shown is not missing value and shown is not "" then set end of seen to (role of element as text) & " = " & (shown as text)
+                  if shown is not missing value then set entry to entry & " value=" & (shown as text)
                 end try
+                try
+                  set shown to description of element
+                  if shown is not missing value then set entry to entry & " desc=" & shown
+                end try
+                set end of seen to entry
               end repeat
               set AppleScript's text item delimiters to linefeed
               return seen as text
