@@ -320,6 +320,20 @@ pub fn open_vpn_settings() -> Result<i32, String> {
     prep_static_int("openVpnSettings")
 }
 
+pub fn set_autostart(on: bool) -> Result<bool, String> {
+    let (vm, ctx_ptr) = vm_and_ctx()?;
+    let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
+    let cls = prep_class(&mut env, ctx_ptr)?;
+    env.call_static_method(
+        &cls,
+        "setAutostart",
+        "(Z)Z",
+        &[JValue::Bool(if on { 1 } else { 0 })],
+    )
+    .and_then(|v| v.z())
+    .map_err(|e| format!("setAutostart: {}", e))
+}
+
 fn prep_class<'a>(
     env: &mut jni::JNIEnv<'a>,
     ctx_ptr: *mut std::ffi::c_void,

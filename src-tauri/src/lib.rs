@@ -299,21 +299,54 @@ fn save_app_setting(app: tauri::AppHandle, mut settings: AppSettings) -> Result<
             if let Ok(existing) = serde_json::from_str::<AppSettings>(&raw) {
                 settings.routing_rules = existing.routing_rules;
                 settings.blocklist = existing.blocklist;
-                if settings.custom_dns.is_empty() {
-                    settings.custom_dns = existing.custom_dns;
-                }
-                if settings.vpn_dns.is_empty() {
-                    settings.vpn_dns = existing.vpn_dns;
-                }
-                if settings.tls_fingerprint.is_empty() {
-                    settings.tls_fingerprint = existing.tls_fingerprint;
+                if settings.secret.is_empty() {
+                    settings.secret = existing.secret;
                 }
             }
         }
     }
     let data = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     fs::write(&path, data).map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "android"))]
+    sync_autostart(&app, settings.auto_connect)?;
+    #[cfg(target_os = "android")]
+    {
+        let enabled = settings.auto_connect;
+        std::panic::catch_unwind(move || whisp_vpn_android::service_intent::set_autostart(enabled))
+            .map_err(|_| "panic in set_autostart".to_string())??;
+    }
     Ok(())
+}
+
+#[cfg(not(target_os = "android"))]
+fn sync_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let launcher = app.autolaunch();
+    if launcher.is_enabled().map_err(|e| e.to_string())? == enabled {
+        return Ok(());
+    }
+    if enabled {
+        launcher.enable()
+    } else {
+        launcher.disable()
+    }
+    .map_err(|e| format!("autostart: {e}"))
+}
+
+#[cfg(not(target_os = "android"))]
+const CONTROLLER_SECRET_BYTES: usize = 16;
+
+#[cfg(not(target_os = "android"))]
+fn ensure_controller_secret(app: &tauri::AppHandle) -> Result<(), String> {
+    let mut settings = get_app_settings(app.clone())?;
+    if !settings.secret.is_empty() {
+        return Ok(());
+    }
+    let mut raw = [0u8; CONTROLLER_SECRET_BYTES];
+    getrandom::fill(&mut raw).map_err(|e| e.to_string())?;
+    settings.secret = raw.iter().map(|b| format!("{b:02x}")).collect();
+    let data = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    fs::write(settings_path(app), data).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -515,7 +548,6 @@ async fn connect(
                 conn_key: &settings.conn_key,
                 server_addr: "",
                 socks_addr: &socks_addr,
-                kill_switch: settings.kill_switch,
                 transport: "",
                 vpn_dns: &settings.vpn_dns,
                 hwid: settings.hwid,
@@ -569,6 +601,9 @@ async fn connect(
         routing_mode: &settings.routing_mode,
         bypass_ru: settings.bypass_ru,
         external_link: &settings.external_link,
+        secret: &settings.secret,
+        kill_switch: settings.kill_switch,
+        vpn_dns: &settings.vpn_dns,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
@@ -1067,6 +1102,20 @@ fn open_config_dir(app: tauri::AppHandle) -> Result<(), String> {
             .spawn()
             .map_err(|e| e.to_string())?;
     }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -1187,12 +1236,16 @@ async fn save_routing_rules(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> R
         routing_mode: &settings.routing_mode,
         bypass_ru: settings.bypass_ru,
         external_link: &settings.external_link,
+        secret: &settings.secret,
+        kill_switch: settings.kill_switch,
+        vpn_dns: &settings.vpn_dns,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
     let config_str = config_path.to_string_lossy().replace('\\', "/");
     let _ = reqwest::Client::new()
         .put("http://127.0.0.1:9090/configs?force=true")
+        .bearer_auth(&settings.secret)
         .json(&serde_json::json!({ "path": config_str }))
         .timeout(Duration::from_secs(3))
         .send()
@@ -1245,12 +1298,16 @@ async fn apply_tls_fingerprint(app: tauri::AppHandle) -> Result<(), String> {
         routing_mode: &settings.routing_mode,
         bypass_ru: settings.bypass_ru,
         external_link: &settings.external_link,
+        secret: &settings.secret,
+        kill_switch: settings.kill_switch,
+        vpn_dns: &settings.vpn_dns,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
     let config_str = config_path.to_string_lossy().replace('\\', "/");
     reqwest::Client::new()
         .put("http://127.0.0.1:9090/configs?force=true")
+        .bearer_auth(&settings.secret)
         .json(&serde_json::json!({ "path": config_str }))
         .timeout(Duration::from_secs(3))
         .send()
@@ -1439,12 +1496,16 @@ async fn save_blocklist(app: tauri::AppHandle, rules: Vec<RoutingRule>) -> Resul
         routing_mode: &settings.routing_mode,
         bypass_ru: settings.bypass_ru,
         external_link: &settings.external_link,
+        secret: &settings.secret,
+        kill_switch: settings.kill_switch,
+        vpn_dns: &settings.vpn_dns,
     });
     fs::write(&config_path, &mihomo_config).map_err(|e| e.to_string())?;
 
     let config_str = config_path.to_string_lossy().replace('\\', "/");
     let _ = reqwest::Client::new()
         .put("http://127.0.0.1:9090/configs?force=true")
+        .bearer_auth(&settings.secret)
         .json(&serde_json::json!({ "path": config_str }))
         .timeout(Duration::from_secs(3))
         .send()
@@ -1541,6 +1602,9 @@ fn install_services(
             routing_mode: &settings.routing_mode,
             bypass_ru: settings.bypass_ru,
             external_link: &settings.external_link,
+            secret: &settings.secret,
+            kill_switch: settings.kill_switch,
+            vpn_dns: &settings.vpn_dns,
         });
         fs::write(&config_path, &stub).ok();
     }
@@ -1561,7 +1625,6 @@ fn install_services(
             conn_key: &settings.conn_key,
             server_addr: "",
             socks_addr: &socks_addr,
-            kill_switch: settings.kill_switch,
             transport: "",
             vpn_dns: &settings.vpn_dns,
             hwid: settings.hwid,
@@ -2035,9 +2098,12 @@ async fn icmp_ping(host: &str) -> Result<u64, String> {
         .map_err(|e| e.to_string())?
 }
 
+const ICMP_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(not(windows))]
+const ICMP_ECHO_REPLY_TYPE: u8 = 0;
+
 fn icmp_ping_blocking(host: &str) -> Result<u64, String> {
-    use socket2::{Domain, Protocol, Socket, Type};
-    use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+    use std::net::{IpAddr, ToSocketAddrs};
 
     let addr = (host, 0u16)
         .to_socket_addrs()
@@ -2047,10 +2113,65 @@ fn icmp_ping_blocking(host: &str) -> Result<u64, String> {
     let IpAddr::V4(v4) = addr.ip() else {
         return Err("no IPv4 address".to_string());
     };
+    icmp_echo(v4)
+}
+
+#[cfg(windows)]
+fn icmp_echo(dest: std::net::Ipv4Addr) -> Result<u64, String> {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho, ICMP_ECHO_REPLY, IP_SUCCESS,
+    };
+    const PAYLOAD_LEN: usize = 8;
+    const ICMP_ERROR_LEN: usize = 8;
+
+    let payload = [0u8; PAYLOAD_LEN];
+    let mut reply =
+        vec![0u8; std::mem::size_of::<ICMP_ECHO_REPLY>() + PAYLOAD_LEN + ICMP_ERROR_LEN];
+    let handle = unsafe { IcmpCreateFile() };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(format!("icmp handle: {}", std::io::Error::last_os_error()));
+    }
+    let replies = unsafe {
+        IcmpSendEcho(
+            handle,
+            u32::from_ne_bytes(dest.octets()),
+            payload.as_ptr().cast(),
+            PAYLOAD_LEN as u16,
+            std::ptr::null(),
+            reply.as_mut_ptr().cast(),
+            reply.len() as u32,
+            ICMP_TIMEOUT.as_millis() as u32,
+        )
+    };
+    unsafe { IcmpCloseHandle(handle) };
+    if replies == 0 {
+        return Err("timeout".to_string());
+    }
+    let echo = unsafe { std::ptr::read_unaligned(reply.as_ptr().cast::<ICMP_ECHO_REPLY>()) };
+    if echo.Status != IP_SUCCESS {
+        return Err(format!("icmp status {}", echo.Status));
+    }
+    Ok(echo.RoundTripTime as u64)
+}
+
+#[cfg(not(windows))]
+fn ip_header_len(first_byte: u8) -> usize {
+    if first_byte >> 4 == 4 {
+        (first_byte & 0x0f) as usize * 4
+    } else {
+        0
+    }
+}
+
+#[cfg(not(windows))]
+fn icmp_echo(v4: std::net::Ipv4Addr) -> Result<u64, String> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    use std::net::{IpAddr, SocketAddr};
 
     let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4))
         .map_err(|e| format!("icmp socket: {}", e))?;
-    sock.set_read_timeout(Some(Duration::from_secs(5)))
+    sock.set_read_timeout(Some(ICMP_TIMEOUT))
         .map_err(|e| e.to_string())?;
 
     let ident: u16 = std::process::id() as u16;
@@ -2067,19 +2188,24 @@ fn icmp_ping_blocking(host: &str) -> Result<u64, String> {
 
     // Anything may land on the socket — an unreachable error answers instantly and
     // would be timed as a successful round trip. Only an echo reply counts.
-    let deadline = start + Duration::from_secs(5);
+    let deadline = start + ICMP_TIMEOUT;
     let mut buf = [std::mem::MaybeUninit::<u8>::uninit(); 128];
     loop {
         if std::time::Instant::now() >= deadline {
             return Err("timeout".to_string());
         }
         let n = sock.recv(&mut buf).map_err(|_| "timeout".to_string())?;
-        if n > 0 && unsafe { buf[0].assume_init() } == 0 {
+        if n == 0 {
+            continue;
+        }
+        let at = ip_header_len(unsafe { buf[0].assume_init() });
+        if n > at && unsafe { buf[at].assume_init() } == ICMP_ECHO_REPLY_TYPE {
             return Ok(start.elapsed().as_millis() as u64);
         }
     }
 }
 
+#[cfg(not(windows))]
 fn icmp_checksum(data: &[u8]) -> u16 {
     let mut sum = 0u32;
     for chunk in data.chunks(2) {
@@ -2597,9 +2723,11 @@ pub fn run() {
     let builder = tauri::Builder::default();
 
     #[cfg(not(target_os = "android"))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-        show_main_window(app);
-    }));
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
+        .plugin(tauri_plugin_autostart::Builder::new().build());
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     let builder = if updates_are_signed(context.config()) {
@@ -2633,6 +2761,14 @@ pub fn run() {
                 }
                 #[allow(clippy::drop_non_drop)]
                 drop(state);
+                if let Err(e) = ensure_controller_secret(app.handle()) {
+                    eprintln!("[secret] {e}");
+                }
+                if let Ok(settings) = get_app_settings(app.handle().clone()) {
+                    if let Err(e) = sync_autostart(app.handle(), settings.auto_connect) {
+                        eprintln!("[autostart] {e}");
+                    }
+                }
             }
             #[cfg(target_os = "android")]
             {
@@ -2777,6 +2913,20 @@ mod tests {
             .as_str()
             .expect("tauri.conf.json must declare a version");
         assert_eq!(context.package_info().version.to_string(), declared);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn echo_reply_is_read_past_a_bsd_ip_header() {
+        assert_eq!(super::ip_header_len(0x45), 20);
+        assert_eq!(super::ip_header_len(0x46), 24);
+        assert_eq!(super::ip_header_len(super::ICMP_ECHO_REPLY_TYPE), 0);
+    }
+
+    #[test]
+    fn icmp_echo_is_answered_by_loopback() {
+        let rtt = super::icmp_echo(std::net::Ipv4Addr::LOCALHOST);
+        assert!(rtt.is_ok(), "{rtt:?}");
     }
 
     #[test]

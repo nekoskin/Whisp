@@ -104,7 +104,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     mixedPort: "Смешанный порт ", bindAddr: "Привязать адрес ", tunStack: "Tun Stack ", shareProxy: "Общий доступ к прокси",
     theme: "Тема ", dark: "Тёмная", auto: "Белая", dnsRedirect: "DNS перенаправление ",
     ipv6Label: "IPv6 ", secretLabel: "Secret ", copy: "Копировать",
-    hwid: "HWID ", autostart: "Автозапуск ", externalLink: "Внешний профиль ", externalHint: "Ссылка vless:// trojan:// ss:// — туннель ведёт mihomo, наш клиент не запускается. Пусто = свой протокол", authTip: "Совет по аутентификации ",
+    autostart: "Автозапуск ", externalLink: "Внешний профиль ", externalHint: "Ссылка vless:// trojan:// ss:// — туннель ведёт mihomo, наш клиент не запускается. Пусто = свой протокол", authTip: "Совет по аутентификации ",
     config: "Конфиг ", open: "Открыть", update: "Обновить ",
     openRepo: "Открыть репо", checkUpdates: "Проверить обновления", checking: "Проверка",
     installed: "Установлено в актуальной версии",
@@ -292,7 +292,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     mixedPort: "Mixed port ", bindAddr: "Bind address ", tunStack: "Tun Stack ", shareProxy: "Share proxy",
     theme: "Theme ", dark: "Dark", auto: "Light", dnsRedirect: "DNS redirect ",
     ipv6Label: "IPv6 ", secretLabel: "Secret ", copy: "Copy",
-    hwid: "HWID ", autostart: "Autostart ", externalLink: "External profile ", externalHint: "A vless:// trojan:// ss:// link — mihomo carries the tunnel, our client stays off. Empty = own protocol", authTip: "Auth tip ",
+    autostart: "Autostart ", externalLink: "External profile ", externalHint: "A vless:// trojan:// ss:// link — mihomo carries the tunnel, our client stays off. Empty = own protocol", authTip: "Auth tip ",
     config: "Config ", open: "Open", update: "Update ",
     openRepo: "Open repo", checkUpdates: "Check updates", checking: "Checking",
     installed: "Latest version installed",
@@ -480,7 +480,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     mixedPort: "混合端口", bindAddr: "绑定地址", tunStack: "Tun堆栈", shareProxy: "共享代理",
     theme: "主题", dark: "深色", auto: "浅色", dnsRedirect: "DNS重定向",
     ipv6Label: "IPv6", secretLabel: "密钥", copy: "复制",
-    hwid: "HWID", autostart: "自动启动", externalLink: "外部配置", externalHint: "vless:// trojan:// ss:// 链接 — 由 mihomo 承载隧道，本客户端不启动。留空 = 使用自有协议", authTip: "认证提示",
+    autostart: "自动启动", externalLink: "外部配置", externalHint: "vless:// trojan:// ss:// 链接 — 由 mihomo 承载隧道，本客户端不启动。留空 = 使用自有协议", authTip: "认证提示",
     config: "配置", open: "打开", update: "更新",
     openRepo: "打开仓库", checkUpdates: "检查更新", checking: "检查中",
     installed: "已安装最新版本",
@@ -668,7 +668,7 @@ const i18n: Record<Lang, Record<string, string>> = {
     mixedPort: "پورت ترکیبی", bindAddr: "آدرس bind", tunStack: "Tun Stack", shareProxy: "اشتراک پراکسی",
     theme: "پوسته", dark: "تیره", auto: "روشن", dnsRedirect: "هدایت DNS",
     ipv6Label: "IPv6", secretLabel: "رمز", copy: "کپی",
-    hwid: "HWID", autostart: "شروع خودکار", externalLink: "پروفایل خارجی", externalHint: "لینک vless:// trojan:// ss:// — تونل با mihomo، کلاینت ما اجرا نمی‌شود. خالی = پروتکل خودی", authTip: "راهنمای احراز هویت",
+    autostart: "شروع خودکار", externalLink: "پروفایل خارجی", externalHint: "لینک vless:// trojan:// ss:// — تونل با mihomo، کلاینت ما اجرا نمی‌شود. خالی = پروتکل خودی", authTip: "راهنمای احراز هویت",
     config: "پیکربندی", open: "باز کردن", update: "بروزرسانی",
     openRepo: "باز کردن مخزن", checkUpdates: "بررسی بروزرسانی", checking: "در حال بررسی",
     installed: "نسخه به‌روز است",
@@ -955,11 +955,6 @@ function formatDuration(ms: number): string {
   return `${sec}s`;
 }
 
-function genSecret(): string {
-  const c = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  return Array.from({ length: 16 }, () => c[Math.floor(Math.random() * c.length)]).join("");
-}
-
 function loadProfiles(): void {
   try { const r = localStorage.getItem("whisp_profiles"); if (r) profiles = JSON.parse(r); } catch {/**/ }
   const seen = new Set<string>();
@@ -1010,11 +1005,10 @@ function saveLang(): void { localStorage.setItem("whisp_lang", lang); }
 /* ===================== BACKEND ===================== */
 async function loadSettings(): Promise<void> {
   try { const s = await invoke<AppSettings>("get_app_settings"); settings = { ...settings, ...s }; } catch {/**/ }
-  if (!settings.secret) settings.secret = genSecret();
 }
 
 async function persistSettings(): Promise<void> {
-  try { await invoke("save_app_setting", { settings }); } catch {/**/ }
+  try { await invoke("save_app_setting", { settings }); } catch (e) { showToast(String(e), "error", 3000); }
 }
 
 async function loadRoutingRules(): Promise<void> {
@@ -2476,7 +2470,6 @@ function textField(id: string, value: string, placeholder: string): string {
 function whispSection(extraRows: string): string {
   return `<div class="settings-section">
       <div class="settings-section-header"><span class="settings-section-title">${t("whisp")}</span><span class="settings-link" id="whisp-update-status">${t("installed")}</span></div>
-      ${row(t("hwid"), toggleBox("set-hwid", !!settings.hwid))}
       ${row(t("autostart"), toggleBox("set-autostart", !!settings.auto_connect))}
       ${row(t("update"), `<button class="btn-sm" id="btn-open-repo">${t("openRepo")}</button>`)}
       ${extraRows}
@@ -2581,14 +2574,29 @@ function bindSettingsEvents(): void {
     persistSettings();
     if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
   });
-  (document.getElementById("set-bind") as HTMLInputElement)?.addEventListener("change", function () { settings.socks_addr = this.value; persistSettings(); });
+  (document.getElementById("set-bind") as HTMLInputElement)?.addEventListener("change", function () {
+    settings.socks_addr = this.value;
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
+  });
   (document.getElementById("set-custom-dns") as HTMLInputElement)?.addEventListener("change", function () {
     const servers = this.value.split(",").map(s => s.trim()).filter(s => s.length > 0);
     settings.custom_dns = servers;
     persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
   });
-  document.querySelectorAll<HTMLElement>(".pill-btn[data-tun]").forEach(el => el.addEventListener("click", () => { settings.tun_stack = el.dataset.tun || "Mixed"; persistSettings(); renderPage(); }));
-  document.querySelectorAll<HTMLElement>(".pill-btn[data-rmode]").forEach(el => el.addEventListener("click", () => { settings.routing_mode = el.dataset.rmode || "rule"; persistSettings(); renderPage(); }));
+  document.querySelectorAll<HTMLElement>(".pill-btn[data-tun]").forEach(el => el.addEventListener("click", () => {
+    settings.tun_stack = el.dataset.tun || "Mixed";
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
+    renderPage();
+  }));
+  document.querySelectorAll<HTMLElement>(".pill-btn[data-rmode]").forEach(el => el.addEventListener("click", () => {
+    settings.routing_mode = el.dataset.rmode || "rule";
+    persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
+    renderPage();
+  }));
   document.querySelectorAll<HTMLElement>(".pill-btn[data-theme]").forEach(el => el.addEventListener("click", () => { settings.theme = el.dataset.theme || "dark"; persistSettings(); renderPage(); }));
   document.querySelectorAll<HTMLElement>(".pill-btn[data-dnsmode]").forEach(el => el.addEventListener("click", () => {
     settings.dns_mode = el.dataset.dnsmode || "tcp";
@@ -2639,11 +2647,13 @@ function bindSettingsEvents(): void {
     const inp = document.getElementById("set-vpn-dns") as HTMLInputElement;
     if (inp) inp.value = val;
     persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
     renderPage();
   }));
   (document.getElementById("set-vpn-dns") as HTMLInputElement)?.addEventListener("change", function () {
     settings.vpn_dns = this.value.trim();
     persistSettings();
+    if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
   });
   document.getElementById("btn-toggle-socks-pass")?.addEventListener("click", function () {
     const inp = document.getElementById("set-socks-pass") as HTMLInputElement | null;
@@ -2677,8 +2687,14 @@ function bindSettingsEvents(): void {
     persistSettings();
     if (isConnected) showToast(t("reconnectToApply"), "info", 3000);
   });
-  const toggles: [string, keyof AppSettings][] = [["set-dns", "dns_redirect"], ["set-ipv6", "ipv6"], ["set-hwid", "hwid"], ["set-autostart", "auto_connect"], ["set-bypass-ru", "bypass_ru"]];
-  toggles.forEach(([id, key]) => { (document.getElementById(id) as HTMLInputElement)?.addEventListener("change", function () { (settings as any)[key] = this.checked; persistSettings(); }); });
+  const toggles: [string, keyof AppSettings][] = [["set-dns", "dns_redirect"], ["set-ipv6", "ipv6"], ["set-autostart", "auto_connect"], ["set-bypass-ru", "bypass_ru"]];
+  toggles.forEach(([id, key]) => {
+    (document.getElementById(id) as HTMLInputElement)?.addEventListener("change", function () {
+      (settings as any)[key] = this.checked;
+      persistSettings();
+      if (isConnected && key !== "auto_connect") showToast(t("reconnectToApply"), "info", 3000);
+    });
+  });
   (document.getElementById("set-allow-lan") as HTMLInputElement)?.addEventListener("change", function () {
     settings.allow_lan = this.checked;
     persistSettings();

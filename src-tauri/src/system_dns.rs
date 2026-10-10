@@ -6,6 +6,8 @@ use std::process::Command;
 
 const NAMESERVER_KEY: &str = "nameserver:";
 const LIST_ITEM: &str = "- ";
+const SCHEME_SEPARATOR: &str = "://";
+const URL_TAIL_STARTS: [char; 3] = ['/', '#', '?'];
 const SERVICE_LIST_HEADER_LINES: usize = 1;
 const DISABLED_MARK: char = '*';
 const FIELD_SEPARATOR: char = '\t';
@@ -24,13 +26,19 @@ pub(crate) fn tunnelled_servers(config: &str) -> Vec<IpAddr> {
         .skip_while(|line| *line != NAMESERVER_KEY)
         .skip(1)
         .map_while(|line| line.strip_prefix(LIST_ITEM))
-        .filter_map(|item| {
-            let item = item.trim().trim_matches('"');
-            item.parse::<IpAddr>()
-                .ok()
-                .or_else(|| item.parse::<SocketAddr>().ok().map(|addr| addr.ip()))
-        })
+        .filter_map(nameserver_ip)
         .collect()
+}
+
+fn nameserver_ip(item: &str) -> Option<IpAddr> {
+    let item = item.trim().trim_matches('"');
+    let addr = item
+        .split_once(SCHEME_SEPARATOR)
+        .map_or(item, |(_, rest)| rest);
+    let addr = addr.split(URL_TAIL_STARTS).next().unwrap_or(addr);
+    addr.parse::<IpAddr>()
+        .ok()
+        .or_else(|| addr.parse::<SocketAddr>().ok().map(|addr| addr.ip()))
 }
 
 pub(crate) fn services(listing: &str) -> Vec<String> {
@@ -176,16 +184,40 @@ mod tests {
             "8.8.4.4:53".to_string(),
             "https://dns.example/dns-query".to_string(),
         ];
-        let config = generate_config(&MihomoConfig {
+        let config = generate_config(&config_with(&custom, false, ""));
+        let expected: Vec<IpAddr> = vec!["77.88.8.8".parse().unwrap(), "8.8.4.4".parse().unwrap()];
+        assert_eq!(tunnelled_servers(&config), expected, "{config}");
+    }
+
+    #[test]
+    fn redirected_dns_points_the_system_at_the_tunnelled_resolver() {
+        for (vpn_dns, expected) in [
+            ("", "1.1.1.1"),
+            ("8.8.8.8", "8.8.8.8"),
+            ("77.88.8.8:53", "77.88.8.8"),
+            ("https://9.9.9.9/dns-query", "9.9.9.9"),
+        ] {
+            let config = generate_config(&config_with(&[], true, vpn_dns));
+            let expected: Vec<IpAddr> = vec![expected.parse().unwrap()];
+            assert_eq!(tunnelled_servers(&config), expected, "{config}");
+        }
+    }
+
+    fn config_with<'a>(
+        custom_dns: &'a [String],
+        dns_redirect: bool,
+        vpn_dns: &'a str,
+    ) -> MihomoConfig<'a> {
+        MihomoConfig {
             socks_addr: "127.0.0.1:1081",
             server_host: "example.com",
             mixed_port: 7890,
             tun_stack: "mixed",
-            dns_redirect: true,
+            dns_redirect,
             ipv6: false,
             routing_rules: &[],
             extra_socks_addrs: &[],
-            custom_dns: &custom,
+            custom_dns,
             socks_user: "",
             socks_pass: "",
             allow_lan: false,
@@ -193,9 +225,10 @@ mod tests {
             routing_mode: "rule",
             bypass_ru: true,
             external_link: "",
-        });
-        let expected: Vec<IpAddr> = vec!["77.88.8.8".parse().unwrap(), "8.8.4.4".parse().unwrap()];
-        assert_eq!(tunnelled_servers(&config), expected, "{config}");
+            secret: "",
+            kill_switch: false,
+            vpn_dns,
+        }
     }
 
     #[test]

@@ -82,6 +82,12 @@ object WhispVpnPrep {
         return p.getBoolean("lockdown", false)
     }
 
+    @JvmStatic fun setAutostart(on: Boolean): Boolean {
+        val a = currentActivity ?: return false
+        a.getSharedPreferences("whisp_vpn", Context.MODE_PRIVATE).edit().putBoolean("auto_connect", on).apply()
+        return true
+    }
+
     @JvmStatic fun openVpnSettings(): Int {
         val a = currentActivity ?: return -1
         return try {

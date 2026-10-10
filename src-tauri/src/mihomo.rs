@@ -897,6 +897,28 @@ pub struct MihomoConfig<'a> {
     pub routing_mode: &'a str,
     pub bypass_ru: bool,
     pub external_link: &'a str,
+    pub secret: &'a str,
+    pub kill_switch: bool,
+    pub vpn_dns: &'a str,
+}
+
+const SYSTEM_RESOLVER: &str = "system";
+const DEFAULT_VPN_DNS: &str = "1.1.1.1";
+const THROUGH_TUNNEL: &str = "#PROXY";
+
+fn tunnelled_nameserver(vpn_dns: &str) -> Option<String> {
+    let dns = match vpn_dns.trim() {
+        "" => DEFAULT_VPN_DNS,
+        set => set,
+    };
+    if dns.eq_ignore_ascii_case(SYSTEM_RESOLVER) || !valid_nameserver(dns) {
+        return None;
+    }
+    if dns.contains("://") {
+        Some(format!("{dns}{THROUGH_TUNNEL}"))
+    } else {
+        Some(format!("tcp://{dns}{THROUGH_TUNNEL}"))
+    }
 }
 
 fn valid_nameserver(s: &str) -> bool {
@@ -1072,6 +1094,16 @@ pub fn generate_config(cfg: &MihomoConfig) -> String {
     } else {
         String::new()
     };
+    let resolvers = match tunnelled_nameserver(cfg.vpn_dns) {
+        Some(ns) if cfg.dns_redirect => format!("    - {ns}"),
+        _ => nameservers,
+    };
+    let controller_secret = if cfg.secret.is_empty() {
+        String::new()
+    } else {
+        format!("secret: \"{}\"\n", cfg.secret)
+    };
+    let strict_route = cfg.kill_switch;
 
     let auth_block = if !cfg.socks_user.is_empty() && !cfg.socks_pass.is_empty() {
         format!(
@@ -1111,7 +1143,7 @@ ipv6: {ipv6}
 mode: {routing_mode}
 log-level: {log_level}
 external-controller: 127.0.0.1:9090
-find-process-mode: strict
+{controller_secret}find-process-mode: strict
 
 sniffer:
   enable: true
@@ -1144,7 +1176,7 @@ dns:
     - "+.stun.*.*"
     - "+.stun.*.*.*"
 {fakeip_extra}  nameserver:
-{nameservers}
+{resolvers}
 
 tun:
   enable: true
@@ -1154,6 +1186,7 @@ tun:
     - any:53
   auto-route: true
   auto-detect-interface: true
+  strict-route: {strict_route}
 {tun_exclude}
 proxies:
 {primary_proxy}{extra_proxies}
@@ -1321,6 +1354,78 @@ mod tests {
         }
     }
 
+    #[test]
+    fn kill_switch_turns_on_strict_route() {
+        use super::{generate_config, MihomoConfig};
+        for kill_switch in [false, true] {
+            let out = generate_config(&MihomoConfig {
+                kill_switch,
+                ..test_config(&[])
+            });
+            assert_eq!(
+                config_value(&out, "strict-route"),
+                kill_switch.to_string(),
+                "{out}"
+            );
+        }
+    }
+
+    #[test]
+    fn controller_secret_is_written_only_when_set() {
+        use super::{generate_config, MihomoConfig};
+        let open = generate_config(&test_config(&[]));
+        assert!(!open.contains("\nsecret:"), "{open}");
+        let locked = generate_config(&MihomoConfig {
+            secret: "abc123",
+            ..test_config(&[])
+        });
+        assert_eq!(config_value(&locked, "secret"), "\"abc123\"", "{locked}");
+    }
+
+    #[test]
+    fn redirected_dns_resolves_through_the_tunnel() {
+        use super::{generate_config, MihomoConfig, THROUGH_TUNNEL};
+        for (vpn_dns, expected) in [
+            ("", "tcp://1.1.1.1#PROXY"),
+            ("8.8.8.8", "tcp://8.8.8.8#PROXY"),
+            ("77.88.8.8:53", "tcp://77.88.8.8:53#PROXY"),
+            (
+                "https://1.1.1.1/dns-query",
+                "https://1.1.1.1/dns-query#PROXY",
+            ),
+        ] {
+            let out = generate_config(&MihomoConfig {
+                dns_redirect: true,
+                vpn_dns,
+                ..test_config(&[])
+            });
+            assert_eq!(nameservers(&out), [expected], "{out}");
+        }
+        for (dns_redirect, vpn_dns) in [(true, "system"), (false, "8.8.8.8")] {
+            let out = generate_config(&MihomoConfig {
+                dns_redirect,
+                vpn_dns,
+                ..test_config(&[])
+            });
+            let listed = nameservers(&out);
+            assert!(!listed.is_empty(), "{out}");
+            assert!(
+                listed.iter().all(|ns| !ns.ends_with(THROUGH_TUNNEL)),
+                "{out}"
+            );
+        }
+    }
+
+    fn nameservers(config: &str) -> Vec<&str> {
+        config
+            .lines()
+            .map(str::trim)
+            .skip_while(|line| *line != "nameserver:")
+            .skip(1)
+            .map_while(|line| line.strip_prefix("- "))
+            .collect()
+    }
+
     fn config_value<'a>(config: &'a str, key: &str) -> &'a str {
         config
             .lines()
@@ -1355,9 +1460,131 @@ mod tests {
         const DNS_RECORD_FIXED_LEN: usize = 10;
         const DNS_MAX_UDP_MESSAGE: usize = 512;
 
+        const CONTROLLER_SECRET: &str = "0123456789abcdef";
+        const HTTP_OK: u16 = 200;
+        const HTTP_UNAUTHORIZED: u16 = 401;
+
+        static ONE_SIDECAR_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+        #[test]
+        #[ignore = "needs the mihomo binary and a TUN device; run docker/run-checks.sh"]
+        fn controller_answers_only_with_the_secret() {
+            let _turn = ONE_SIDECAR_AT_A_TIME
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let config = generate_config(&MihomoConfig {
+                secret: CONTROLLER_SECRET,
+                kill_switch: true,
+                dns_redirect: true,
+                vpn_dns: "1.1.1.1",
+                ..test_config(&[])
+            });
+            let mihomo = Sidecar::start(&config);
+            let controller = config_value(&config, "external-controller");
+            assert!(
+                retry(|| http_ok(controller, "/version").then_some(())).is_some(),
+                "mihomo did not come up:\n{}",
+                mihomo.log()
+            );
+
+            let (anonymous, _) = controller_get(controller, "/version", None)
+                .unwrap_or_else(|| panic!("no answer from {controller}:\n{}", mihomo.log()));
+            assert_eq!(anonymous, HTTP_UNAUTHORIZED);
+
+            let (status, body) = controller_get(controller, "/configs", Some(CONTROLLER_SECRET))
+                .unwrap_or_else(|| panic!("no answer from {controller}:\n{}", mihomo.log()));
+            assert_eq!(status, HTTP_OK, "{body}");
+            assert!(body.contains("\"strict-route\":true"), "{body}");
+        }
+
+        const TUNNEL_RESOLVER: SocketAddr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), STANDARD_DNS_PORT);
+        const SOCKS_VERSION: u8 = 5;
+        const SOCKS_NO_AUTH: u8 = 0;
+        const SOCKS_ATYP_IPV4: u8 = 1;
+
+        #[test]
+        #[ignore = "needs the mihomo binary and a TUN device; run docker/run-checks.sh"]
+        fn redirected_dns_leaves_through_the_tunnel() {
+            let _turn = ONE_SIDECAR_AT_A_TIME
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let resolver = TUNNEL_RESOLVER.ip().to_string();
+            let config = generate_config(&MihomoConfig {
+                dns_redirect: true,
+                vpn_dns: &resolver,
+                ..test_config(&[])
+            });
+            let listen: SocketAddr = config_value(&config, "listen")
+                .parse()
+                .expect("dns listen must be ip:port");
+            let tunnel = std::net::TcpListener::bind(test_config(&[]).socks_addr)
+                .expect("stand in for the tunnel's SOCKS port");
+            tunnel.set_nonblocking(true).expect("non-blocking listener");
+
+            let mihomo = Sidecar::start(&config);
+            let target = retry(|| {
+                let _ = resolve_a(listen, PROBE_DOMAIN);
+                let (conn, _) = tunnel.accept().ok()?;
+                socks_connect_target(conn)
+            })
+            .unwrap_or_else(|| panic!("no DNS query reached the tunnel:\n{}", mihomo.log()));
+            assert_eq!(target, TUNNEL_RESOLVER);
+        }
+
+        fn socks_connect_target(mut conn: std::net::TcpStream) -> Option<SocketAddr> {
+            use std::io::{Read, Write};
+
+            conn.set_nonblocking(false).ok()?;
+            conn.set_read_timeout(Some(QUERY_TIMEOUT)).ok()?;
+            let mut greeting = [0u8; 2];
+            conn.read_exact(&mut greeting).ok()?;
+            let mut methods = vec![0u8; greeting[1] as usize];
+            conn.read_exact(&mut methods).ok()?;
+            conn.write_all(&[SOCKS_VERSION, SOCKS_NO_AUTH]).ok()?;
+            let mut request = [0u8; 4];
+            conn.read_exact(&mut request).ok()?;
+            if request[3] != SOCKS_ATYP_IPV4 {
+                return None;
+            }
+            let mut addr = [0u8; 6];
+            conn.read_exact(&mut addr).ok()?;
+            let ip = Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3]);
+            Some(SocketAddr::from((
+                ip,
+                u16::from_be_bytes([addr[4], addr[5]]),
+            )))
+        }
+
+        fn controller_get(addr: &str, path: &str, secret: Option<&str>) -> Option<(u16, String)> {
+            use std::io::{Read, Write};
+            use std::net::TcpStream;
+
+            let mut conn = TcpStream::connect_timeout(&addr.parse().ok()?, QUERY_TIMEOUT).ok()?;
+            conn.set_read_timeout(Some(QUERY_TIMEOUT)).ok()?;
+            let auth = secret
+                .map(|s| format!("Authorization: Bearer {s}\r\n"))
+                .unwrap_or_default();
+            let request = format!(
+                "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n{auth}Connection: close\r\n\r\n"
+            );
+            conn.write_all(request.as_bytes()).ok()?;
+            let mut raw = String::new();
+            conn.read_to_string(&mut raw).ok()?;
+            let status = raw.split_whitespace().nth(1)?.parse().ok()?;
+            let body = raw
+                .split_once("\r\n\r\n")
+                .map_or("", |(_, b)| b)
+                .to_string();
+            Some((status, body))
+        }
+
         #[test]
         #[ignore = "needs the mihomo binary and a TUN device; run docker/run-checks.sh"]
         fn dns_answers_through_tun_but_not_from_the_network() {
+            let _turn = ONE_SIDECAR_AT_A_TIME
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             let config = generate_config(&MihomoConfig {
                 bypass_ru: false,
                 ..test_config(&[])
@@ -1555,6 +1782,9 @@ mod tests {
             routing_mode: "rule",
             bypass_ru: true,
             external_link: "",
+            secret: "",
+            kill_switch: false,
+            vpn_dns: "",
         }
     }
 }

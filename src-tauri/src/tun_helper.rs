@@ -1031,6 +1031,9 @@ mod tests {
                 routing_mode: ROUTING_MODE,
                 bypass_ru: true,
                 external_link: "",
+                secret: "",
+                kill_switch: false,
+                vpn_dns: "",
             });
             let fake_range = fake_ip_range(&config_text);
             let config = work.join("config.yaml");

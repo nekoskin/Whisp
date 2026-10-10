@@ -21,7 +21,6 @@ pub struct GoClientConfig<'a> {
     pub conn_key: &'a str,
     pub server_addr: &'a str,
     pub socks_addr: &'a str,
-    pub kill_switch: bool,
     pub transport: &'a str,
     pub vpn_dns: &'a str,
     pub hwid: bool,
@@ -118,9 +117,6 @@ impl GoClientManager {
             format!("-server \"{}\"", cfg.server_addr)
         };
         let mut args = format!("{} -socks \"{}\" -no-tun", key_part, cfg.socks_addr);
-        if cfg.kill_switch {
-            args.push_str(" -kill-switch");
-        }
         if !cfg.split_rules.is_empty() {
             args.push_str(&format!(
                 " -split-rules \"{}\"",
@@ -129,6 +125,9 @@ impl GoClientManager {
         }
         if !cfg.transport.is_empty() {
             args.push_str(&format!(" -transport {}", cfg.transport));
+        }
+        if !cfg.vpn_dns.is_empty() {
+            args.push_str(&format!(" -dns \"{}\"", cfg.vpn_dns));
         }
         if !cfg.hwid {
             args.push_str(" -hwid=false");
@@ -288,10 +287,6 @@ impl GoClientManager {
         cmd.arg("-socks").arg(cfg.socks_addr);
         cmd.arg("-no-tun");
         cmd.arg("-log-file").arg(go_client_log_file());
-
-        if cfg.kill_switch {
-            cmd.arg("-kill-switch");
-        }
 
         if !cfg.split_rules.is_empty() {
             cmd.arg("-split-rules").arg(cfg.split_rules);
