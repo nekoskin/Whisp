@@ -2378,6 +2378,12 @@ async fn install_update(
         return whisp_vpn_android::service_intent::open_url_android(url);
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let _ = download_url;
+        return install_signed_update(&app, &html_url).await;
+    }
+
     if download_url.is_empty() {
         #[cfg(not(target_os = "android"))]
         #[allow(deprecated)]
@@ -2410,12 +2416,6 @@ async fn install_update(
 
     std::fs::write(&tmp_path, &bytes).map_err(|e| format!("Write failed: {}", e))?;
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755)).ok();
-    }
-
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new(&tmp_path)
@@ -2424,22 +2424,49 @@ async fn install_update(
         std::process::exit(0);
     }
 
-    #[cfg(not(any(target_os = "windows", target_os = "android")))]
-    {
-        if download_url.ends_with(".AppImage") {
-            std::process::Command::new(&tmp_path)
-                .spawn()
-                .map_err(|e| format!("Launch failed: {}", e))?;
-            std::process::exit(0);
-        } else {
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const UPDATER_PLUGIN: &str = "updater";
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn updates_are_signed(config: &tauri::Config) -> bool {
+    config.plugins.0.contains_key(UPDATER_PLUGIN)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+async fn install_signed_update(app: &tauri::AppHandle, release_page: &str) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let installed = if updates_are_signed(app.config()) {
+        async {
+            let update = app
+                .updater()
+                .map_err(|e| e.to_string())?
+                .check()
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "no signed update is published for this build".to_string())?;
+            update
+                .download_and_install(|_, _| {}, || {})
+                .await
+                .map_err(|e| e.to_string())
+        }
+        .await
+    } else {
+        Err("this build carries no update signing key".to_string())
+    };
+    match installed {
+        Ok(()) => app.restart(),
+        Err(e) => {
+            eprintln!("[updater] {e}, opening the release page instead");
             #[allow(deprecated)]
             app.shell()
-                .open(tmp_path.to_string_lossy().as_ref(), None)
-                .map_err(|e| e.to_string())?;
+                .open(release_page, None)
+                .map_err(|e| e.to_string())
         }
     }
-
-    Ok(())
 }
 
 #[cfg(not(target_os = "android"))]
@@ -2566,12 +2593,20 @@ pub fn run() {
         }
     }
 
+    let context = tauri::generate_context!();
     let builder = tauri::Builder::default();
 
     #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
         show_main_window(app);
     }));
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let builder = if updates_are_signed(context.config()) {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
 
     builder
         .plugin(tauri_plugin_shell::init())
@@ -2727,7 +2762,7 @@ pub fn run() {
             check_for_updates,
             install_update,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
 

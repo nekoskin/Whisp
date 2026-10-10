@@ -47,6 +47,7 @@ jobs:
               src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
               src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm
               src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+              src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage.sig
           - label: macos-universal
             runner: macos-14
             triple: universal-apple-darwin
@@ -58,6 +59,7 @@ jobs:
             mihomo_archive: gz
             bundle_glob: |
               src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+              src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
     steps:
       - uses: actions/checkout@v4
         with:
@@ -218,6 +220,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           # macOS: только app + tar.gz (DMG bundle_dmg.sh флачит на CI hdiutil).
           args: --target ${{ matrix.triple }}${{ contains(matrix.triple, 'apple-darwin') && ' --bundles app' || '' }}${{ contains(matrix.triple, 'linux') && ' --bundles deb,rpm,appimage' || '' }}
@@ -504,6 +508,41 @@ jobs:
           echo "tag=$NEW" >> $GITHUB_OUTPUT
           echo "release=$RELEASE" >> $GITHUB_OUTPUT
           echo "Whisp release tag=$NEW new=$RELEASE"
+
+      - name: Write the updater manifest
+        if: steps.ver.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          DOWNLOAD_BASE: https://github.com/${{ github.repository }}/releases/download
+        run: |
+          python3 - <<'PY'
+          import datetime, glob, json, os
+          tag, base = os.environ["TAG"], os.environ["DOWNLOAD_BASE"]
+          bundles = {
+              "*.app.tar.gz": ["darwin-aarch64", "darwin-x86_64"],
+              "*.AppImage": ["linux-x86_64"],
+          }
+          platforms = {}
+          for pattern, targets in bundles.items():
+              for path in glob.glob(os.path.join("release", "**", pattern), recursive=True):
+                  if not os.path.exists(path + ".sig"):
+                      continue
+                  entry = {
+                      "signature": open(path + ".sig").read().strip(),
+                      "url": f"{base}/{tag}/{os.path.basename(path)}",
+                  }
+                  platforms.update({target: entry for target in targets})
+          if not platforms:
+              print("no signed bundles, the release goes out without an updater manifest")
+              raise SystemExit(0)
+          manifest = {
+              "version": tag.lstrip("v"),
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": platforms,
+          }
+          json.dump(manifest, open(os.path.join("release", "latest.json"), "w"), indent=2)
+          print(json.dumps(manifest, indent=2))
+          PY
 
       - name: Upload release
         if: steps.ver.outputs.release == 'true'
