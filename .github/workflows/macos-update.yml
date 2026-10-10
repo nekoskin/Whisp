@@ -117,6 +117,7 @@ jobs:
                 try
                   tell process "Whisp"
                     set frontmost to true
+                    set fallback to missing value
                     repeat with element in (entire contents of window 1)
                       set texts to {}
                       try
@@ -131,14 +132,17 @@ jobs:
                       if texts contains label then
                         if role of element is "AXButton" then
                           perform action "AXPress" of element
-                        else
-                          set {x, y} to position of element
-                          set {w, h} to size of element
-                          click at {x + w div 2, y + h div 2}
+                          return "pressed " & label
                         end if
-                        return "pressed " & label
+                        if fallback is missing value then set fallback to contents of element
                       end if
                     end repeat
+                    if fallback is not missing value then
+                      set {x, y} to position of fallback
+                      set {w, h} to size of fallback
+                      click at {x + w div 2, y + h div 2}
+                      return "clicked " & label
+                    end if
                   end tell
                 end try
                 delay 1
