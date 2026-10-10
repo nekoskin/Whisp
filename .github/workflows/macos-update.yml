@@ -82,6 +82,28 @@ jobs:
           json.dump(manifest, open(os.path.join(serve, "latest.json"), "w"))
           PY
 
+      - name: Autostart registers a login item
+        run: |
+          set -e
+          APP="$HOME/Applications/Whisp.app"
+          CONFIG="$HOME/Library/Application Support/com.whispera.whisp"
+          mkdir -p "$CONFIG"
+          printf '%s' '{"conn_key":"","auto_connect":true,"theme":"dark","mihomo_port":9887,"socks_addr":"127.0.0.1:1081","kill_switch":false}' > "$CONFIG/settings.json"
+          "$APP/Contents/MacOS/Whisp" > "$RUNNER_TEMP/autostart.log" 2>&1 &
+          AGENT=""
+          for i in $(seq 1 30); do
+            AGENT=$(grep -l "$APP/Contents/MacOS/Whisp" "$HOME/Library/LaunchAgents/"*.plist 2>/dev/null || true)
+            [ -n "$AGENT" ] && break
+            sleep 1
+          done
+          pkill -f "$APP/Contents/MacOS/Whisp" || true
+          for i in $(seq 1 15); do
+            pgrep -f "$APP/Contents/MacOS/Whisp" >/dev/null || break
+            sleep 1
+          done
+          test -n "$AGENT"
+          plutil -p "$AGENT"
+
       - name: Install the update from the app's own button
         run: |
           set -e
@@ -91,10 +113,10 @@ jobs:
           on run argv
             set label to item 1 of argv
             tell application "System Events"
-              tell process "Whisp"
-                set frontmost to true
-                repeat 60 times
-                  try
+              repeat 60 times
+                try
+                  tell process "Whisp"
+                    set frontmost to true
                     repeat with element in (entire contents of window 1)
                       set texts to {}
                       try
@@ -117,10 +139,10 @@ jobs:
                         return "pressed " & label
                       end if
                     end repeat
-                  end try
-                  delay 1
-                end repeat
-              end tell
+                  end tell
+                end try
+                delay 1
+              end repeat
             end tell
             error "nothing labelled " & label
           end run
@@ -149,7 +171,8 @@ jobs:
       - name: Publish what the app logged
         if: failure()
         run: |
-          python3 - "$RUNNER_TEMP/whisp.log" "$RUNNER_TEMP/update-server.log" <<'PY'
+          screencapture -x "$RUNNER_TEMP/failure.png" || true
+          python3 - "$RUNNER_TEMP/autostart.log" "$RUNNER_TEMP/whisp.log" "$RUNNER_TEMP/update-server.log" <<'PY'
           import sys
           limit = 30000
           text = ""
@@ -167,7 +190,7 @@ jobs:
         if: always()
         run: |
           mkdir -p artifacts
-          cp "$RUNNER_TEMP"/*.png "$RUNNER_TEMP/whisp.log" "$RUNNER_TEMP/update-server.log" artifacts/ 2>/dev/null || true
+          cp "$RUNNER_TEMP"/*.png "$RUNNER_TEMP"/*.log artifacts/ 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         if: always()
