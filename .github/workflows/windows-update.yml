@@ -67,6 +67,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path "$env:RUNNER_TEMP\ui.log" -Append | Out-Null
           Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms, System.Drawing
           Add-Type @"
           using System;
@@ -95,25 +96,42 @@ jobs:
           }
 
           function Window($pattern) {
-            $UIA::RootElement.FindAll($Scope::Children, $Any) |
-              Where-Object { $_.Current.Name -like $pattern } | Select-Object -First 1
+            foreach ($candidate in $UIA::RootElement.FindAll($Scope::Children, $Any)) {
+              try {
+                if ($candidate.Current.Name -like $pattern) { return $candidate }
+              } catch { }
+            }
           }
 
           function TryPress($window, $label) {
-            $found = @($window.FindAll($Scope::Descendants, $Any) |
-              Where-Object { $_.Current.Name.Trim() -eq $label -and $_.Current.IsEnabled })
-            $target = $found | Where-Object { $_.Current.ControlType -eq $Button } | Select-Object -First 1
-            if (-not $target) { $target = $found | Select-Object -First 1 }
-            if (-not $target) { return $false }
-            $pattern = $null
-            if ($target.TryGetCurrentPattern($Invoke, [ref]$pattern)) {
-              $pattern.Invoke()
-            } else {
-              $rect = $target.Current.BoundingRectangle
-              [Mouse]::Click([int]($rect.X + $rect.Width / 2), [int]($rect.Y + $rect.Height / 2))
+            try {
+              $buttons = @()
+              $others = @()
+              foreach ($element in $window.FindAll($Scope::Descendants, $Any)) {
+                try {
+                  $current = $element.Current
+                  if ($current.Name -and $current.Name.Trim() -eq $label -and $current.IsEnabled) {
+                    if ($current.ControlType -eq $Button) { $buttons += $element } else { $others += $element }
+                  }
+                } catch { }
+              }
+              $target = @($buttons + $others) | Select-Object -First 1
+              if (-not $target) { return $false }
+              $pattern = $null
+              try {
+                if (-not $target.TryGetCurrentPattern($Invoke, [ref]$pattern)) { throw 'no invoke pattern' }
+                $pattern.Invoke()
+                Write-Host "invoked $label"
+              } catch {
+                $rect = $target.Current.BoundingRectangle
+                [Mouse]::Click([int]($rect.X + $rect.Width / 2), [int]($rect.Y + $rect.Height / 2))
+                Write-Host "clicked $label at $($rect.X),$($rect.Y) ($($_.Exception.Message))"
+              }
+              return $true
+            } catch {
+              Write-Host "could not press ${label}: $($_.Exception.Message)"
+              return $false
             }
-            Write-Host "pressed $label"
-            return $true
           }
 
           function Press($pattern, $label) {
@@ -175,8 +193,11 @@ jobs:
           $UIA = [System.Windows.Automation.AutomationElement]
           $Scope = [System.Windows.Automation.TreeScope]
           $Any = [System.Windows.Automation.Condition]::TrueCondition
+          $text = ""
+          $steps = Join-Path $env:RUNNER_TEMP 'ui.log'
+          if (Test-Path $steps) { $text += "--- steps`n" + (Get-Content $steps -Tail 60 | Out-String) }
           $stderr = Join-Path $env:RUNNER_TEMP 'steps.err'
-          $text = if (Test-Path $stderr) { "--- stderr`n" + (Get-Content $stderr -Tail 40 | Out-String) } else { "" }
+          if (Test-Path $stderr) { $text += "--- stderr`n" + (Get-Content $stderr -Tail 15 | Out-String) }
           foreach ($window in $UIA::RootElement.FindAll($Scope::Children, $Any)) {
             $names = $window.FindAll($Scope::Descendants, $Any) | ForEach-Object { $_.Current.Name.Trim() } | Where-Object { $_ } | Select-Object -Unique
             $text += "--- $($window.Current.Name)`n$($names -join "`n")`n"

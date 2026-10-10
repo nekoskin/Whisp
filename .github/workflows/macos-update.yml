@@ -107,6 +107,7 @@ jobs:
       - name: Install the update from the app's own button
         run: |
           set -e
+          exec > >(tee -a "$RUNNER_TEMP/steps.log") 2>&1
           APP="$HOME/Applications/Whisp.app"
           CLICK="$RUNNER_TEMP/click.applescript"
           cat > "$CLICK" <<'AS'
@@ -179,22 +180,23 @@ jobs:
           osascript > "$RUNNER_TEMP/screen.log" 2>&1 <<'AS' || true
           tell application "System Events"
             tell process "Whisp"
-              set seen to ""
+              set seen to {"windows: " & (count of windows)}
               repeat with element in (entire contents of window 1)
-                repeat with field in {"name", "value", "description"}
-                  try
-                    if field as text is "name" then set shown to name of element as text
-                    if field as text is "value" then set shown to value of element as text
-                    if field as text is "description" then set shown to description of element as text
-                    if shown is not "" and shown is not "missing value" then set seen to seen & shown & linefeed
-                  end try
-                end repeat
+                try
+                  set shown to name of element
+                  if shown is not missing value and shown is not "" then set end of seen to (role of element as text) & ": " & shown
+                end try
+                try
+                  set shown to value of element
+                  if shown is not missing value and shown is not "" then set end of seen to (role of element as text) & " = " & (shown as text)
+                end try
               end repeat
-              return seen
+              set AppleScript's text item delimiters to linefeed
+              return seen as text
             end tell
           end tell
           AS
-          python3 - "$RUNNER_TEMP/screen.log" "$RUNNER_TEMP/autostart.log" "$RUNNER_TEMP/whisp.log" "$RUNNER_TEMP/update-server.log" <<'PY'
+          python3 - "$RUNNER_TEMP/steps.log" "$RUNNER_TEMP/screen.log" "$RUNNER_TEMP/autostart.log" "$RUNNER_TEMP/whisp.log" "$RUNNER_TEMP/update-server.log" <<'PY'
           import sys
           limit = 30000
           text = ""

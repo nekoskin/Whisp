@@ -58,7 +58,10 @@ jobs:
           set -e
           OUT="$RUNNER_TEMP/android"
           mkdir -p "$OUT"
-          HEIGHT=$(adb shell wm size | sed -n 's/.*x\([0-9]*\).*/\1/p' | tail -n 1)
+          SIZE=$(adb shell wm size | tr -d '\r' | sed -n 's/.*: *\([0-9]*x[0-9]*\)$/\1/p' | tail -n 1)
+          WIDTH=${SIZE%x*}
+          HEIGHT=${SIZE#*x}
+          echo "screen: ${WIDTH}x${HEIGHT}"
           shot() { adb exec-out screencap -p > "$OUT/$1.png"; }
           trap 'adb logcat -d > "$OUT/logcat.txt"; shot exit' EXIT
           PRESSES=0
@@ -78,7 +81,7 @@ jobs:
                 done
                 if AT=$(python3 "$RUNNER_TEMP/press.py" "$1" "$HEIGHT" "$OUT/ui.xml"); then
                   if [ "$AT" = "swipe" ]; then
-                    adb shell input swipe 500 $((HEIGHT * 3 / 4)) 500 $((HEIGHT / 4)) 300
+                    adb shell input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 300
                   else
                     PRESSES=$((PRESSES + 1))
                     shot "press-$PRESSES"
@@ -99,7 +102,7 @@ jobs:
           echo "installed version: $(adb shell dumpsys package "$PACKAGE" | sed -n 's/.*versionName=//p' | head -n 1)"
           adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 >/dev/null
           press "Настройки"
-          for i in $(seq 1 6); do adb shell input swipe 500 $((HEIGHT * 3 / 4)) 500 $((HEIGHT / 4)) 200; done
+          for i in $(seq 1 6); do adb shell input swipe $((WIDTH / 2)) $((HEIGHT * 3 / 4)) $((WIDTH / 2)) $((HEIGHT / 4)) 200; done
           press "Проверить обновления"
           adb logcat -c
           press "Установить"
@@ -118,6 +121,7 @@ jobs:
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
+          profile: pixel_6
           arch: x86_64
           target: google_apis
           disable-animations: true
