@@ -2,13 +2,6 @@ name: macOS in-app update
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'src-tauri/src/lib.rs'
-      - 'src-tauri/Cargo.toml'
-      - 'src-tauri/tauri.macos.conf.json'
-      - '.github/workflows/macos-update.yml'
 
 jobs:
   update:

@@ -2,11 +2,6 @@ name: Windows in-app update
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'src-tauri/src/lib.rs'
-      - '.github/workflows/windows-update.yml'
 
 jobs:
   update:
