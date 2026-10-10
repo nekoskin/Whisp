@@ -1,0 +1,143 @@
+name: Android in-app update
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-update.yml'
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      OLD_TAG: v0.0.9
+      PACKAGE: com.whispera.whisp
+    steps:
+      - name: Let the emulator use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Old APK and the release it should offer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          gh release download "$OLD_TAG" -R "$GITHUB_REPOSITORY" -p '*.apk' -O "$RUNNER_TEMP/old.apk"
+          NEW_TAG=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          echo "NEW_TAG=$NEW_TAG" >> "$GITHUB_ENV"
+          echo "installed: $OLD_TAG, offered: $NEW_TAG"
+
+      - name: Write the device script
+        run: |
+          cat > "$RUNNER_TEMP/press.py" <<'PY'
+          import re, sys, xml.etree.ElementTree as ET
+          label, height = sys.argv[1], int(sys.argv[2])
+          root = ET.parse(sys.argv[3]).getroot()
+          found = []
+          for node in root.iter("node"):
+              names = {node.get("text", "").strip(), node.get("content-desc", "").strip()}
+              if label not in names:
+                  continue
+              x1, y1, x2, y2 = map(int, re.findall(r"\d+", node.get("bounds", "")))
+              if x2 <= x1 or y2 <= y1:
+                  continue
+              found.append((node.get("class") != "android.widget.Button", x1, y1, x2, y2))
+          if not found:
+              sys.exit(1)
+          _, x1, y1, x2, y2 = sorted(found)[0]
+          y = (y1 + y2) // 2
+          print("swipe" if y >= height else f"{(x1 + x2) // 2} {y}")
+          PY
+          cat > "$RUNNER_TEMP/update.sh" <<'SH'
+          set -e
+          OUT="$RUNNER_TEMP/android"
+          mkdir -p "$OUT"
+          HEIGHT=$(adb shell wm size | sed -n 's/.*x\([0-9]*\).*/\1/p' | tail -n 1)
+          shot() { adb exec-out screencap -p > "$OUT/$1.png"; }
+          dump() {
+            adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || return 1
+            adb exec-out cat /sdcard/ui.xml > "$OUT/ui.xml"
+          }
+          press() {
+            for i in $(seq 1 60); do
+              if dump; then
+                for deny in permission_deny_button permission_deny_and_dont_ask_again_button; do
+                  if grep -q "$deny" "$OUT/ui.xml"; then
+                    adb shell input tap $(python3 -c "import re,sys;s=open(sys.argv[1]).read();m=re.search(r'resource-id=\"[^\"]*'+sys.argv[2]+r'\"[^>]*bounds=\"\[(\d+),(\d+)\]\[(\d+),(\d+)\]\"',s);print((int(m[1])+int(m[3]))//2,(int(m[2])+int(m[4]))//2)" "$OUT/ui.xml" "$deny")
+                    sleep 1
+                    continue 2
+                  fi
+                done
+                if AT=$(python3 "$RUNNER_TEMP/press.py" "$1" "$HEIGHT" "$OUT/ui.xml"); then
+                  if [ "$AT" = "swipe" ]; then
+                    adb shell input swipe 500 $((HEIGHT * 3 / 4)) 500 $((HEIGHT / 4)) 300
+                  else
+                    adb shell input tap $AT
+                    echo "pressed $1 at $AT"
+                    return 0
+                  fi
+                fi
+              fi
+              sleep 2
+            done
+            shot "missing"
+            echo "nothing labelled $1"
+            return 1
+          }
+          adb install -r "$RUNNER_TEMP/old.apk"
+          echo "installed version: $(adb shell dumpsys package "$PACKAGE" | sed -n 's/.*versionName=//p' | head -n 1)"
+          adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 >/dev/null
+          press "Настройки"
+          for i in $(seq 1 6); do adb shell input swipe 500 $((HEIGHT * 3 / 4)) 500 $((HEIGHT / 4)) 200; done
+          press "Проверить обновления"
+          adb logcat -c
+          press "Установить"
+          sleep 10
+          shot "after-install"
+          adb logcat -d > "$OUT/logcat.txt"
+          grep -E "START u0 .*act=android.intent.action.VIEW" "$OUT/logcat.txt" | tee "$OUT/started.txt"
+          grep -q "github.com" "$OUT/started.txt"
+          adb shell dumpsys activity activities | grep -E "topResumedActivity" | tee -a "$OUT/started.txt"
+          if grep -q "topResumedActivity.*$PACKAGE/" "$OUT/started.txt"; then
+            echo "Whisp is still in front: nothing opened the APK link"
+            exit 1
+          fi
+          SH
+
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: bash "$RUNNER_TEMP/update.sh"
+
+      - name: Publish what the device showed
+        if: failure()
+        run: |
+          python3 - "$RUNNER_TEMP/android/ui.xml" "$RUNNER_TEMP/android/logcat.txt" <<'PY'
+          import re, sys
+          text = ""
+          try:
+              ui = open(sys.argv[1], errors="replace").read()
+              text += "--- screen\n" + "\n".join(t for t in re.findall(r'text="([^"]+)"', ui)) + "\n"
+          except OSError as e:
+              text += f"--- screen: {e}\n"
+          try:
+              log = open(sys.argv[2], errors="replace").read().splitlines()
+              text += "--- logcat\n" + "\n".join(l for l in log if "whisp" in l.lower() or "ActivityTaskManager" in l)[-20000:]
+          except OSError as e:
+              text += f"--- logcat: {e}\n"
+          for raw, escaped in (("%", "%25"), ("\r", "%0D"), ("\n", "%0A")):
+              text = text.replace(raw, escaped)
+          print("::error title=android in-app update::" + text)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-update
+          path: ${{ runner.temp }}/android/
