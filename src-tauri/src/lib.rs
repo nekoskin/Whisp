@@ -307,7 +307,7 @@ fn save_app_setting(app: tauri::AppHandle, mut settings: AppSettings) -> Result<
     }
     let data = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     fs::write(&path, data).map_err(|e| e.to_string())?;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(desktop)]
     sync_autostart(&app, settings.auto_connect)?;
     #[cfg(target_os = "android")]
     {
@@ -318,7 +318,7 @@ fn save_app_setting(app: tauri::AppHandle, mut settings: AppSettings) -> Result<
     Ok(())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 fn sync_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
     let launcher = app.autolaunch();
@@ -333,10 +333,10 @@ fn sync_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     .map_err(|e| format!("autostart: {e}"))
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 const CONTROLLER_SECRET_BYTES: usize = 16;
 
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 fn ensure_controller_secret(app: &tauri::AppHandle) -> Result<(), String> {
     let mut settings = get_app_settings(app.clone())?;
     if !settings.secret.is_empty() {
@@ -2658,7 +2658,7 @@ async fn install_signed_update(app: &tauri::AppHandle, release_page: &str) -> Re
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(desktop)]
 fn show_main_window(app: &tauri::AppHandle) {
     use tauri::Manager;
     if let Some(w) = app.get_webview_window("main") {
@@ -2785,7 +2785,7 @@ pub fn run() {
     let context = tauri::generate_context!();
     let builder = tauri::Builder::default();
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main_window(app);
@@ -2813,7 +2813,7 @@ pub fn run() {
         })
         .setup(|app| {
             let _ = &app;
-            #[cfg(not(target_os = "android"))]
+            #[cfg(desktop)]
             {
                 let state: tauri::State<AppState> = app.state();
                 if let Ok(gc) = state.go_client.lock() {
@@ -2857,7 +2857,7 @@ pub fn run() {
                 });
             }
 
-            #[cfg(not(target_os = "android"))]
+            #[cfg(desktop)]
             {
                 if let Some(win) = app.get_webview_window("main") {
                     let _ = win.unmaximize();
@@ -2866,7 +2866,7 @@ pub fn run() {
                 }
             }
 
-            #[cfg(not(target_os = "android"))]
+            #[cfg(desktop)]
             {
                 use tauri::menu::{Menu, MenuItem};
                 use tauri::tray::TrayIconBuilder;
@@ -2894,7 +2894,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                #[cfg(not(target_os = "android"))]
+                #[cfg(desktop)]
                 {
                     let _ = window.hide();
                 }

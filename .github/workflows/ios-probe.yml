@@ -15,6 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
@@ -27,6 +32,11 @@ jobs:
         run: |
           xcodebuild -version || true
           rustc -vV
+
+      - name: Build the frontend (generate_context! needs dist)
+        run: |
+          npm ci
+          npm run build
 
       - name: Placeholder sidecars so tauri_build passes (iOS cannot spawn these anyway)
         run: |
