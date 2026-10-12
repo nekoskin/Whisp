@@ -52,6 +52,35 @@ jobs:
           { [ -n "$WS" ] && xcodebuild -list -workspace "$WS"; } 2>&1 | tee "$RUNNER_TEMP/schemes.log" || true
           [ -z "$WS" ] && xcodebuild -list -project "$PROJ" 2>&1 | tee "$RUNNER_TEMP/schemes.log" || true
 
+      - name: Disable signing in project.yml, regenerate, dump
+        run: |
+          Y=src-tauri/gen/apple/project.yml
+          cp "$Y" "$RUNNER_TEMP/project.yml.orig"
+          python3 - "$Y" <<'PY'
+          import sys, io
+          p = sys.argv[1]
+          t = io.open(p, encoding="utf-8").read()
+          off = (
+              "    CODE_SIGNING_ALLOWED: \"NO\"\n"
+              "    CODE_SIGNING_REQUIRED: \"NO\"\n"
+              "    CODE_SIGN_IDENTITY: \"\"\n"
+              "    DEVELOPMENT_TEAM: \"\"\n"
+          )
+          # add to top-level settings.base if present, else create it
+          if "\nsettings:" in t:
+              import re
+              m = re.search(r"\nsettings:\n(  base:\n)?", t)
+              ins = m.end()
+              t = t[:ins] + off + t[ins:]
+          else:
+              t += "\nsettings:\n  base:\n" + off
+          io.open(p, "w", encoding="utf-8").write(t)
+          print("patched project.yml")
+          PY
+          echo "::group::project.yml"; cat "$Y"; echo "::endgroup::"
+          cp "$Y" "$RUNNER_TEMP/project.yml"
+          ( cd src-tauri/gen/apple && xcodegen generate ) 2>&1 | tail -5 || true
+
       - name: Build via tauri with signing off
         id: build
         continue-on-error: true
@@ -80,16 +109,18 @@ jobs:
           fi
           ls -la "$RUNNER_TEMP"/*.ipa 2>/dev/null || true
 
-      - name: Annotate logs
+      - name: Annotate project.yml and logs
         if: always()
         run: |
-          python3 - "$RUNNER_TEMP/schemes.log" "$RUNNER_TEMP/build.log" <<'PY'
+          python3 - "$RUNNER_TEMP/project.yml" "$RUNNER_TEMP/build.log" <<'PY'
           import sys, re
           out = ""
           for p in sys.argv[1:]:
               try: t = open(p, errors="replace").read()
               except OSError: continue
               t = re.sub(r"\x1b\[[0-9;]*m", "", t)
+              if p.endswith("project.yml"):
+                  out += "--- project.yml\n" + t[:4000] + "\n"; continue
               errs = [l for l in t.splitlines() if any(k in l for k in ("error", "Error", "fatal", "Unable", "No such", "requires a provisioning", "Signing", "** BUILD", "Finished"))]
               out += f"--- {p}\n" + ("\n".join(errs[-50:]) or t[-4000:]) + "\n"
           for a,b in (("%","%25"),("\r","%0D"),("\n","%0A")): out = out.replace(a,b)
