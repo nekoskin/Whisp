@@ -35,7 +35,7 @@ jobs:
       - name: Frontend + placeholder sidecars
         run: |
           npm ci
-          npm i -D @tauri-apps/cli@latest
+          npm i -D @tauri-apps/cli@2.10.1 @tauri-apps/api@2.10.1
           npm run build
           mkdir -p src-tauri/binaries
           for n in mihomo whispera-go-client; do : > "src-tauri/binaries/${n}-${IOS_TRIPLE}"; done
@@ -129,7 +129,7 @@ jobs:
       - name: Frontend + placeholder sidecars
         run: |
           npm ci
-          npm i -D @tauri-apps/cli@latest
+          npm i -D @tauri-apps/cli@2.10.1 @tauri-apps/api@2.10.1
           npm run build
           mkdir -p src-tauri/binaries
           for n in mihomo whispera-go-client; do : > "src-tauri/binaries/${n}-${SIM_TRIPLE}"; done
