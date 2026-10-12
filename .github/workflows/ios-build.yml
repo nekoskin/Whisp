@@ -118,3 +118,95 @@ jobs:
           path: |
             ${{ runner.temp }}/Whisp-unsigned.ipa
             ${{ runner.temp }}/*.log
+
+  screenshot:
+    runs-on: macos-14
+    env:
+      SIM_TRIPLE: aarch64-apple-ios-sim
+      BUNDLE_ID: com.whispera.whisp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Frontend + placeholder sidecars
+        run: |
+          npm ci
+          npm run build
+          mkdir -p src-tauri/binaries
+          for name in mihomo whispera-go-client; do
+            : > "src-tauri/binaries/${name}-${SIM_TRIPLE}"
+          done
+
+      - name: tauri ios init
+        run: npx tauri ios init --ci 2>&1 | tail -20
+
+      - name: Build for the simulator (no signing)
+        id: simbuild
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          WS=$(ls -d src-tauri/gen/apple/*.xcworkspace 2>/dev/null | head -1)
+          PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj 2>/dev/null | head -1)
+          if [ -n "$WS" ]; then
+            xcodebuild -list -workspace "$WS" 2>&1 | tee "$RUNNER_TEMP/schemes.log"
+          else
+            xcodebuild -list -project "$PROJ" 2>&1 | tee "$RUNNER_TEMP/schemes.log"
+          fi
+          SCHEME=$(awk '/Schemes:/{f=1;next} f&&NF{print $1}' "$RUNNER_TEMP/schemes.log" | grep -i ios | head -1)
+          [ -z "$SCHEME" ] && SCHEME=$(awk '/Schemes:/{f=1;next} f&&NF{print $1; exit}' "$RUNNER_TEMP/schemes.log")
+          echo "scheme: $SCHEME"
+          CONTAINER="-project $PROJ"; [ -n "$WS" ] && CONTAINER="-workspace $WS"
+          xcodebuild $CONTAINER -scheme "$SCHEME" -configuration debug \
+            -sdk iphonesimulator -derivedDataPath "$RUNNER_TEMP/dd" build \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/simbuild.log" | tail -30
+
+      - name: Boot a simulator, install, launch, screenshot
+        continue-on-error: true
+        run: |
+          APP=$(find "$RUNNER_TEMP/dd" -name '*.app' -path '*iphonesimulator*' 2>/dev/null | head -1)
+          [ -z "$APP" ] && APP=$(find "$RUNNER_TEMP/dd" -name '*.app' 2>/dev/null | head -1)
+          echo "app: $APP"
+          test -n "$APP"
+          DEV=$(xcrun simctl list devices available | grep -oE 'iPhone 1[0-9][^(]*\([0-9A-F-]+\)' | head -1 | grep -oE '[0-9A-F-]{36}')
+          [ -z "$DEV" ] && DEV=$(xcrun simctl create probe "iPhone 15")
+          echo "device: $DEV"
+          xcrun simctl boot "$DEV" || true
+          xcrun simctl bootstatus "$DEV" -b || true
+          xcrun simctl install "$DEV" "$APP"
+          xcrun simctl launch "$DEV" "$BUNDLE_ID" || true
+          sleep 12
+          xcrun simctl io "$DEV" screenshot "$RUNNER_TEMP/whisp-ios.png"
+          ls -la "$RUNNER_TEMP/whisp-ios.png"
+
+      - name: Annotate on failure
+        if: always()
+        run: |
+          python3 - "$RUNNER_TEMP/simbuild.log" <<'PY'
+          import sys
+          try: t = open(sys.argv[1], errors="replace").read()
+          except OSError: t = "no simbuild log"
+          errs = [l for l in t.splitlines() if "error" in l.lower() or "** BUILD" in l]
+          out = ("\n".join(errs[-40:]) or t[-3000:])
+          for a,b in (("%","%25"),("\r","%0D"),("\n","%0A")): out = out.replace(a,b)
+          print("::warning title=ios simulator::" + out)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-screenshot
+          path: |
+            ${{ runner.temp }}/whisp-ios.png
+            ${{ runner.temp }}/*.log
