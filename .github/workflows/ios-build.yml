@@ -51,32 +51,31 @@ jobs:
           { [ -n "$WS" ] && xcodebuild -list -workspace "$WS"; } 2>&1 | tee "$RUNNER_TEMP/schemes.log" || true
           [ -z "$WS" ] && xcodebuild -list -project "$PROJ" 2>&1 | tee "$RUNNER_TEMP/schemes.log" || true
 
-      - name: Build the IPA via tauri
+      - name: Build unsigned (xcodebuild build, no team)
         id: build
         continue-on-error: true
         run: |
-          set -o pipefail
-          npx tauri ios build --ci 2>&1 | tee "$RUNNER_TEMP/build.log" | tail -40
+          PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj 2>/dev/null | head -1)
+          SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{f=1;next} f&&NF{print $1; exit}')
+          echo "project=$PROJ scheme=$SCHEME"
+          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration release \
+            -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/dd" build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
+            2>&1 | tee "$RUNNER_TEMP/build.log" | tail -40
 
-      - name: Collect any .app / .ipa
+      - name: Package unsigned .ipa
         if: always()
         run: |
-          echo "=== search for products ==="
-          find src-tauri/gen/apple -name '*.ipa' -o -name '*.app' 2>/dev/null | head
-          IPA=$(find src-tauri/gen/apple -name '*.ipa' 2>/dev/null | head -1)
-          if [ -n "$IPA" ]; then
-            cp "$IPA" "$RUNNER_TEMP/Whisp.ipa"; echo "found ipa: $IPA"
+          APP=$(find "$RUNNER_TEMP/dd" -name '*.app' -path '*iphoneos*' 2>/dev/null | head -1)
+          [ -z "$APP" ] && APP=$(find "$RUNNER_TEMP/dd" -name '*.app' 2>/dev/null | head -1)
+          echo "app: $APP"
+          if [ -n "$APP" ]; then
+            mkdir -p "$RUNNER_TEMP/Payload"; cp -R "$APP" "$RUNNER_TEMP/Payload/"
+            (cd "$RUNNER_TEMP" && zip -qr Whisp-unsigned.ipa Payload)
+            ls -la "$RUNNER_TEMP/Whisp-unsigned.ipa"
           else
-            APP=$(find src-tauri/gen/apple -name '*.app' -path '*iphoneos*' 2>/dev/null | head -1)
-            [ -z "$APP" ] && APP=$(find src-tauri/gen/apple -name '*.app' 2>/dev/null | head -1)
-            if [ -n "$APP" ]; then
-              mkdir -p "$RUNNER_TEMP/Payload"; cp -R "$APP" "$RUNNER_TEMP/Payload/"
-              (cd "$RUNNER_TEMP" && zip -qr Whisp-unsigned.ipa Payload); echo "packaged unsigned from: $APP"
-            else
-              echo "no .app or .ipa produced"
-            fi
+            echo "no .app produced"
           fi
-          ls -la "$RUNNER_TEMP"/*.ipa 2>/dev/null || true
 
       - name: Annotate logs
         if: always()
@@ -140,15 +139,11 @@ jobs:
         id: simbuild
         continue-on-error: true
         run: |
-          set -o pipefail
-          WS=$(ls -d src-tauri/gen/apple/*.xcworkspace 2>/dev/null | head -1)
           PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj 2>/dev/null | head -1)
-          if [ -n "$WS" ]; then C="-workspace $WS"; else C="-project $PROJ"; fi
-          xcodebuild $C -list 2>&1 | tee "$RUNNER_TEMP/schemes.log" || true
-          SCHEME=$(awk '/Schemes:/{f=1;next} f&&NF{print $1}' "$RUNNER_TEMP/schemes.log" | grep -i ios | head -1)
-          [ -z "$SCHEME" ] && SCHEME=$(awk '/Schemes:/{f=1;next} f&&NF{print $1; exit}' "$RUNNER_TEMP/schemes.log")
-          echo "container=[$C] scheme=[$SCHEME]"
-          xcodebuild $C -scheme "$SCHEME" -configuration debug \
+          xcodebuild -list -project "$PROJ" 2>&1 | tee "$RUNNER_TEMP/schemes.log" || true
+          SCHEME=$(awk '/Schemes:/{f=1;next} f&&NF{print $1; exit}' "$RUNNER_TEMP/schemes.log")
+          echo "project=$PROJ scheme=$SCHEME"
+          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration debug \
             -sdk iphonesimulator -derivedDataPath "$RUNNER_TEMP/dd" build \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/simbuild.log" | tail -40
 
