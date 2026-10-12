@@ -1,0 +1,100 @@
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ios-build.yml'
+
+jobs:
+  ipa:
+    runs-on: macos-14
+    env:
+      IOS_TRIPLE: aarch64-apple-ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Frontend + placeholder sidecars
+        run: |
+          npm ci
+          npm run build
+          mkdir -p src-tauri/binaries
+          for name in mihomo whispera-go-client; do
+            : > "src-tauri/binaries/${name}-${IOS_TRIPLE}"
+          done
+
+      - name: tauri ios init
+        id: init
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npx tauri ios init --ci 2>&1 | tee "$RUNNER_TEMP/init.log"
+          echo "--- gen/apple:"; ls -la src-tauri/gen/apple 2>&1 | head -40 || true
+
+      - name: Inspect the Xcode project
+        if: always()
+        continue-on-error: true
+        run: |
+          PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj 2>/dev/null | head -1)
+          echo "project: $PROJ"
+          [ -n "$PROJ" ] && xcodebuild -list -project "$PROJ" 2>&1 | tee "$RUNNER_TEMP/schemes.log" || echo "no project"
+
+      - name: Archive without signing
+        id: archive
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj 2>/dev/null | head -1)
+          SCHEME=$(xcodebuild -list -project "$PROJ" 2>/dev/null | awk '/Schemes:/{f=1;next} f&&NF{print $1; exit}')
+          echo "scheme: $SCHEME"
+          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration release \
+            -sdk iphoneos -archivePath "$RUNNER_TEMP/App.xcarchive" archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
+            2>&1 | tee "$RUNNER_TEMP/archive.log" | tail -40
+
+      - name: Package unsigned .ipa
+        if: always()
+        continue-on-error: true
+        run: |
+          APP=$(ls -d "$RUNNER_TEMP/App.xcarchive/Products/Applications/"*.app 2>/dev/null | head -1)
+          echo "app: $APP"
+          if [ -n "$APP" ]; then
+            mkdir -p "$RUNNER_TEMP/Payload"
+            cp -R "$APP" "$RUNNER_TEMP/Payload/"
+            (cd "$RUNNER_TEMP" && zip -qr Whisp-unsigned.ipa Payload)
+            ls -la "$RUNNER_TEMP/Whisp-unsigned.ipa"
+          else
+            echo "no .app produced"
+          fi
+
+      - name: Error summary
+        if: always()
+        run: |
+          for f in init archive; do
+            L="$RUNNER_TEMP/$f.log"
+            [ -f "$L" ] || continue
+            echo "=== $f errors ==="
+            grep -nE "error:|fatal|not found|No such|requires a provisioning|Signing" "$L" | head -30 || true
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-ipa
+          path: |
+            ${{ runner.temp }}/Whisp-unsigned.ipa
+            ${{ runner.temp }}/*.log
