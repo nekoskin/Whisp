@@ -45,24 +45,33 @@ jobs:
           npx tauri ios init --ci 2>&1 | tee "$RUNNER_TEMP/init.log"
           echo "--- gen/apple:"; ls -la src-tauri/gen/apple 2>&1 | head -40 || true
 
-      - name: Inspect the Xcode project
+      - name: Inspect the Xcode workspace
         if: always()
         continue-on-error: true
         run: |
+          echo "--- apple dir:"; ls -la src-tauri/gen/apple 2>/dev/null
+          WS=$(ls -d src-tauri/gen/apple/*.xcworkspace 2>/dev/null | head -1)
           PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj 2>/dev/null | head -1)
-          echo "project: $PROJ"
-          [ -n "$PROJ" ] && xcodebuild -list -project "$PROJ" 2>&1 | tee "$RUNNER_TEMP/schemes.log" || echo "no project"
+          echo "workspace: $WS  project: $PROJ"
+          if [ -n "$WS" ]; then
+            xcodebuild -list -workspace "$WS" 2>&1 | tee "$RUNNER_TEMP/schemes.log"
+          else
+            xcodebuild -list -project "$PROJ" 2>&1 | tee "$RUNNER_TEMP/schemes.log"
+          fi
 
-      - name: Build via tauri (sets up the Rust build phase), unsigned
+      - name: Build unsigned via the workspace
         id: build
         continue-on-error: true
         run: |
           set -o pipefail
+          WS=$(ls -d src-tauri/gen/apple/*.xcworkspace 2>/dev/null | head -1)
           PROJ=$(ls -d src-tauri/gen/apple/*.xcodeproj 2>/dev/null | head -1)
-          SCHEME=$(xcodebuild -list -project "$PROJ" 2>/dev/null | awk '/Schemes:/{f=1;next} f&&NF{print $1; exit}')
-          echo "project: $PROJ  scheme: $SCHEME"
-          # build (not archive) with signing off: builds the .app without a team
-          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration release \
+          SCHEME=$(awk '/Schemes:/{f=1;next} f&&NF{print $1}' "$RUNNER_TEMP/schemes.log" | grep -i ios | head -1)
+          [ -z "$SCHEME" ] && SCHEME=$(awk '/Schemes:/{f=1;next} f&&NF{print $1; exit}' "$RUNNER_TEMP/schemes.log")
+          echo "scheme: $SCHEME"
+          CONTAINER_ARG="-project $PROJ"
+          [ -n "$WS" ] && CONTAINER_ARG="-workspace $WS"
+          xcodebuild $CONTAINER_ARG -scheme "$SCHEME" -configuration release \
             -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/dd" build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
             ONLY_ACTIVE_ARCH=NO 2>&1 | tee "$RUNNER_TEMP/build.log" | tail -30
