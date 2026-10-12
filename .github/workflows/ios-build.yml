@@ -52,17 +52,19 @@ jobs:
           { [ -n "$WS" ] && xcodebuild -list -workspace "$WS"; } 2>&1 | tee "$RUNNER_TEMP/schemes.log" || true
           [ -z "$WS" ] && xcodebuild -list -project "$PROJ" 2>&1 | tee "$RUNNER_TEMP/schemes.log" || true
 
-      - name: Build unsigned via tauri (--no-sign)
+      - name: Build via tauri with signing off
         id: build
         continue-on-error: true
         run: |
-          npx tauri ios build --ci --no-sign 2>&1 | tee "$RUNNER_TEMP/build.log" | tail -50
+          npx tauri ios build --ci -- \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= \
+            2>&1 | tee "$RUNNER_TEMP/build.log" | tail -50
 
       - name: Collect the .ipa (or package the .app)
         if: always()
         run: |
           echo "=== products under gen/apple ==="
-          find src-tauri/gen/apple -name '*.ipa' -o -name '*.app' 2>/dev/null | head
+          find src-tauri/gen/apple \( -name '*.ipa' -o -name '*.app' -o -name '*.xcarchive' \) 2>/dev/null | head
           IPA=$(find src-tauri/gen/apple -name '*.ipa' 2>/dev/null | head -1)
           if [ -n "$IPA" ]; then
             cp "$IPA" "$RUNNER_TEMP/Whisp-unsigned.ipa"; echo "ipa: $IPA"
@@ -141,7 +143,9 @@ jobs:
         id: simbuild
         continue-on-error: true
         run: |
-          npx tauri ios build --ci --no-sign --target aarch64-apple-ios-sim 2>&1 | tee "$RUNNER_TEMP/simbuild.log" | tail -50
+          npx tauri ios build --ci --target aarch64-apple-ios-sim -- \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= \
+            2>&1 | tee "$RUNNER_TEMP/simbuild.log" | tail -50
           echo "=== .app under gen/apple ==="
           find src-tauri/gen/apple -name '*.app' 2>/dev/null | head
 
