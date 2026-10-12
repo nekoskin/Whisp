@@ -1,0 +1,68 @@
+name: iOS build probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ios-probe.yml'
+
+jobs:
+  probe:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Toolchain facts
+        run: |
+          xcodebuild -version || true
+          rustc -vV
+          rustup target list --installed | grep ios || true
+
+      - name: Compile the Rust lib for iOS (the real blocker)
+        id: libbuild
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo build --manifest-path src-tauri/Cargo.toml --lib \
+            --target aarch64-apple-ios 2>&1 | tee "$RUNNER_TEMP/ios-lib.log"
+
+      - name: Summarise the compile errors
+        if: always()
+        run: |
+          echo "lib build outcome: ${{ steps.libbuild.outcome }}"
+          if [ -f "$RUNNER_TEMP/ios-lib.log" ]; then
+            echo "=== error lines ==="
+            grep -nE "^error|cannot find|not found for|unresolved|expected|no function|the trait" "$RUNNER_TEMP/ios-lib.log" | head -80 || true
+            echo "=== error count ==="
+            grep -cE "^error" "$RUNNER_TEMP/ios-lib.log" || true
+            TEXT=$(tail -c 15000 "$RUNNER_TEMP/ios-lib.log")
+            for raw in '%:%25' $'\r:%0D' $'\n:%0A'; do TEXT=$(printf '%s' "$TEXT" | sed "s/${raw%%:*}/${raw##*:}/g"); done
+            echo "::warning title=ios lib build::$TEXT"
+          fi
+
+      - name: Try tauri ios init (scaffolding)
+        continue-on-error: true
+        run: |
+          npm ci
+          npx tauri ios init --ci 2>&1 | tee "$RUNNER_TEMP/ios-init.log" || true
+          echo "--- generated apple project?"; ls -la src-tauri/gen/apple 2>&1 | head || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-probe-logs
+          path: ${{ runner.temp }}/ios-*.log
