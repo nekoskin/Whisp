@@ -2654,3 +2654,16 @@ body.is-desktop .home-grid {
 }
 
 body.is-desktop .home-grid > * { width: 100%; }
+
+/* Android TV / keyboard: visible focus for D-pad navigation (not on mouse). */
+:focus-visible,
+.bnav-item:focus-visible,
+.pill-btn:focus-visible,
+.km-item:focus-visible,
+label.toggle:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--accent, #a89cf7);
+  outline-offset: 2px;
+  border-radius: 8px;
+}

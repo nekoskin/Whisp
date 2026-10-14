@@ -73,6 +73,26 @@ PY
   cat "$MANIFEST"
 fi
 
+# Android TV: show in the leanback launcher by adding its category next to the
+# phone LAUNCHER one on the main activity.
+if ! grep -q "LEANBACK_LAUNCHER" "$MANIFEST"; then
+  python3 - "$MANIFEST" <<'PY'
+import re, sys, pathlib
+p = pathlib.Path(sys.argv[1])
+src = p.read_text(encoding="utf-8")
+m = re.search(r'[ \t]*<category\s+android:name="android\.intent\.category\.LAUNCHER"\s*/>', src)
+if m:
+    line = m.group(0)
+    indent = re.match(r'[ \t]*', line).group(0)
+    leanback = indent + '<category android:name="android.intent.category.LEANBACK_LAUNCHER" />'
+    src = src[:m.end()] + "\n" + leanback + src[m.end():]
+    p.write_text(src, encoding="utf-8")
+    print("[android-patch] manifest: LEANBACK_LAUNCHER added")
+else:
+    print("[android-patch] WARN: no LAUNCHER category to pair LEANBACK with")
+PY
+fi
+
 # extractNativeLibs=true через Gradle (надёжнее чем manifest patching).
 # Без этого .so файлы лежат внутри APK без распаковки и File.exists() даёт false.
 APP_GRADLE="$GEN/app/build.gradle.kts"

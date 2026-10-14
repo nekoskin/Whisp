@@ -400,7 +400,7 @@ jobs:
           go mod tidy
           export NDK_HOME="$ANDROID_NDK_HOME"
           gomobile bind \
-            -target=android/arm64 \
+            -target=android/arm64,android/arm,android/amd64,android/386 \
             -androidapi=21 \
             -tags with_gvisor \
             -ldflags="-checklinkname=0 -s -w" \
@@ -433,7 +433,7 @@ jobs:
         run: |
           export NDK_HOME="$ANDROID_NDK_HOME"
           set +e
-          npx tauri android build --apk --debug --target aarch64 --verbose > tauri-build.log 2>&1
+          npx tauri android build --apk --debug --target aarch64 armv7 x86_64 i686 --verbose > tauri-build.log 2>&1
           BUILD_EXIT=$?
           set -e
           echo "exit_code=$BUILD_EXIT" >> $GITHUB_OUTPUT

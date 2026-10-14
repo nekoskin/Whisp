@@ -2836,9 +2836,84 @@ function handlePastedOrScannedText(text: string): void {
 
 function esc(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 
+/* ===================== TV / D-PAD NAVIGATION ===================== */
+const DPAD_FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"]),.bnav-item,.pill-btn,.km-item,label.toggle';
+const DPAD_NEEDS_TABINDEX = '.bnav-item,.pill-btn,.km-item,label.toggle';
+
+function dpadFocusables(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>(DPAD_FOCUSABLE))
+    .filter(el => el.offsetParent !== null && el.getClientRects().length > 0 && !el.hasAttribute("disabled"));
+}
+
+function dpadEnsureTabindex(): void {
+  document.querySelectorAll<HTMLElement>(DPAD_NEEDS_TABINDEX).forEach(el => {
+    if (!el.hasAttribute("tabindex")) el.tabIndex = 0;
+  });
+}
+
+function dpadIsTyping(el: Element | null): boolean {
+  const t = el as HTMLInputElement | null;
+  if (!t) return false;
+  if (t.tagName === "TEXTAREA") return true;
+  return t.tagName === "INPUT" && t.type !== "checkbox" && t.type !== "radio";
+}
+
+function dpadMove(dir: "up" | "down" | "left" | "right"): void {
+  const list = dpadFocusables();
+  if (!list.length) return;
+  const cur = document.activeElement as HTMLElement | null;
+  if (!cur || !list.includes(cur)) { list[0].focus(); return; }
+  const cr = cur.getBoundingClientRect();
+  const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+  let best: HTMLElement | null = null, bestScore = Infinity;
+  for (const el of list) {
+    if (el === cur) continue;
+    const r = el.getBoundingClientRect();
+    const dx = r.left + r.width / 2 - cx, dy = r.top + r.height / 2 - cy;
+    let primary: number, cross: number;
+    if (dir === "up") { if (dy >= -1) continue; primary = -dy; cross = Math.abs(dx); }
+    else if (dir === "down") { if (dy <= 1) continue; primary = dy; cross = Math.abs(dx); }
+    else if (dir === "left") { if (dx >= -1) continue; primary = -dx; cross = Math.abs(dy); }
+    else { if (dx <= 1) continue; primary = dx; cross = Math.abs(dy); }
+    const score = primary + cross * 2.5;
+    if (score < bestScore) { bestScore = score; best = el; }
+  }
+  if (best) { best.scrollIntoView({ block: "nearest", inline: "nearest" }); best.focus(); }
+}
+
+function setupDpadNav(): void {
+  dpadEnsureTabindex();
+  let scheduled = false;
+  const obs = new MutationObserver(() => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => { scheduled = false; dpadEnsureTabindex(); });
+  });
+  obs.observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener("keydown", (e) => {
+    const active = document.activeElement;
+    const typing = dpadIsTyping(active);
+    switch (e.key) {
+      case "ArrowUp": dpadMove("up"); e.preventDefault(); break;
+      case "ArrowDown": dpadMove("down"); e.preventDefault(); break;
+      case "ArrowLeft": if (typing) return; dpadMove("left"); e.preventDefault(); break;
+      case "ArrowRight": if (typing) return; dpadMove("right"); e.preventDefault(); break;
+      case "Enter":
+        if (active && !typing) { (active as HTMLElement).click(); e.preventDefault(); }
+        break;
+    }
+  });
+
+  setTimeout(() => {
+    if (!dpadFocusables().includes(document.activeElement as HTMLElement)) dpadFocusables()[0]?.focus();
+  }, 300);
+}
+
 /* ===================== INIT ===================== */
 window.addEventListener("DOMContentLoaded", async () => {
   loadLang(); loadProfiles();
+  setupDpadNav();
   await loadSettings();
   initNotifications().catch(() => {});
   document.addEventListener("click", () => {
